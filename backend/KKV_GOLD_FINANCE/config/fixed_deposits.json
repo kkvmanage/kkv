@@ -1,0 +1,19 @@
+[
+  {
+    "id": "FD-1",
+    "fdNo": "FD-01",
+    "customerId": "fd-c1",
+    "depositorName": "Thayba Begum",
+    "phone": "9123456789",
+    "idProofType": "PAN Card",
+    "idProofNumber": "ABCDE1234F",
+    "address": "45 Lake View Road",
+    "depositDate": "25/08/2026",
+    "maturityDate": "25/08/2027",
+    "principal": 200000,
+    "interestRatePA": 12,
+    "receivingMethod": "Cash",
+    "monthlyPayout": 2000,
+    "status": "ACTIVE"
+  }
+]

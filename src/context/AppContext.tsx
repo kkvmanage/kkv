@@ -217,6 +217,10 @@ interface AppContextType {
   withdrawFD: (fdNo: string, mode: 'Cash' | 'Bank' | 'UPI', notes?: string) => void;
   cashInHand: number;
   cashAtBank: number;
+  isMobileMenuOpen: boolean;
+  setIsMobileMenuOpen: (open: boolean) => void;
+  toggleMobileMenu: () => void;
+  closeMobileMenu: () => void;
   showToast: (message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
   toasts: Toast[];
   removeToast: (id: string) => void;
@@ -227,8 +231,17 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentPage, setCurrentPage] = useState<NavPage>('dashboard');
+  const [currentPage, setCurrentPageRaw] = useState<NavPage>('dashboard');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+
+  const toggleMobileMenu = () => setIsMobileMenuOpen(prev => !prev);
+  const closeMobileMenu = () => setIsMobileMenuOpen(false);
+
+  const setCurrentPage = (page: NavPage) => {
+    setCurrentPageRaw(page);
+    setIsMobileMenuOpen(false);
+  };
   
   // Local storage helpers
   const getStored = <T,>(key: string, fallback: T): T => {
@@ -288,12 +301,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { localStorage.setItem('kkv_waTemplates', JSON.stringify(whatsAppTemplates)); }, [whatsAppTemplates]);
   useEffect(() => { localStorage.setItem('kkv_tgConfig', JSON.stringify(telegramConfig)); }, [telegramConfig]);
 
-  // Sync document theme class
+  // Sync document theme class — dark green is the PRIMARY theme (no class needed).
+  // Adding 'light-mode' class switches to the lighter variant.
   useEffect(() => {
     if (darkMode) {
-      document.body.classList.add('dark-mode');
+      document.body.classList.remove('light-mode');
     } else {
-      document.body.classList.remove('dark-mode');
+      document.body.classList.add('light-mode');
     }
   }, [darkMode]);
 
@@ -816,6 +830,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         withdrawFD,
         cashInHand,
         cashAtBank,
+        isMobileMenuOpen,
+        setIsMobileMenuOpen,
+        toggleMobileMenu,
+        closeMobileMenu,
         showToast,
         toasts,
         removeToast,

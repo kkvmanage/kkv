@@ -2,6 +2,8 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { Printer, ArrowLeft } from 'lucide-react';
 
+import { KKVLogo } from '../components/common/KKVLogo';
+
 export const ReceiptDisplay: React.FC = () => {
   const { selectedReceipt, receipts, loans, setCurrentPage, whatsAppTemplates } = useApp();
 
@@ -88,11 +90,7 @@ export const ReceiptDisplay: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
-            <img
-              src="/kkv-logo.png"
-              alt="KKV Finance Logo"
-              style={{ height: '60px', width: 'auto', objectFit: 'contain' }}
-            />
+            <KKVLogo size={58} />
             <div>
               <h1 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: 0, letterSpacing: '0.5px' }}>
                 KKV GOLD FINANCE

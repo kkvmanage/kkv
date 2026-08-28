@@ -483,7 +483,7 @@ export const LoanIssue: React.FC = () => {
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: '20px' }}>
+            <div className="loan-issue-customer-grid">
               {/* Photo Box */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '140px', height: '160px', border: '2px dashed var(--border-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-surface-subtle)', color: 'var(--text-muted)', fontSize: '12px' }}>
@@ -586,7 +586,7 @@ export const LoanIssue: React.FC = () => {
             {/* Customer Location */}
             <div style={{ marginTop: '16px', padding: '14px', backgroundColor: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>CUSTOMER LOCATION (FOR VISITS &amp; COLLECTION)</span>
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <div className="location-capture-row">
                 <button type="button" className="btn btn-secondary" style={{ gap: '6px' }} onClick={handleCaptureGPS}>
                   <MapPin size={15} color="#EF4444" />
                   <span>Capture Current Location</span>

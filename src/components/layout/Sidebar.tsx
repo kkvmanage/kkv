@@ -15,15 +15,29 @@ import {
   Power,
   Moon,
   Sun,
-  LogOut
+  LogOut,
+  X
 } from 'lucide-react';
 
+import { KKVLogo } from '../common/KKVLogo';
+
 export const Sidebar: React.FC = () => {
-  const { currentPage, setCurrentPage, showToast, darkMode, toggleDarkMode } = useApp();
+  const { currentPage, setCurrentPage, showToast, darkMode, toggleDarkMode, isMobileMenuOpen, closeMobileMenu } = useApp();
 
   const [loanDetailsOpen, setLoanDetailsOpen] = useState(true);
   const [fixedDepositsOpen, setFixedDepositsOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+
+  // Close mobile drawer on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMobileMenuOpen) {
+        closeMobileMenu();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMobileMenuOpen, closeMobileMenu]);
 
   useEffect(() => {
     if (
@@ -68,19 +82,35 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="sidebar">
-      {/* Brand Header */}
-      <div className="sidebar-brand" onClick={() => setCurrentPage('dashboard')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <img
-          src="/kkv-logo.png"
-          alt="KKV Finance Logo"
-          style={{ width: '42px', height: '42px', objectFit: 'contain', filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.2))' }}
+    <>
+      {/* Mobile Backdrop */}
+      {isMobileMenuOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={closeMobileMenu}
+          aria-label="Close menu"
         />
-        <div className="sidebar-brand-text">
-          <h2 style={{ fontSize: '14px', fontWeight: 800, margin: 0, color: 'var(--color-white)', letterSpacing: '0.5px' }}>KKV GOLD FINANCE</h2>
-          <p style={{ fontSize: '11px', margin: 0, opacity: 0.8, color: 'var(--color-primary-accent)' }}>MAIN BRANCH</p>
+      )}
+      <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
+        {/* Brand Header */}
+        <div className="sidebar-brand" onClick={() => setCurrentPage('dashboard')}>
+          <KKVLogo size={38} />
+          <div className="sidebar-brand-text">
+            <h2>KKV GOLD FINANCE</h2>
+            <p>MAIN BRANCH</p>
+          </div>
+          {/* Mobile Close Button */}
+          <button
+            className="mobile-close-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              closeMobileMenu();
+            }}
+            aria-label="Close Navigation Menu"
+          >
+            <X size={20} />
+          </button>
         </div>
-      </div>
 
       {/* Navigation Sections */}
       <nav className="sidebar-nav">
@@ -356,35 +386,36 @@ export const Sidebar: React.FC = () => {
       </nav>
 
       {/* Footer Controls */}
-      <div className="sidebar-footer" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-light)' }}>
+      <div className="sidebar-footer" style={{ padding: '10px 10px 14px', display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--border-subtle)' }}>
         <button
-          className="btn"
-          style={{ width: '100%', justifyContent: 'center', backgroundColor: '#0284C7', color: '#FFF', gap: '8px', fontSize: '13px', fontWeight: 600, padding: '8px 12px' }}
+          className="btn btn-primary"
+          style={{ width: '100%', justifyContent: 'center', gap: '7px', fontSize: '12.5px', padding: '7px 12px', height: '34px' }}
           onClick={handleBackupAndClose}
         >
-          <Power size={15} />
+          <Power size={14} />
           <span>Backup &amp; Close</span>
         </button>
 
         <button
           className="btn btn-secondary"
-          style={{ width: '100%', justifyContent: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px' }}
+          style={{ width: '100%', justifyContent: 'center', gap: '7px', fontSize: '12.5px', padding: '7px 12px', height: '34px' }}
           onClick={toggleDarkMode}
         >
-          {darkMode ? <Sun size={15} /> : <Moon size={15} />}
-          <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
+          {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+          <span>{darkMode ? 'Light Mode' : 'Light Mode'}</span>
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-sm)', marginTop: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-md)', marginTop: '2px', border: '1px solid var(--border-subtle)' }}>
           <div>
-            <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>Signed in as</p>
+            <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Signed in as</p>
             <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Branch Manager</p>
           </div>
-          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} title="Sign Out" onClick={() => showToast('Signed out', 'info')}>
+          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px', borderRadius: 'var(--radius-sm)' }} title="Sign Out" onClick={() => showToast('Signed out', 'info')}>
             <LogOut size={14} />
           </button>
         </div>
       </div>
     </aside>
+    </>
   );
 };

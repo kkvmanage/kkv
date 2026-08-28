@@ -40,8 +40,8 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Top Greeting Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>
+      <div className="dashboard-greeting-row">
+        <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
           {getGreeting()}
         </h2>
         <button
@@ -55,58 +55,58 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* 4 Stat Grid Cards */}
-      <div className="stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-        <div className="stat-card" style={{ position: 'relative' }}>
+      <div className="stat-grid">
+        <div className="stat-card">
           <div className="stat-card-info">
-            <span className="stat-card-label" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-muted)' }}>TOTAL DISBURSED</span>
-            <span className="stat-card-value" style={{ fontSize: '22px', fontWeight: 800, marginTop: '4px' }}>{formatAmount(totalDisbursed)}</span>
+            <span className="stat-card-label">TOTAL DISBURSED</span>
+            <span className="stat-card-value">{formatAmount(totalDisbursed)}</span>
           </div>
-          <div className="stat-card-icon" style={{ backgroundColor: 'rgba(2, 132, 199, 0.1)', color: '#0284C7' }}>
+          <div className="stat-card-icon icon-chip-blue">
             <Coins size={20} />
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-info">
-            <span className="stat-card-label" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-muted)' }}>COLLECTED</span>
-            <span className="stat-card-value" style={{ fontSize: '22px', fontWeight: 800, marginTop: '4px' }}>{formatAmount(totalCollected)}</span>
+            <span className="stat-card-label">COLLECTED</span>
+            <span className="stat-card-value">{formatAmount(totalCollected)}</span>
           </div>
-          <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}>
+          <div className="stat-card-icon icon-chip-teal">
             <TrendingUp size={20} />
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-info">
-            <span className="stat-card-label" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-muted)' }}>OUTSTANDING</span>
-            <span className="stat-card-value" style={{ fontSize: '22px', fontWeight: 800, marginTop: '4px' }}>{formatAmount(totalOutstanding)}</span>
+            <span className="stat-card-label">OUTSTANDING</span>
+            <span className="stat-card-value">{formatAmount(totalOutstanding)}</span>
           </div>
-          <div className="stat-card-icon" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B' }}>
+          <div className="stat-card-icon icon-chip-orange">
             <CreditCard size={20} />
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-info">
-            <span className="stat-card-label" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-muted)' }}>CUSTOMERS</span>
-            <span className="stat-card-value" style={{ fontSize: '22px', fontWeight: 800, marginTop: '4px' }}>{customers.length}</span>
+            <span className="stat-card-label">CUSTOMERS</span>
+            <span className="stat-card-value">{customers.length}</span>
           </div>
-          <div className="stat-card-icon" style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8B5CF6' }}>
+          <div className="stat-card-icon icon-chip-purple">
             <Users size={20} />
           </div>
         </div>
       </div>
 
       {/* Middle Row Charts: Disbursement vs Collection & Loan Status */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+      <div className="dashboard-main-grid">
         {/* Line Chart Card */}
         <div className="card" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
             <div>
-              <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Disbursement vs Collection</h3>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Last 6 months - live</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Disbursement vs Collection</h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0' }}>Last 6 months - live</p>
             </div>
-            <div style={{ display: 'flex', gap: '16px', fontSize: '12px', fontWeight: 600 }}>
+            <div style={{ display: 'flex', gap: '12px', fontSize: '12px', fontWeight: 600, flexWrap: 'wrap' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6366F1' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6366F1' }}></span>
                 Disbursed
@@ -119,43 +119,45 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* SVG Line Chart */}
-          <div style={{ width: '100%', height: '180px', position: 'relative', marginTop: '10px' }}>
-            <svg width="100%" height="100%" viewBox="0 0 500 150" preserveAspectRatio="none">
-              <line x1="0" y1="120" x2="500" y2="120" stroke="var(--border-light)" strokeDasharray="4 4" />
-              <line x1="0" y1="75" x2="500" y2="75" stroke="var(--border-light)" strokeDasharray="4 4" />
-              <line x1="0" y1="30" x2="500" y2="30" stroke="var(--border-light)" strokeDasharray="4 4" />
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', marginTop: '10px' }}>
+            <div style={{ width: '100%', height: '140px', position: 'relative' }}>
+              <svg width="100%" height="100%" viewBox="0 0 500 130" preserveAspectRatio="none">
+                <line x1="0" y1="110" x2="500" y2="110" stroke="var(--border-light)" strokeDasharray="4 4" />
+                <line x1="0" y1="65" x2="500" y2="65" stroke="var(--border-light)" strokeDasharray="4 4" />
+                <line x1="0" y1="20" x2="500" y2="20" stroke="var(--border-light)" strokeDasharray="4 4" />
 
-              {/* Disbursed Line */}
-              <path
-                d="M 20 110 L 100 80 L 180 95 L 260 50 L 340 70 L 420 35"
-                fill="none"
-                stroke="#6366F1"
-                strokeWidth="3"
-              />
-              {/* Collected Line */}
-              <path
-                d="M 20 115 L 100 100 L 180 85 L 260 70 L 340 60 L 420 40"
-                fill="none"
-                stroke="#10B981"
-                strokeWidth="3"
-              />
+                {/* Disbursed Line */}
+                <path
+                  d="M 20 100 L 100 70 L 180 85 L 260 40 L 340 60 L 420 25"
+                  fill="none"
+                  stroke="#6366F1"
+                  strokeWidth="3"
+                />
+                {/* Collected Line */}
+                <path
+                  d="M 20 105 L 100 90 L 180 75 L 260 60 L 340 50 L 420 30"
+                  fill="none"
+                  stroke="#10B981"
+                  strokeWidth="3"
+                />
 
-              {/* Data Dots */}
-              {[
-                { x: 20, y1: 110, y2: 115 },
-                { x: 100, y1: 80, y2: 100 },
-                { x: 180, y1: 95, y2: 85 },
-                { x: 260, y1: 50, y2: 70 },
-                { x: 340, y1: 70, y2: 60 },
-                { x: 420, y1: 35, y2: 40 }
-              ].map((pt, i) => (
-                <g key={i}>
-                  <circle cx={pt.x} cy={pt.y1} r="4" fill="#6366F1" />
-                  <circle cx={pt.x} cy={pt.y2} r="4" fill="#10B981" />
-                </g>
-              ))}
-            </svg>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 10px', marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                {/* Data Dots */}
+                {[
+                  { x: 20, y1: 100, y2: 105 },
+                  { x: 100, y1: 70, y2: 90 },
+                  { x: 180, y1: 85, y2: 75 },
+                  { x: 260, y1: 40, y2: 60 },
+                  { x: 340, y1: 60, y2: 50 },
+                  { x: 420, y1: 25, y2: 30 }
+                ].map((pt, i) => (
+                  <g key={i}>
+                    <circle cx={pt.x} cy={pt.y1} r="4" fill="#6366F1" />
+                    <circle cx={pt.x} cy={pt.y2} r="4" fill="#10B981" />
+                  </g>
+                ))}
+              </svg>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 10px', marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
               <span>Mar</span>
               <span>Apr</span>
               <span>May</span>
@@ -169,7 +171,7 @@ export const Dashboard: React.FC = () => {
         {/* Donut Chart Card */}
         <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Loan Status</h3>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Loan Status</h3>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{totalLoanCount} loans</span>
           </div>
 
@@ -199,11 +201,11 @@ export const Dashboard: React.FC = () => {
             </svg>
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
               <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>{totalLoanCount}</span>
-              <p style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL LOANS</p>
+              <p style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', margin: 0 }}>TOTAL LOANS</p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', fontSize: '11px', fontWeight: 600 }}>
+          <div style={{ display: 'flex', gap: '10px', fontSize: '11px', fontWeight: 600, flexWrap: 'wrap', justifyContent: 'center' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3B82F6' }}></span> Active ({activeCount})
             </span>
@@ -218,7 +220,7 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* Bottom Row: Recent Activity & Quick Actions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+      <div className="dashboard-main-grid">
         {/* Recent Activity Table */}
         <div className="card" style={{ padding: '20px' }}>
           <div className="card-header" style={{ marginBottom: '14px' }}>
@@ -247,14 +249,14 @@ export const Dashboard: React.FC = () => {
                 {receipts.length > 0 ? (
                   receipts.slice(0, 5).map((r) => (
                     <tr key={r.id}>
-                      <td style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>#{r.receiptNo}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--color-soft-green)' }}>#{r.receiptNo}</td>
                       <td>
                         <span className={`badge ${r.kind === 'NEW LOAN' ? 'badge-info' : 'badge-success'}`}>
                           {r.kind}
                         </span>
                       </td>
                       <td style={{ fontWeight: 600 }}>{r.customerName}</td>
-                      <td style={{ fontWeight: 600, color: 'var(--color-primary-dark)' }}>{r.loanNo}</td>
+                      <td style={{ fontWeight: 600, color: 'var(--color-soft-green)' }}>{r.loanNo}</td>
                       <td style={{ fontWeight: 700 }}>₹{r.amount.toLocaleString('en-IN')}</td>
                       <td style={{ color: 'var(--text-secondary)' }}>{r.date}</td>
                     </tr>

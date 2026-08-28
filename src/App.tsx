@@ -22,6 +22,8 @@ import { BackupRestore } from './pages/BackupRestore';
 import { AdminPanel } from './pages/AdminPanel';
 import { Settings } from './pages/Settings';
 
+import { KKVLogo } from './components/common/KKVLogo';
+
 export const App: React.FC = () => {
   const {
     currentPage,
@@ -90,12 +92,13 @@ export const App: React.FC = () => {
       <div
         style={{
           position: 'fixed',
-          top: '24px',
-          right: '24px',
+          top: '20px',
+          right: '20px',
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',
-          zIndex: 9999
+          zIndex: 9999,
+          maxWidth: '380px'
         }}
       >
         {toasts.map((t) => (
@@ -104,33 +107,39 @@ export const App: React.FC = () => {
             style={{
               backgroundColor:
                 t.type === 'error'
-                  ? 'var(--badge-danger-bg)'
+                  ? 'rgba(201, 106, 106, 0.12)'
                   : t.type === 'warning'
-                  ? 'var(--badge-warning-bg)'
+                  ? 'rgba(210, 168, 74, 0.12)'
                   : t.type === 'success'
-                  ? 'var(--color-light-accent)'
-                  : '#FFFFFF',
+                  ? 'rgba(47, 111, 91, 0.15)'
+                  : 'var(--bg-card)',
               color:
                 t.type === 'error'
-                  ? 'var(--badge-danger-text)'
+                  ? '#C96A6A'
                   : t.type === 'warning'
-                  ? 'var(--badge-warning-text)'
-                  : 'var(--color-primary-dark)',
+                  ? '#D2A84A'
+                  : t.type === 'success'
+                  ? '#4FAF86'
+                  : 'var(--text-primary)',
               border: `1px solid ${
                 t.type === 'error'
-                  ? '#F5C2C7'
+                  ? 'rgba(201, 106, 106, 0.4)'
                   : t.type === 'warning'
-                  ? '#FFE69C'
-                  : 'var(--border-subtle)'
+                  ? 'rgba(210, 168, 74, 0.4)'
+                  : t.type === 'success'
+                  ? 'rgba(47, 111, 91, 0.4)'
+                  : 'var(--border-light)'
               }`,
               borderRadius: 'var(--radius-md)',
-              padding: '12px 20px',
+              padding: '11px 18px',
               boxShadow: 'var(--shadow-lg)',
               fontSize: '13.5px',
               fontWeight: 600,
               display: 'flex',
               alignItems: 'center',
-              gap: '10px'
+              gap: '10px',
+              backdropFilter: 'blur(8px)',
+              animation: 'slideInRight 0.2s ease'
             }}
           >
             <span>{t.message}</span>
@@ -145,7 +154,7 @@ export const App: React.FC = () => {
         <div className="workspace-overlay">
           <div className="workspace-card">
             <div className="workspace-header">
-              <div className="user-avatar-badge">MF</div>
+              <KKVLogo size={36} />
               <div className="user-details">
                 <h3>Welcome back.</h3>
                 <span>kkvgoldfinance@gmail.com</span>
@@ -173,7 +182,7 @@ export const App: React.FC = () => {
                 setIsWorkspaceSelected(true);
               }}
             >
-              <div className="company-badge">KG</div>
+              <KKVLogo size={36} />
               <div className="company-info">
                 <strong>KKV GOLD FINANCE</strong>
                 <span>🏠 Main Branch</span>

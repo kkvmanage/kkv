@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock } from 'lucide-react';
 
+import { KKVLogo } from '../components/common/KKVLogo';
+
 export const AdminPanel: React.FC = () => {
   const {
     loans,
@@ -63,28 +65,17 @@ export const AdminPanel: React.FC = () => {
 
   return (
     <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div
-        style={{
-          background: 'linear-gradient(135deg, #163F35 0%, #285D4D 100%)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '24px 28px',
-          color: '#FFFFFF',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          boxShadow: 'var(--shadow-md)'
-        }}
-      >
+      <div className="admin-hero-banner">
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <img src="/kkv-logo.png" alt="KKV Logo" style={{ height: '56px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
+          <KKVLogo size={52} />
           <div>
-            <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '1px', opacity: 0.85, textTransform: 'uppercase' }}>ADMIN CONTROL CENTER</span>
-            <h1 style={{ fontSize: '24px', fontWeight: 900, margin: '4px 0' }}>KKV GOLD FINANCE</h1>
-            <p style={{ fontSize: '13px', margin: 0, opacity: 0.9 }}>Manage companies, access, data &amp; danger-zone actions</p>
+            <div className="admin-session-badge" style={{ marginBottom: '6px' }}>⚡ Admin Control Center</div>
+            <h1 style={{ fontSize: '22px', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>KKV GOLD FINANCE</h1>
+            <p style={{ fontSize: '13px', margin: '4px 0 0', color: 'var(--text-secondary)' }}>Manage companies, access, data &amp; danger-zone actions</p>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '12px', background: 'rgba(255,255,255,0.15)', padding: '6px 12px', borderRadius: 'var(--radius-full)', fontWeight: 600 }}>🟢 ADMIN SESSION</span>
+          <span style={{ fontSize: '12px', background: 'var(--color-gold-subtle)', color: 'var(--color-gold-light)', padding: '6px 14px', borderRadius: 'var(--radius-full)', fontWeight: 700, border: '1px solid rgba(201, 162, 39, 0.25)' }}>🟢 ADMIN SESSION ACTIVE</span>
         </div>
       </div>
 
@@ -112,7 +103,7 @@ export const AdminPanel: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="card" style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', backgroundColor: '#EEF2FF', color: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div className="stat-card-icon icon-chip-green" style={{ flexShrink: 0 }}>
                 <Lock size={20} />
               </div>
               <div>
@@ -215,7 +206,7 @@ export const AdminPanel: React.FC = () => {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Master Control</h2>
-                <div style={{ padding: '10px 14px', backgroundColor: '#FEF3C7', color: '#92400E', borderRadius: 'var(--radius-sm)', fontSize: '12px' }}>Changes here affect all NEW loans. Existing loans keep the rates they were issued at.</div>
+                <div style={{ padding: '10px 14px', backgroundColor: 'var(--badge-warning-bg)', color: 'var(--badge-warning-text)', borderRadius: 'var(--radius-sm)', fontSize: '12px', border: '1px solid rgba(210, 168, 74, 0.25)' }}>Changes here affect all NEW loans. Existing loans keep the rates they were issued at.</div>
                 <div style={{ display: 'flex', gap: '16px', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
                   {[{ key: 'rates', label: 'Rates & Payments' }, { key: 'operations', label: 'Operations' }, { key: 'messaging', label: 'Messaging' }, { key: 'security', label: 'Security & Access' }, { key: 'danger', label: 'Danger Zone' }].map(mt => (
                     <button key={mt.key} type="button" style={{ background: 'none', border: 'none', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', color: masterSubTab === mt.key ? (mt.key === 'danger' ? '#DC2626' : 'var(--color-primary-dark)') : 'var(--text-muted)', borderBottom: masterSubTab === mt.key ? `2px solid ${mt.key === 'danger' ? '#DC2626' : 'var(--color-primary-dark)'}` : 'none', paddingBottom: '4px' }} onClick={() => setMasterSubTab(mt.key as any)}>{mt.label}</button>
@@ -259,7 +250,7 @@ export const AdminPanel: React.FC = () => {
                   </div>
                 )}
                 {masterSubTab === 'danger' && (
-                  <div style={{ padding: '20px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 'var(--radius-md)' }}>
+                  <div style={{ padding: '20px', backgroundColor: 'rgba(201, 106, 106, 0.08)', border: '1px solid rgba(201, 106, 106, 0.35)', borderRadius: 'var(--radius-md)' }}>
                     <h4 style={{ fontSize: '16px', fontWeight: 800, color: '#991B1B' }}>WIPE ALL DATA</h4>
                     <button type="button" className="btn" style={{ backgroundColor: '#DC2626', color: '#FFF' }} onClick={() => { resetAllData(); setMasterControlOpen(false); }}>Wipe All Data</button>
                   </div>

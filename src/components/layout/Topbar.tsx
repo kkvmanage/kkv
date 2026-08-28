@@ -1,7 +1,8 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Search, Bell, Plus } from 'lucide-react';
+import { Search, Bell, Plus, Menu } from 'lucide-react';
 import { NavPage } from '../../types';
+import { KKVLogo } from '../common/KKVLogo';
 
 interface PageMetadata {
   title: string;
@@ -128,7 +129,7 @@ const pageTitles: Record<NavPage, PageMetadata> = {
 };
 
 export const Topbar: React.FC = () => {
-  const { currentPage, setCurrentPage, searchQuery, setSearchQuery, showToast } = useApp();
+  const { currentPage, setCurrentPage, searchQuery, setSearchQuery, showToast, toggleMobileMenu } = useApp();
 
   const meta = pageTitles[currentPage] || {
     title: 'KKV Gold Finance',
@@ -137,16 +138,22 @@ export const Topbar: React.FC = () => {
 
   return (
     <header className="topbar">
-      {/* Left: Dynamic Page Title & Subtitle */}
+      {/* Left: Mobile Hamburger + Official Logo + Dynamic Page Title & Subtitle */}
       <div className="topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <img
-          src="/kkv-logo.png"
-          alt="KKV Logo"
-          style={{ height: '38px', width: 'auto', objectFit: 'contain' }}
-        />
-        <div>
-          <h1 className="page-header-title">{meta.title}</h1>
-          <p className="page-header-subtitle">{meta.subtitle}</p>
+        <button
+          className="mobile-hamburger-btn"
+          onClick={toggleMobileMenu}
+          title="Open Navigation Menu"
+          aria-label="Open Navigation Menu"
+        >
+          <Menu size={22} />
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <KKVLogo size={32} />
+          <div>
+            <h1 className="page-header-title">{meta.title}</h1>
+            <p className="page-header-subtitle">{meta.subtitle}</p>
+          </div>
         </div>
       </div>
 
@@ -169,17 +176,17 @@ export const Topbar: React.FC = () => {
           title="Notifications"
           onClick={() => showToast('All daily alerts and reminder notifications up to date.', 'info')}
         >
-          <Bell size={18} />
+          <Bell size={17} />
           <span className="notification-dot"></span>
         </button>
 
         {/* + New Loan Button */}
         <button
-          className="btn btn-primary"
+          className="btn btn-primary topbar-new-loan-btn"
           onClick={() => setCurrentPage('loan-issue')}
         >
-          <Plus size={16} />
-          <span>+ New Loan</span>
+          <Plus size={15} />
+          <span className="btn-label-desktop">New Loan</span>
         </button>
       </div>
     </header>
