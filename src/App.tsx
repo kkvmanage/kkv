@@ -23,7 +23,13 @@ import { AdminPanel } from './pages/AdminPanel';
 import { Settings } from './pages/Settings';
 
 export const App: React.FC = () => {
-  const { currentPage, toasts } = useApp();
+  const {
+    currentPage,
+    toasts,
+    isWorkspaceSelected,
+    setIsWorkspaceSelected,
+    setSelectedWorkspace
+  } = useApp();
 
   const renderPage = () => {
     switch (currentPage) {
@@ -89,7 +95,7 @@ export const App: React.FC = () => {
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',
-          zIndex: 1000
+          zIndex: 9999
         }}
       >
         {toasts.map((t) => (
@@ -132,6 +138,63 @@ export const App: React.FC = () => {
         ))}
       </div>
 
+
+
+      {/* Workspace Selection Modal (Frame 1261) */}
+      {!isWorkspaceSelected && (
+        <div className="workspace-overlay">
+          <div className="workspace-card">
+            <div className="workspace-header">
+              <div className="user-avatar-badge">MF</div>
+              <div className="user-details">
+                <h3>Welcome back.</h3>
+                <span>kkvgoldfinance@gmail.com</span>
+              </div>
+              <button
+                className="btn-signout"
+                onClick={() => {
+                  setIsWorkspaceSelected(false);
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+
+            <div className="workspace-section-title">
+              <span className="pill-dot"></span> WORKSPACE
+            </div>
+            <h2>Choose a company</h2>
+            <p className="workspace-subtitle">Pick one to continue, or create a brand-new workspace.</p>
+
+            <div
+              className="company-select-item"
+              onClick={() => {
+                setSelectedWorkspace('KKV GOLD FINANCE');
+                setIsWorkspaceSelected(true);
+              }}
+            >
+              <div className="company-badge">KG</div>
+              <div className="company-info">
+                <strong>KKV GOLD FINANCE</strong>
+                <span>🏠 Main Branch</span>
+              </div>
+              <span className="arrow-icon">›</span>
+            </div>
+
+            <div className="workspace-tags">
+              <span>• Isolated data</span>
+              <span>• Role-based access</span>
+              <span>• Switch anytime</span>
+            </div>
+
+            <div className="workspace-footer">
+              <span>🛡 Each workspace stays private & encrypted</span>
+              <small>Customers · Loans · Deposits · Receipts · Reports</small>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Sidebar */}
       <Sidebar />
 
@@ -146,3 +209,4 @@ export const App: React.FC = () => {
 
 export const AppContent = App;
 export default App;
+

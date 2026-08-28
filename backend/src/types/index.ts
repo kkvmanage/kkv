@@ -1,41 +1,8 @@
-export type NavPage = 
-  | 'dashboard'
-  | 'customers'
-  | 'loan-issue'
-  | 'loan-display'
-  | 'loan-receipts'
-  | 'receipt-display'
-  | 'all-receipts'
-  | 'pending-loans'
-  | 'total-loans'
-  | 'rc-renewal-reminders'
-  | 'bill-balance'
-  | 'fd-customers'
-  | 'new-deposit'
-  | 'deposit-display'
-  | 'deposit-interest'
-  | 'interest-display'
-  | 'interest-pending'
-  | 'deposit-withdrawal'
-  | 'withdrawal-display'
-  | 'fd-customers-deposits'
-  | 'day-book'
-  | 'trial-balance'
-  | 'profit-loss'
-  | 'balance-sheet'
-  | 'accounts'
-  | 'daily-reminders'
-  | 'backup-restore'
-  | 'admin-panel'
-  | 'settings';
-
-export type PurityOption = '24ct' | '22ct' | '20ct' | '18ct' | '14ct' | 'Silver 925' | 'Silver 999';
-
 export interface OrnamentItem {
   id: string;
   item: string;
   qty: number;
-  purity: PurityOption;
+  purity: '22ct' | '24ct' | '18ct';
   grossWeight: number;
   netWeight: number;
 }
@@ -76,6 +43,24 @@ export interface LoanTopUpRecord {
   notes?: string;
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  gender: 'Male' | 'Female' | 'Other';
+  age?: number;
+  occupation: string;
+  email?: string;
+  currentAddress: string;
+  permanentAddress: string;
+  idProof: string;
+  idNumber: string;
+  activeLoansCount: number;
+  totalBorrowed: number;
+  status: 'VERIFIED' | 'PENDING';
+  joinedDate: string;
+}
+
 export interface Loan {
   id: string;
   receiptBillNo: number;
@@ -99,7 +84,7 @@ export interface Loan {
   area: string;
   showroom: string;
   principal: number;
-  interestRate: number; // monthly %
+  interestRate: number;
   bankMode: 'Cash' | 'UPI' | 'Bank Transfer' | 'Split';
   cashAmount: number;
   bankAmount: number;
@@ -226,34 +211,6 @@ export interface FDCustomer {
   createdAt: string;
 }
 
-export interface Customer {
-  id: string;
-  name: string;
-  phone: string;
-  gender: 'Male' | 'Female' | 'Other';
-  age?: number;
-  occupation: string;
-  email?: string;
-  currentAddress: string;
-  permanentAddress: string;
-  idProof: string;
-  idNumber: string;
-  activeLoansCount: number;
-  totalBorrowed: number;
-  status: 'VERIFIED' | 'PENDING';
-  joinedDate: string;
-}
-
-export interface AmountBand {
-  id: string;
-  condition: 'Below' | 'Above';
-  amount: number;
-  baseRateMonthly: number;
-  penaltyAfterMonths: number;
-  penaltyStepUpMonthly: number;
-  penaltyCalculation: 'From the start — stepped rate over the whole overc' | 'After threshold';
-}
-
 export interface MasterControlSettings {
   goldLoanMonthlyRate: number;
   silverLoanMonthlyRate: number;
@@ -261,19 +218,8 @@ export interface MasterControlSettings {
   hirePurchaseMonthlyRate: number;
   defaultCardFee: number;
   overdueInterestRatePA: number;
-  overduePenaltyPerDayPercent: number;
-  graceDays: number;
   upiId: string;
   upiPayeeName: string;
-  showOnLoanIssue: boolean;
-  amountBands: AmountBand[];
-  areas: string[];
-  partners: string[];
-  vehicleDocuments: string[];
-  vehicleCompanies: string[];
-  insuranceCompanies: string[];
-  showrooms: string[];
-  lockersEnabled: boolean;
 }
 
 export interface WhatsAppTemplates {
@@ -290,13 +236,33 @@ export interface TelegramConfig {
   lastBackupDate?: string;
 }
 
-export interface DeviceInfo {
+export interface AuditLog {
   id: string;
-  name: string;
-  browser: string;
-  ipAddress: string;
-  lastActive: string;
-  isCurrent: boolean;
+  timestamp: string;
+  action: string;
+  user: string;
+  details: string;
 }
 
+export interface Reminder {
+  id: string;
+  title: string;
+  date: string;
+  customerName?: string;
+  loanNo?: string;
+  phone?: string;
+  amount?: number;
+  type: 'PLEDGE_DUE' | 'RC_RENEWAL' | 'INSURANCE_EXPIRE' | 'CUSTOM';
+  status: 'PENDING' | 'COMPLETED' | 'CANCELLED';
+  notes?: string;
+  createdAt: string;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: 'ADMIN' | 'MANAGER' | 'OPERATOR';
+  email: string;
+  lastLogin?: string;
+}
 

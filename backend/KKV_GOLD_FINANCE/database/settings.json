@@ -1,0 +1,10 @@
+{
+  "goldLoanMonthlyRate": 1.5,
+  "silverLoanMonthlyRate": 2,
+  "pronoteMonthlyRate": 2.5,
+  "hirePurchaseMonthlyRate": 3,
+  "defaultCardFee": 10,
+  "overdueInterestRatePA": 24,
+  "upiId": "yourbusiness@okhdfcbank",
+  "upiPayeeName": "KKV Gold Finance"
+}

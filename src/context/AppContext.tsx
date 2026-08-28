@@ -19,6 +19,7 @@ import {
   initialLoans,
   initialReceipts
 } from '../mockData/initialData';
+import { apiService } from '../services/api';
 
 interface Toast {
   id: string;
@@ -89,8 +90,71 @@ const defaultMasterSettings: MasterControlSettings = {
   hirePurchaseMonthlyRate: 3.0,
   defaultCardFee: 10,
   overdueInterestRatePA: 24,
+  overduePenaltyPerDayPercent: 3.6,
+  graceDays: 3,
   upiId: 'yourbusiness@okhdfcbank',
-  upiPayeeName: 'KKV Gold Finance'
+  upiPayeeName: 'KKV GOLD FINANCE',
+  showOnLoanIssue: true,
+  amountBands: [
+    {
+      id: 'band-1',
+      condition: 'Below',
+      amount: 10000,
+      baseRateMonthly: 2.0,
+      penaltyAfterMonths: 6,
+      penaltyStepUpMonthly: 0.1,
+      penaltyCalculation: 'From the start — stepped rate over the whole overc'
+    },
+    {
+      id: 'band-2',
+      condition: 'Above',
+      amount: 10000,
+      baseRateMonthly: 1.5,
+      penaltyAfterMonths: 3,
+      penaltyStepUpMonthly: 0.1,
+      penaltyCalculation: 'From the start — stepped rate over the whole overc'
+    }
+  ],
+  areas: ['Komarapalayam', 'Main Market', 'Bypass Road'],
+  partners: ['K.K. Velu (Capital)', 'R. Ramesh (Capital)'],
+  vehicleDocuments: [
+    'RC Book', 'Spare key', 'Insurance policy', 'Road tax receipt',
+    'Permit', 'F.C. certificate', 'Invoice / bill', 'Form 35 / NOC', 'Delivery note', 'Other'
+  ],
+  vehicleCompanies: [
+    'Aprilia', 'Ashok Leyland', 'Aston Martin', 'Audi', 'Bajaj', 'BMW',
+    'BYD', 'Chevrolet', 'Citroen', 'Daewoo', 'Datsun', 'Ducati', 'Eicher',
+    'Ferrari', 'Fiat', 'Force Motors', 'Ford', 'Harley-Davidson', 'Hero',
+    'Hero Honda', 'Hindustan Motors', 'Honda', 'Hyundai', 'Isuzu', 'Iveco',
+    'Jaguar', 'Java', 'Jeep', 'JCB', 'Kawasaki', 'Kia', 'KTM', 'Lamborghini',
+    'Land Rover', 'Lexus', 'Mahindra', 'Maruti Suzuki', 'Maserati', 'Mazda',
+    'Mercedes-Benz', 'MG', 'Mini', 'Mitsubishi', 'Nissan', 'Okinawa', 'Olectra',
+    'Ola Electric', 'Opel', 'Piaggio', 'Porsche', 'Premier', 'Renault',
+    'Rolls-Royce', 'Royal Enfield', 'SML Isuzu', 'Skoda', 'Suzuki', 'Swaraj Mazda',
+    'Tata', 'Tork', 'TVS', 'Ultraviolette', 'Vespa', 'Volkswagen', 'Volvo',
+    'Yamaha', 'Yezdi', 'Ather', 'Ampere', 'Bounce', 'Revolt', 'Simple Energy',
+    'Hop Electric', 'Komaki', 'Kinetic', 'LML', 'Mahindra Last Mile', 'Atul Auto',
+    'Bharat Benz', 'Scania', 'MAN', 'Daimler', 'Hyosung', 'Benelli', 'CFMoto',
+    'Triumph', 'Norton', 'BSA', 'Indian', 'Zontes', 'QJ Motor', 'Keeway',
+    'Moto Morini', 'Husqvarna', 'Other'
+  ],
+  insuranceCompanies: [
+    'Acko General Insurance', 'Bajaj Allianz General Insurance',
+    'Cholamandalam MS General Insurance', 'Digit General Insurance',
+    'Future Generali India Insurance', 'Go Digit General Insurance',
+    'HDFC ERGO General Insurance', 'ICICI Lombard General Insurance',
+    'IFFCO Tokio General Insurance', 'Kotak Mahindra General Insurance',
+    'Liberty General Insurance', 'Magma HDI General Insurance',
+    'Navi General Insurance', 'National Insurance Company',
+    'Raheja QBE General Insurance', 'Reliance General Insurance',
+    'Royal Sundaram General Insurance', 'SBI General Insurance',
+    'Shriram General Insurance', 'Tata AIG General Insurance',
+    'The New India Assurance', 'The Oriental Insurance Company',
+    'United India Insurance', 'Universal Sompo General Insurance',
+    'Zuno General Insurance', 'Other'
+  ],
+  showrooms: ['Main Branch', 'Bypass Branch'],
+  lockersEnabled: false
 };
 
 const defaultWhatsAppTemplates: WhatsAppTemplates = {
@@ -115,6 +179,10 @@ interface AppContextType {
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
   toggleDarkMode: () => void;
+  isWorkspaceSelected: boolean;
+  setIsWorkspaceSelected: (val: boolean) => void;
+  selectedWorkspace: string;
+  setSelectedWorkspace: (ws: string) => void;
   loans: Loan[];
   customers: Customer[];
   receipts: Receipt[];
@@ -137,6 +205,7 @@ interface AppContextType {
   updateWhatsAppTemplates: (templates: Partial<WhatsAppTemplates>) => void;
   telegramConfig: TelegramConfig;
   updateTelegramConfig: (config: Partial<TelegramConfig>) => void;
+
   addLoan: (loan: Omit<Loan, 'id' | 'loanNo'>) => Loan;
   topUpLoan: (loanNo: string, amount: number, date: string, notes?: string) => boolean;
   addReceipt: (receipt: Omit<Receipt, 'id' | 'receiptNo'>) => Receipt;
@@ -177,6 +246,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [receipts, setReceipts] = useState<Receipt[]>(() => getStored('receipts', initialReceipts));
   const [fixedDeposits, setFixedDeposits] = useState<FixedDeposit[]>(() => getStored('fixedDeposits', initialFixedDeposits));
   const [dayBookEntries, setDayBookEntries] = useState<DayBookEntry[]>(() => getStored('dayBookEntries', initialDayBook));
+  const [isWorkspaceSelected, setIsWorkspaceSelected] = useState<boolean>(() => getStored('isWorkspaceSelected', true));
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string>(() => getStored('selectedWorkspace', 'KKV GOLD FINANCE'));
+
   const [fdCustomers, setFdCustomers] = useState<FDCustomer[]>(() => getStored('fdCustomers', [
     {
       id: 'fd-c1',
@@ -201,6 +273,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(receipts[0] || null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+
   // Persist states to localStorage
   useEffect(() => { localStorage.setItem('kkv_darkMode', JSON.stringify(darkMode)); }, [darkMode]);
   useEffect(() => { localStorage.setItem('kkv_loans', JSON.stringify(loans)); }, [loans]);
@@ -223,6 +296,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       document.body.classList.remove('dark-mode');
     }
   }, [darkMode]);
+
+  // Fetch initial authoritative data from Express Backend & Google Drive on mount
+  useEffect(() => {
+    async function loadBackendData() {
+      try {
+        const [cList, lList, rList, fdList, dbList, fdcList, mSettings, waTpls] = await Promise.all([
+          apiService.getCustomers(),
+          apiService.getLoans(),
+          apiService.getReceipts(),
+          apiService.getFixedDeposits(),
+          apiService.getDayBook(),
+          apiService.getFDCustomers(),
+          apiService.getMasterSettings(),
+          apiService.getWhatsAppTemplates(),
+        ]);
+        if (cList && cList.length > 0) setCustomers(cList);
+        if (lList && lList.length > 0) setLoans(lList);
+        if (rList && rList.length > 0) setReceipts(rList);
+        if (fdList && fdList.length > 0) setFixedDeposits(fdList);
+        if (dbList && dbList.length > 0) setDayBookEntries(dbList);
+        if (fdcList && fdcList.length > 0) setFdCustomers(fdcList);
+        if (mSettings) setMasterControlSettings(mSettings);
+        if (waTpls) setWhatsAppTemplates(waTpls);
+      } catch (err) {
+        console.warn('Backend initial fetch fallback:', err);
+      }
+    }
+    loadBackendData();
+  }, []);
 
   const toggleDarkMode = () => setDarkMode(prev => !prev);
 
@@ -677,6 +779,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         darkMode,
         setDarkMode,
         toggleDarkMode,
+        isWorkspaceSelected,
+        setIsWorkspaceSelected,
+        selectedWorkspace,
+        setSelectedWorkspace,
         loans,
         customers,
         receipts,

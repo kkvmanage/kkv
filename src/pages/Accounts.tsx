@@ -72,6 +72,16 @@ export const Accounts: React.FC = () => {
     showToast('Generating official PDF statement...', 'info');
   };
 
+  const [showPaise, setShowPaise] = useState(true);
+  const [showTdsModal, setShowTdsModal] = useState(false);
+
+  const formatMoney = (num: number) => {
+    return num.toLocaleString('en-IN', {
+      minimumFractionDigits: showPaise ? 2 : 0,
+      maximumFractionDigits: showPaise ? 2 : 0
+    });
+  };
+
   return (
     <div className="page-content">
       {/* Top Accounts Navigation Tabs */}
@@ -104,6 +114,9 @@ export const Accounts: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowTdsModal(true)}>
+            <span>TDS Ledger</span>
+          </button>
           <button className="btn btn-secondary btn-sm" onClick={handleExportExcel}>
             <FileSpreadsheet size={13} />
             <span>Export Excel</span>
@@ -115,6 +128,42 @@ export const Accounts: React.FC = () => {
         </div>
       </div>
 
+      {/* TDS LEDGER MODAL */}
+      {showTdsModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '20px' }}>
+          <div className="card" style={{ maxWidth: '600px', width: '100%', padding: '24px', position: 'relative' }}>
+            <button style={{ position: 'absolute', right: '16px', top: '16px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowTdsModal(false)}>
+              <X size={18} />
+            </button>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>TDS Deductions Ledger</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Section 194A Tax Deducted at Source on Interest Payments</p>
+            <div className="table-container" style={{ marginBottom: '16px' }}>
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>DATE</th>
+                    <th>BILL NO</th>
+                    <th>CUSTOMER</th>
+                    <th>GROSS INTEREST</th>
+                    <th>TDS (10%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>25-08-2026</td>
+                    <td>RCPT-104</td>
+                    <td>Thayba Begum</td>
+                    <td>₹1,500.00</td>
+                    <td>₹150.00</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button type="button" className="btn btn-primary" onClick={() => setShowTdsModal(false)}>Close</button>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'day-book' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* 4 Summary Metric Cards */}
@@ -122,7 +171,7 @@ export const Accounts: React.FC = () => {
             <div className="stat-card">
               <div className="stat-label">CASH IN HAND</div>
               <div className="stat-value" style={{ color: cashInHand >= 0 ? 'var(--color-primary-dark)' : 'var(--badge-danger-text)' }}>
-                ₹{cashInHand.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                ₹{formatMoney(cashInHand)}
               </div>
               <div className="stat-helper">Physical counter vault balance</div>
             </div>
@@ -130,7 +179,7 @@ export const Accounts: React.FC = () => {
             <div className="stat-card">
               <div className="stat-label">CASH AT BANK</div>
               <div className="stat-value" style={{ color: cashAtBank >= 0 ? 'var(--color-primary-dark)' : 'var(--badge-danger-text)' }}>
-                ₹{cashAtBank.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                ₹{formatMoney(cashAtBank)}
               </div>
               <div className="stat-helper">HDFC Branch Current A/c</div>
             </div>
@@ -139,7 +188,7 @@ export const Accounts: React.FC = () => {
               <div className="stat-label">TODAY IN</div>
               <div className="stat-value" style={{ color: 'var(--badge-success-text)' }}>
                 <ArrowDownLeft size={20} style={{ display: 'inline', marginRight: '4px' }} />
-                ₹{todayIn.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                ₹{formatMoney(todayIn)}
               </div>
               <div className="stat-helper">Total receipts &amp; credits</div>
             </div>
@@ -148,7 +197,7 @@ export const Accounts: React.FC = () => {
               <div className="stat-label">TODAY OUT</div>
               <div className="stat-value" style={{ color: 'var(--badge-danger-text)' }}>
                 <ArrowUpRight size={20} style={{ display: 'inline', marginRight: '4px' }} />
-                ₹{todayOut.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                ₹{formatMoney(todayOut)}
               </div>
               <div className="stat-helper">Total disbursements &amp; debits</div>
             </div>
@@ -164,6 +213,18 @@ export const Accounts: React.FC = () => {
 
               {/* Toolbar */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginRight: '10px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>SHOW PAISE</span>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${showPaise ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ borderRadius: 'var(--radius-full)', padding: '2px 10px', fontSize: '11px' }}
+                    onClick={() => setShowPaise(!showPaise)}
+                  >
+                    {showPaise ? 'On' : 'Off'}
+                  </button>
+                </div>
+
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>FROM</span>
                 <input
                   type="date"

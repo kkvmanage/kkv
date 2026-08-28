@@ -1,0 +1,34 @@
+[
+  {
+    "id": "RCPT-1",
+    "receiptNo": 1,
+    "loanId": "L-1",
+    "loanNo": "GL-01",
+    "customerId": "CUST-001",
+    "customerName": "thayba",
+    "kind": "NEW LOAN",
+    "loanType": "GOLD LOAN",
+    "amount": 100000,
+    "principalComponent": 100000,
+    "interestComponent": 0,
+    "paymentMode": "UPI",
+    "date": "25/08/2026",
+    "notes": "New Loan Disbursement"
+  },
+  {
+    "id": "RCPT-2",
+    "receiptNo": 2,
+    "loanId": "L-1",
+    "loanNo": "GL-01",
+    "customerId": "CUST-001",
+    "customerName": "thayba",
+    "kind": "INTEREST PAYMENT",
+    "loanType": "GOLD LOAN",
+    "amount": 1500,
+    "principalComponent": 0,
+    "interestComponent": 1500,
+    "paymentMode": "Cash",
+    "date": "25/08/2026",
+    "notes": "Monthly interest payment"
+  }
+]
