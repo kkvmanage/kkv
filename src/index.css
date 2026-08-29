@@ -108,7 +108,7 @@
   --radius-full: 9999px;
 
   /* ── Layout ── */
-  --sidebar-width:  256px;
+  --sidebar-width:  260px;
   --topbar-height:  64px;
 
   /* ── Transitions ── */
@@ -240,11 +240,13 @@ html, body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  position: sticky;
+  height: 100dvh;
+  position: fixed;
   top: 0;
-  z-index: 40;
-  overflow-y: auto;
-  overflow-x: hidden;
+  left: 0;
+  bottom: 0;
+  z-index: 100;
+  overflow: hidden;
   user-select: none;
   flex-shrink: 0;
 }
@@ -258,6 +260,7 @@ html, body {
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   transition: background-color var(--transition-fast);
+  flex-shrink: 0;
 }
 .sidebar-brand:hover {
   background-color: var(--bg-hover);
@@ -302,6 +305,20 @@ html, body {
   gap: 2px;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 4px;
+}
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-green);
 }
 
 .sidebar-section-label {
@@ -405,6 +422,8 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  flex-shrink: 0;
+  background-color: var(--bg-sidebar);
 }
 
 /* ============================================================
@@ -525,7 +544,8 @@ html, body {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  width: 100%;
+  width: calc(100% - var(--sidebar-width));
+  margin-left: var(--sidebar-width);
   min-height: 100vh;
   min-height: 100dvh;
   background-color: var(--bg-app);

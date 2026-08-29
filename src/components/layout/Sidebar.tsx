@@ -402,7 +402,7 @@ export const Sidebar: React.FC = () => {
           onClick={toggleDarkMode}
         >
           {darkMode ? <Sun size={14} /> : <Moon size={14} />}
-          <span>{darkMode ? 'Light Mode' : 'Light Mode'}</span>
+          <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-md)', marginTop: '2px', border: '1px solid var(--border-subtle)' }}>
