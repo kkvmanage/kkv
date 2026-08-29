@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Download, Upload, Send, ShieldCheck, RefreshCw } from 'lucide-react';
+import { apiService } from '../services/api';
 
 export const BackupRestore: React.FC = () => {
   const {
@@ -14,9 +15,66 @@ export const BackupRestore: React.FC = () => {
     showToast
   } = useApp();
 
-  const [botToken, setBotToken] = useState(telegramConfig.botToken);
-  const [chatId, setChatId] = useState(telegramConfig.chatId);
-  const [autoBackupOnOpen, setAutoBackupOnOpen] = useState(telegramConfig.autoBackupOnOpen);
+  const [botToken, setBotToken] = useState(telegramConfig.botToken || '');
+  const [chatId, setChatId] = useState(telegramConfig.chatId || '');
+  const [autoBackupOnOpen, setAutoBackupOnOpen] = useState(telegramConfig.autoBackupOnOpen || false);
+
+  // Sync inputs dynamically when loaded from backend
+  useEffect(() => {
+    setBotToken(telegramConfig.botToken || '');
+    setChatId(telegramConfig.chatId || '');
+    setAutoBackupOnOpen(telegramConfig.autoBackupOnOpen || false);
+  }, [telegramConfig]);
+
+  const handleTestTelegram = async () => {
+    try {
+      await apiService.updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
+      updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
+      showToast('Sending test message to Telegram...', 'info');
+      const res = await apiService.testTelegram();
+      if (res.success) {
+        showToast('Telegram test message sent successfully!', 'success');
+      } else {
+        showToast(`Telegram test failed: ${res.message || 'unknown error'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Telegram connection failed: ${err.message}`, 'error');
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    try {
+      await apiService.updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
+      updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
+      showToast('Telegram settings saved & synchronized!', 'success');
+    } catch (err: any) {
+      showToast(`Failed to save config: ${err.message}`, 'error');
+    }
+  };
+
+  const handleSecureToken = async () => {
+    try {
+      await apiService.updateTelegramConfig({ isSecured: true });
+      updateTelegramConfig({ isSecured: true });
+      showToast('Bot token secured successfully!', 'success');
+    } catch (err: any) {
+      showToast(`Secure token failed: ${err.message}`, 'error');
+    }
+  };
+
+  const handleBackupToTelegram = async () => {
+    try {
+      showToast('Dispatched backup command to Telegram...', 'info');
+      const res = await apiService.backupTelegram();
+      if (res.success) {
+        showToast('Database backup file dispatched to Telegram!', 'success');
+      } else {
+        showToast(`Telegram backup failed: ${res.message}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Failed to dispatch backup: ${err.message}`, 'error');
+    }
+  };
 
   const handleDownloadBackup = () => {
     const backupData = {
@@ -69,7 +127,8 @@ export const BackupRestore: React.FC = () => {
               <input
                 type="text"
                 className="input-control"
-                value={botToken}
+                value={telegramConfig.isSecured ? '••••••••••••••••••••••••••••••••' : botToken}
+                disabled={telegramConfig.isSecured}
                 onChange={(e) => setBotToken(e.target.value)}
               />
             </div>
@@ -84,6 +143,7 @@ export const BackupRestore: React.FC = () => {
                 <button
                   type="button"
                   className="btn btn-secondary"
+                  disabled={telegramConfig.isSecured}
                   onClick={() => {
                     setChatId('987654321');
                     showToast('Telegram Chat ID auto-detected: 987654321', 'success');
@@ -97,7 +157,8 @@ export const BackupRestore: React.FC = () => {
                   className="input-control"
                   style={{ flex: 1 }}
                   placeholder="Chat ID"
-                  value={chatId}
+                  value={telegramConfig.isSecured ? '•••••••••' : chatId}
+                  disabled={telegramConfig.isSecured}
                   onChange={(e) => setChatId(e.target.value)}
                 />
               </div>
@@ -112,14 +173,16 @@ export const BackupRestore: React.FC = () => {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => showToast('Telegram test message sent!', 'info')}
+                  disabled={telegramConfig.isSecured}
+                  onClick={handleTestTelegram}
                 >
-                  Test
+                  Test Connection
                 </button>
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => updateTelegramConfig({ botToken, chatId })}
+                  disabled={telegramConfig.isSecured}
+                  onClick={handleSaveConfig}
                 >
                   Save Config
                 </button>
@@ -131,15 +194,20 @@ export const BackupRestore: React.FC = () => {
               <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', marginBottom: '4px' }}>
                 STEP 4 • SECURE THE TOKEN
               </div>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>No bot token set yet. Add one above, then secure it.</p>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                {telegramConfig.isSecured
+                  ? '🔒 Bot token is secured and storage access is locked.'
+                  : 'Bot token has not been locked in. Verify connection then secure it.'}
+              </p>
               <button
                 type="button"
                 className="btn btn-secondary"
                 style={{ width: '100%', justifyContent: 'center', gap: '6px' }}
-                onClick={() => showToast('Bot token secured!', 'success')}
+                disabled={telegramConfig.isSecured}
+                onClick={handleSecureToken}
               >
                 <ShieldCheck size={16} />
-                <span>Secure the bot token</span>
+                <span>{telegramConfig.isSecured ? 'Token IS Secured' : 'Secure the bot token'}</span>
               </button>
             </div>
           </div>
@@ -176,7 +244,7 @@ export const BackupRestore: React.FC = () => {
                 <strong>{customers.length}</strong> customers • <strong>{loans.length}</strong> loans • <strong>{fixedDeposits.length}</strong> FDs • <strong>{receipts.length}</strong> receipts
               </p>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button className="btn btn-primary" onClick={() => showToast('Backup dispatched to Telegram!', 'success')}>
+                <button className="btn btn-primary" onClick={handleBackupToTelegram}>
                   <Send size={14} />
                   <span>Backup to Telegram</span>
                 </button>
@@ -230,9 +298,15 @@ export const BackupRestore: React.FC = () => {
               <input
                 type="checkbox"
                 checked={autoBackupOnOpen}
-                onChange={(e) => {
-                  setAutoBackupOnOpen(e.target.checked);
-                  updateTelegramConfig({ autoBackupOnOpen: e.target.checked });
+                onChange={async (e) => {
+                  const val = e.target.checked;
+                  setAutoBackupOnOpen(val);
+                  try {
+                    await apiService.updateTelegramConfig({ autoBackupOnOpen: val });
+                    updateTelegramConfig({ autoBackupOnOpen: val });
+                  } catch (err: any) {
+                    showToast('Failed to sync auto-backup setting', 'error');
+                  }
                 }}
                 style={{ width: '18px', height: '18px', cursor: 'pointer' }}
               />

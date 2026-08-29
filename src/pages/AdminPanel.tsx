@@ -38,11 +38,29 @@ export const AdminPanel: React.FC = () => {
   const [welcomeTpl, setWelcomeTpl] = useState<string>(whatsAppTemplates?.welcomeMessage || '');
   const [dueTpl, setDueTpl] = useState<string>(whatsAppTemplates?.dueReminderMessage || '');
 
+  // Security Form State
+  const [adminPass, setAdminPass] = useState<string>(masterControlSettings?.adminPassword || 'admin123');
+  const [managerPass, setManagerPass] = useState<string>(masterControlSettings?.managerPassword || 'manager123');
+  const [operatorPass, setOperatorPass] = useState<string>(masterControlSettings?.operatorPassword || 'operator123');
+
+  // Operations Feature Toggles
+  const [animationsEnabled, setAnimationsEnabled] = useState<boolean>(masterControlSettings?.animationsEnabled ?? true);
+  const [performanceModeEnabled, setPerformanceModeEnabled] = useState<boolean>(masterControlSettings?.performanceModeEnabled ?? false);
+  const [bulkFdDateChangeEnabled, setBulkFdDateChangeEnabled] = useState<boolean>(masterControlSettings?.bulkFdDateChangeEnabled ?? true);
+  const [lockersEnabled, setLockersEnabled] = useState<boolean>(masterControlSettings?.lockersEnabled ?? false);
+
   // Synchronize local form states when context data updates asynchronously
   useEffect(() => {
     if (masterControlSettings) {
       setGoldShowOnIssue(masterControlSettings.showOnLoanIssue ?? true);
       setAmountBands(masterControlSettings.amountBands || []);
+      setAdminPass(masterControlSettings.adminPassword || 'admin123');
+      setManagerPass(masterControlSettings.managerPassword || 'manager123');
+      setOperatorPass(masterControlSettings.operatorPassword || 'operator123');
+      setAnimationsEnabled(masterControlSettings.animationsEnabled ?? true);
+      setPerformanceModeEnabled(masterControlSettings.performanceModeEnabled ?? false);
+      setBulkFdDateChangeEnabled(masterControlSettings.bulkFdDateChangeEnabled ?? true);
+      setLockersEnabled(masterControlSettings.lockersEnabled ?? false);
     }
   }, [masterControlSettings]);
 
@@ -76,7 +94,14 @@ export const AdminPanel: React.FC = () => {
   const handleSaveMasterChanges = () => {
     updateMasterControlSettings({
       showOnLoanIssue: goldShowOnIssue,
-      amountBands: amountBands || []
+      amountBands: amountBands || [],
+      adminPassword: adminPass,
+      managerPassword: managerPass,
+      operatorPassword: operatorPass,
+      animationsEnabled,
+      performanceModeEnabled,
+      bulkFdDateChangeEnabled,
+      lockersEnabled
     });
     updateWhatsAppTemplates({
       welcomeMessage: welcomeTpl,
@@ -437,6 +462,111 @@ export const AdminPanel: React.FC = () => {
                         value={dueTpl}
                         onChange={(e) => setDueTpl(e.target.value)}
                       />
+                    </div>
+                  </div>
+                )}
+
+                {masterSubTab === 'operations' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>System Feature Toggles</h3>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                      <div className="card" style={{ padding: '14px', backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '13px', display: 'block', color: 'var(--text-primary)' }}>Interface Animations</strong>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Enable sidebar transition animations</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--color-primary-dark)', cursor: 'pointer' }}
+                          checked={animationsEnabled}
+                          onChange={(e) => setAnimationsEnabled(e.target.checked)}
+                        />
+                      </div>
+
+                      <div className="card" style={{ padding: '14px', backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '13px', display: 'block', color: 'var(--text-primary)' }}>Performance Mode</strong>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Disable heavy effects for low-spec PCs</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--color-primary-dark)', cursor: 'pointer' }}
+                          checked={performanceModeEnabled}
+                          onChange={(e) => setPerformanceModeEnabled(e.target.checked)}
+                        />
+                      </div>
+
+                      <div className="card" style={{ padding: '14px', backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '13px', display: 'block', color: 'var(--text-primary)' }}>Bulk FD Date Shifting</strong>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Enable multi-FD calendar edit features</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--color-primary-dark)', cursor: 'pointer' }}
+                          checked={bulkFdDateChangeEnabled}
+                          onChange={(e) => setBulkFdDateChangeEnabled(e.target.checked)}
+                        />
+                      </div>
+
+                      <div className="card" style={{ padding: '14px', backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '13px', display: 'block', color: 'var(--text-primary)' }}>Cabinet Lockers</strong>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Track safe deposits cabinets A &amp; B</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--color-primary-dark)', cursor: 'pointer' }}
+                          checked={lockersEnabled}
+                          onChange={(e) => setLockersEnabled(e.target.checked)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {masterSubTab === 'security' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Company Role Passwords</h3>
+                    <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>Configure default sign-in passwords for workspace roles.</p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div className="form-group">
+                        <label className="form-label required">ADMIN PASSWORD</label>
+                        <input
+                          type="text"
+                          className="input-control"
+                          value={adminPass}
+                          onChange={(e) => setAdminPass(e.target.value)}
+                          required
+                        />
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Unlocks Master Control overrides. Default: admin123</span>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label required">BRANCH MANAGER PASSWORD</label>
+                        <input
+                          type="text"
+                          className="input-control"
+                          value={managerPass}
+                          onChange={(e) => setManagerPass(e.target.value)}
+                          required
+                        />
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Full operational control access. Default: manager123</span>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label required">OPERATOR PASSWORD</label>
+                        <input
+                          type="text"
+                          className="input-control"
+                          value={operatorPass}
+                          onChange={(e) => setOperatorPass(e.target.value)}
+                          required
+                        />
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Restricted counter entry access (Hides core settings/backups). Default: operator123</span>
+                      </div>
                     </div>
                   </div>
                 )}

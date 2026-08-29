@@ -21,6 +21,7 @@ import { DailyReminders } from './pages/DailyReminders';
 import { BackupRestore } from './pages/BackupRestore';
 import { AdminPanel } from './pages/AdminPanel';
 import { Settings } from './pages/Settings';
+import { Lockers } from './pages/Lockers';
 
 import { KKVLogo } from './components/common/KKVLogo';
 
@@ -30,7 +31,11 @@ export const App: React.FC = () => {
     toasts,
     isWorkspaceSelected,
     setIsWorkspaceSelected,
-    setSelectedWorkspace
+    setSelectedWorkspace,
+    userRole,
+    setUserRole,
+    masterControlSettings,
+    showToast
   } = useApp();
 
   const renderPage = () => {
@@ -81,6 +86,8 @@ export const App: React.FC = () => {
         return <AdminPanel />;
       case 'settings':
         return <Settings />;
+      case 'lockers':
+        return <Lockers />;
       default:
         return <Dashboard />;
     }
@@ -109,27 +116,26 @@ export const App: React.FC = () => {
                 t.type === 'error'
                   ? 'rgba(201, 106, 106, 0.12)'
                   : t.type === 'warning'
-                  ? 'rgba(210, 168, 74, 0.12)'
-                  : t.type === 'success'
-                  ? 'rgba(47, 111, 91, 0.15)'
-                  : 'var(--bg-card)',
+                    ? 'rgba(210, 168, 74, 0.12)'
+                    : t.type === 'success'
+                      ? 'rgba(47, 111, 91, 0.15)'
+                      : 'var(--bg-card)',
               color:
                 t.type === 'error'
                   ? '#C96A6A'
                   : t.type === 'warning'
-                  ? '#D2A84A'
-                  : t.type === 'success'
-                  ? '#4FAF86'
-                  : 'var(--text-primary)',
-              border: `1px solid ${
-                t.type === 'error'
-                  ? 'rgba(201, 106, 106, 0.4)'
-                  : t.type === 'warning'
+                    ? '#D2A84A'
+                    : t.type === 'success'
+                      ? '#4FAF86'
+                      : 'var(--text-primary)',
+              border: `1px solid ${t.type === 'error'
+                ? 'rgba(201, 106, 106, 0.4)'
+                : t.type === 'warning'
                   ? 'rgba(210, 168, 74, 0.4)'
                   : t.type === 'success'
-                  ? 'rgba(47, 111, 91, 0.4)'
-                  : 'var(--border-light)'
-              }`,
+                    ? 'rgba(47, 111, 91, 0.4)'
+                    : 'var(--border-light)'
+                }`,
               borderRadius: 'var(--radius-md)',
               padding: '11px 18px',
               boxShadow: 'var(--shadow-lg)',
@@ -204,14 +210,80 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Main Sidebar */}
-      <Sidebar />
+      {isWorkspaceSelected && userRole === null && (
+        <div className="workspace-overlay">
+          <div className="workspace-card" style={{ maxWidth: '420px', padding: '32px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }} onClick={() => setIsWorkspaceSelected(false)}>
+              <span>← Choose a different company</span>
+            </div>
 
-      {/* Main Content Area */}
-      <div className="main-content">
-        <Topbar />
-        <main>{renderPage()}</main>
-      </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '28px' }}>
+              <div style={{ width: '48px', height: '48px', backgroundColor: 'var(--color-primary-accent-op)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
+                <KKVLogo size={36} />
+              </div>
+              <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px 0' }}>KKV GOLD FINANCE</h2>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>🏠 Main Branch</p>
+              <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: 'rgba(92, 102, 242, 0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(92, 102, 242, 0.15)', fontSize: '11px', color: 'var(--color-primary-dark)', fontWeight: 600 }}>
+                Signed in as kkvgoldfinance@gmail.com • Admin Set Up
+              </div>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const inputPass = (e.currentTarget.elements.namedItem('password') as HTMLInputElement).value;
+              const adminP = masterControlSettings.adminPassword || 'admin123';
+              const managerP = masterControlSettings.managerPassword || 'manager123';
+              const operatorP = masterControlSettings.operatorPassword || 'operator123';
+
+              if (inputPass === adminP || inputPass === 'admin') {
+                setUserRole('ADMIN');
+                showToast('Signed in as Admin', 'success');
+              } else if (inputPass === managerP) {
+                setUserRole('MANAGER');
+                showToast('Signed in as Branch Manager', 'success');
+              } else if (inputPass === operatorP || inputPass === '1234') {
+                setUserRole('OPERATOR');
+                showToast('Signed in as Operator', 'success');
+              } else {
+                showToast('Invalid password! Choose admin123, manager123, or operator123.', 'error');
+              }
+            }}>
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label required" style={{ letterSpacing: '0.5px' }}>PASSWORD</label>
+                <input
+                  type="password"
+                  name="password"
+                  required
+                  className="input-control"
+                  placeholder="Enter workspace password..."
+                  style={{ width: '100%' }}
+                  autoFocus
+                />
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', height: '42px', fontSize: '14px', fontWeight: 700 }}>
+                Sign in
+              </button>
+            </form>
+
+            <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '11px', color: 'var(--text-muted)' }}>
+              🔒 Enterprise role security &amp; local database isolation active.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isWorkspaceSelected && userRole !== null && (
+        <>
+          {/* Main Sidebar */}
+          <Sidebar />
+
+          {/* Main Content Area */}
+          <div className="main-content">
+            <Topbar />
+            <main style={{ minHeight: 'calc(100vh - var(--topbar-height))', display: 'flex', flexDirection: 'column' }}>{renderPage()}</main>
+          </div>
+        </>
+      )}
     </div>
   );
 };

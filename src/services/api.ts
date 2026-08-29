@@ -151,6 +151,27 @@ export const apiService = {
       method: 'POST',
       body: JSON.stringify(data)
     });
+  },
+
+  // Telegram Integration
+  async getTelegramConfig() {
+    return fetchJson<any>('/telegram/config');
+  },
+  async updateTelegramConfig(config: any) {
+    return fetchJson<any>('/telegram/config', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    });
+  },
+  async testTelegram() {
+    return fetchJson<any>('/telegram/test', {
+      method: 'POST'
+    });
+  },
+  async backupTelegram() {
+    return fetchJson<any>('/telegram/backup', {
+      method: 'POST'
+    });
   }
 };
 

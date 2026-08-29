@@ -183,6 +183,8 @@ interface AppContextType {
   setIsWorkspaceSelected: (val: boolean) => void;
   selectedWorkspace: string;
   setSelectedWorkspace: (ws: string) => void;
+  userRole: 'ADMIN' | 'MANAGER' | 'OPERATOR' | null;
+  setUserRole: (role: 'ADMIN' | 'MANAGER' | 'OPERATOR' | null) => void;
   loans: Loan[];
   customers: Customer[];
   receipts: Receipt[];
@@ -242,7 +244,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentPageRaw(page);
     setIsMobileMenuOpen(false);
   };
-  
+
   // Local storage helpers
   const getStored = <T,>(key: string, fallback: T): T => {
     try {
@@ -259,8 +261,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [receipts, setReceipts] = useState<Receipt[]>(() => getStored('receipts', initialReceipts));
   const [fixedDeposits, setFixedDeposits] = useState<FixedDeposit[]>(() => getStored('fixedDeposits', initialFixedDeposits));
   const [dayBookEntries, setDayBookEntries] = useState<DayBookEntry[]>(() => getStored('dayBookEntries', initialDayBook));
-  const [isWorkspaceSelected, setIsWorkspaceSelected] = useState<boolean>(() => getStored('isWorkspaceSelected', true));
+  const [isWorkspaceSelected, setIsWorkspaceSelected] = useState<boolean>(() => getStored('isWorkspaceSelected', false));
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>(() => getStored('selectedWorkspace', 'KKV GOLD FINANCE'));
+  const [userRole, setUserRole] = useState<'ADMIN' | 'MANAGER' | 'OPERATOR' | null>(() => getStored('userRole', null));
 
   const [fdCustomers, setFdCustomers] = useState<FDCustomer[]>(() => getStored('fdCustomers', [
     {
@@ -300,6 +303,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { localStorage.setItem('kkv_masterSettings', JSON.stringify(masterControlSettings)); }, [masterControlSettings]);
   useEffect(() => { localStorage.setItem('kkv_waTemplates', JSON.stringify(whatsAppTemplates)); }, [whatsAppTemplates]);
   useEffect(() => { localStorage.setItem('kkv_tgConfig', JSON.stringify(telegramConfig)); }, [telegramConfig]);
+  useEffect(() => { localStorage.setItem('kkv_userRole', JSON.stringify(userRole)); }, [userRole]);
 
   // Sync document theme class — dark green is the PRIMARY theme (no class needed).
   // Adding 'light-mode' class switches to the lighter variant.
@@ -315,7 +319,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     async function loadBackendData() {
       try {
-        const [cList, lList, rList, fdList, dbList, fdcList, mSettings, waTpls] = await Promise.all([
+        const [cList, lList, rList, fdList, dbList, fdcList, mSettings, waTpls, tgConfig] = await Promise.all([
           apiService.getCustomers(),
           apiService.getLoans(),
           apiService.getReceipts(),
@@ -324,6 +328,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           apiService.getFDCustomers(),
           apiService.getMasterSettings(),
           apiService.getWhatsAppTemplates(),
+          apiService.getTelegramConfig()
         ]);
         if (cList && cList.length > 0) setCustomers(cList);
         if (lList && lList.length > 0) setLoans(lList);
@@ -333,6 +338,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (fdcList && fdcList.length > 0) setFdCustomers(fdcList);
         if (mSettings) setMasterControlSettings(mSettings);
         if (waTpls) setWhatsAppTemplates(waTpls);
+        if (tgConfig) setTelegramConfig(tgConfig);
       } catch (err) {
         console.warn('Backend initial fetch fallback:', err);
       }
@@ -359,28 +365,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const unlockMasterControl = (password: string): boolean => {
-    if (password === 'admin123' || password === 'admin' || password === '1234') {
+    const adminPass = masterControlSettings.adminPassword || 'admin123';
+    if (password === adminPass || password === 'admin' || password === '1234') {
       setMasterControlUnlocked(true);
       showToast('Master Control unlocked successfully', 'success');
       return true;
     } else {
-      showToast('Incorrect password! Try: admin123', 'error');
+      showToast(`Incorrect password! Try: ${adminPass}`, 'error');
       return false;
     }
   };
 
   const updateMasterControlSettings = (newSetts: Partial<MasterControlSettings>) => {
-    setMasterControlSettings(prev => ({ ...prev, ...newSetts }));
+    setMasterControlSettings(prev => {
+      const updated = { ...prev, ...newSetts };
+      apiService.updateMasterSettings(updated).catch(e => console.error(e));
+      return updated;
+    });
     showToast('Master Control settings saved!', 'success');
   };
 
   const updateWhatsAppTemplates = (newTpls: Partial<WhatsAppTemplates>) => {
-    setWhatsAppTemplates(prev => ({ ...prev, ...newTpls }));
+    setWhatsAppTemplates(prev => {
+      const updated = { ...prev, ...newTpls };
+      apiService.updateWhatsAppTemplates(updated).catch(e => console.error(e));
+      return updated;
+    });
     showToast('WhatsApp templates saved!', 'success');
   };
 
   const updateTelegramConfig = (newCfg: Partial<TelegramConfig>) => {
-    setTelegramConfig(prev => ({ ...prev, ...newCfg }));
+    setTelegramConfig(prev => {
+      const updated = { ...prev, ...newCfg };
+      apiService.updateTelegramConfig(updated).catch(e => console.error(e));
+      return updated;
+    });
     showToast('Telegram configuration saved!', 'success');
   };
 
@@ -797,6 +816,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsWorkspaceSelected,
         selectedWorkspace,
         setSelectedWorkspace,
+        userRole,
+        setUserRole,
         loans,
         customers,
         receipts,

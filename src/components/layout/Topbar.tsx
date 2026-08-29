@@ -125,6 +125,10 @@ const pageTitles: Record<NavPage, PageMetadata> = {
   settings: {
     title: 'Settings',
     subtitle: 'Branch configuration, 22ct gold rate valuation, and printer setup'
+  },
+  lockers: {
+    title: 'Locker Management',
+    subtitle: 'Track cabinet allocations, issue lockers, and record rent payouts'
   }
 };
 

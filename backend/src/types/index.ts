@@ -234,6 +234,19 @@ export interface MasterControlSettings {
   upiPayeeName: string;
   showOnLoanIssue?: boolean;
   amountBands?: AmountBand[];
+  areas?: string[];
+  partners?: string[];
+  vehicleDocuments?: string[];
+  vehicleCompanies?: string[];
+  insuranceCompanies?: string[];
+  showrooms?: string[];
+  lockersEnabled?: boolean;
+  adminPassword?: string;
+  managerPassword?: string;
+  operatorPassword?: string;
+  animationsEnabled?: boolean;
+  performanceModeEnabled?: boolean;
+  bulkFdDateChangeEnabled?: boolean;
 }
 
 export interface WhatsAppTemplates {

@@ -1,4 +1,4 @@
-export type NavPage = 
+export type NavPage =
   | 'dashboard'
   | 'customers'
   | 'loan-issue'
@@ -27,7 +27,8 @@ export type NavPage =
   | 'daily-reminders'
   | 'backup-restore'
   | 'admin-panel'
-  | 'settings';
+  | 'settings'
+  | 'lockers';
 
 export type PurityOption = '24ct' | '22ct' | '20ct' | '18ct' | '14ct' | 'Silver 925' | 'Silver 999';
 
@@ -274,6 +275,12 @@ export interface MasterControlSettings {
   insuranceCompanies: string[];
   showrooms: string[];
   lockersEnabled: boolean;
+  adminPassword?: string;
+  managerPassword?: string;
+  operatorPassword?: string;
+  animationsEnabled?: boolean;
+  performanceModeEnabled?: boolean;
+  bulkFdDateChangeEnabled?: boolean;
 }
 
 export interface WhatsAppTemplates {
