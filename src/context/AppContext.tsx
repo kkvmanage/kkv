@@ -217,6 +217,7 @@ interface AppContextType {
   addDayBookEntry: (entry: Omit<DayBookEntry, 'id' | 'time' | 'cashBal' | 'bankBal'>) => DayBookEntry;
   payFDInterest: (fdNo: string, amount: number, mode: 'Cash' | 'Bank' | 'UPI') => void;
   withdrawFD: (fdNo: string, mode: 'Cash' | 'Bank' | 'UPI', notes?: string) => void;
+  bulkUpdateFixedDepositDates: (fdNos: string[], newDepositDate?: string, offsetDays?: number) => Promise<boolean>;
   cashInHand: number;
   cashAtBank: number;
   isMobileMenuOpen: boolean;
@@ -768,6 +769,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`Fixed Deposit ${fdNo} closed and withdrawn!`, 'success');
   };
 
+  const bulkUpdateFixedDepositDates = async (fdNos: string[], newDepositDate?: string, offsetDays?: number): Promise<boolean> => {
+    try {
+      const res = await apiService.bulkUpdateFDDates(fdNos, newDepositDate, offsetDays);
+      if (res && res.success) {
+        // Refresh fixed deposits from backend
+        const fdList = await apiService.getFixedDeposits();
+        if (fdList) setFixedDeposits(fdList);
+
+        // Also refresh day book to show the correct entry dates!
+        const dbList = await apiService.getDayBook();
+        if (dbList) setDayBookEntries(dbList);
+
+        showToast(res.message || 'Fixed deposits updated successfully!', 'success');
+        return true;
+      }
+      showToast(res?.message || 'Failed to update fixed deposits.', 'error');
+      return false;
+    } catch (err: any) {
+      showToast(err.message || 'Error updating fixed deposits.', 'error');
+      return false;
+    }
+  };
+
   const resetAllData = () => {
     localStorage.clear();
     setLoans(initialLoans);
@@ -849,6 +873,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addDayBookEntry,
         payFDInterest,
         withdrawFD,
+        bulkUpdateFixedDepositDates,
         cashInHand,
         cashAtBank,
         isMobileMenuOpen,

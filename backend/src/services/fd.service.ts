@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { FixedDeposit, FDCustomer, FDInterestPayout, FDWithdrawal } from '../types/index.js';
+import { FixedDeposit, FDCustomer, FDInterestPayout, FDWithdrawal, DayBookEntry } from '../types/index.js';
 import { accountingService } from './accounting.service.js';
 
 const FD_CUST_FILE = 'fd_customers.json';
@@ -190,6 +190,62 @@ export class FDService {
     });
 
     return withdrawal;
+  }
+
+  public bulkUpdateDates(fdNos: string[], newDepositDate?: string, offsetDays?: number): FixedDeposit[] {
+    const deposits = this.getDeposits();
+    const daybookEntries = googleDriveRepository.readJson<DayBookEntry[]>('daybook_entries.json', []);
+    const updatedDeposits: FixedDeposit[] = [];
+
+    const parseDMY = (s: string): Date => {
+      const [d, m, y] = s.split('/').map(Number);
+      return new Date(y, m - 1, d);
+    };
+
+    const formatDMY = (d: Date): string => {
+      const day = d.getDate().toString().padStart(2, '0');
+      const month = (d.getMonth() + 1).toString().padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    for (const fd of deposits) {
+      if (fdNos.includes(fd.fdNo)) {
+        let oldDepDate = parseDMY(fd.depositDate);
+        let newDepDate = oldDepDate;
+        let oldMatDate = parseDMY(fd.maturityDate);
+        let newMatDate = oldMatDate;
+
+        if (newDepositDate) {
+          // If specifying a new deposit date directly (should be in DD/MM/YYYY)
+          newDepDate = parseDMY(newDepositDate);
+          // Calculate difference in days to apply the same offset to maturity date
+          const diffTime = newDepDate.getTime() - oldDepDate.getTime();
+          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+          newMatDate = new Date(oldMatDate.getTime() + diffDays * 24 * 60 * 60 * 1000);
+        } else if (offsetDays !== undefined) {
+          // If shifting by days offset
+          newDepDate = new Date(oldDepDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+          newMatDate = new Date(oldMatDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+        }
+
+        fd.depositDate = formatDMY(newDepDate);
+        fd.maturityDate = formatDMY(newMatDate);
+        updatedDeposits.push(fd);
+
+        // Update corresponding daybook entry dates too!
+        for (const entry of daybookEntries) {
+          if (entry.billNo === fd.fdNo) {
+            entry.date = fd.depositDate;
+          }
+        }
+      }
+    }
+
+    googleDriveRepository.writeJson(FD_DEPOSITS_FILE, deposits);
+    googleDriveRepository.writeJson('daybook_entries.json', daybookEntries);
+
+    return updatedDeposits;
   }
 }
 

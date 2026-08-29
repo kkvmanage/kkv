@@ -5,7 +5,8 @@ import {
   getFixedDeposits,
   createFixedDeposit,
   payFDInterest,
-  withdrawFD
+  withdrawFD,
+  bulkUpdateFDDates
 } from '../controllers/fd.controller.js';
 
 const router = Router();
@@ -18,5 +19,6 @@ router.post('/deposits', createFixedDeposit);
 
 router.post('/deposits/:fdNo/payout', payFDInterest);
 router.post('/deposits/:fdNo/withdraw', withdrawFD);
+router.post('/deposits/bulk-date-change', bulkUpdateFDDates);
 
 export default router;

@@ -60,3 +60,16 @@ export const withdrawFD = (req: Request, res: Response) => {
     data: withdrawal
   });
 };
+
+export const bulkUpdateFDDates = (req: Request, res: Response) => {
+  const { fdNos, newDepositDate, offsetDays } = req.body;
+  if (!fdNos || !Array.isArray(fdNos) || fdNos.length === 0) {
+    return res.status(400).json({ success: false, message: 'Invalid or empty fdNos array' });
+  }
+  const updated = fdService.bulkUpdateDates(fdNos, newDepositDate, offsetDays !== undefined ? Number(offsetDays) : undefined);
+  return res.json({
+    success: true,
+    message: `Updated ${updated.length} Fixed Deposits`,
+    data: updated
+  });
+};

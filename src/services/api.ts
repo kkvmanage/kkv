@@ -172,6 +172,12 @@ export const apiService = {
     return fetchJson<any>('/telegram/backup', {
       method: 'POST'
     });
+  },
+  async bulkUpdateFDDates(fdNos: string[], newDepositDate?: string, offsetDays?: number) {
+    return fetchJson<any>('/fd/deposits/bulk-date-change', {
+      method: 'POST',
+      body: JSON.stringify({ fdNos, newDepositDate, offsetDays })
+    });
   }
 };
 

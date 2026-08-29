@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2 } from 'lucide-react';
+import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2, Mic, Search } from 'lucide-react';
 import { AmountBand } from '../types';
 
 import { KKVLogo } from '../components/common/KKVLogo';
@@ -22,7 +22,9 @@ export const AdminPanel: React.FC = () => {
     updateMasterControlSettings,
     whatsAppTemplates,
     updateWhatsAppTemplates,
-    resetAllData
+    resetAllData,
+    bulkUpdateFixedDepositDates,
+    showToast
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'fd-rates' | 'bulk-fd' | 'data-backup' | 'devices'>('overview');
@@ -49,6 +51,13 @@ export const AdminPanel: React.FC = () => {
   const [bulkFdDateChangeEnabled, setBulkFdDateChangeEnabled] = useState<boolean>(masterControlSettings?.bulkFdDateChangeEnabled ?? true);
   const [lockersEnabled, setLockersEnabled] = useState<boolean>(masterControlSettings?.lockersEnabled ?? false);
 
+  // Bulk FD Date Change states
+  const [selectedFdNos, setSelectedFdNos] = useState<string[]>([]);
+  const [dateMode, setDateMode] = useState<'shift' | 'set'>('shift');
+  const [offsetDaysValue, setOffsetDaysValue] = useState<number>(0);
+  const [newDepDateVal, setNewDepDateVal] = useState<string>('');
+  const [fdSearchText, setFdSearchText] = useState('');
+
   // Synchronize local form states when context data updates asynchronously
   useEffect(() => {
     if (masterControlSettings) {
@@ -70,6 +79,13 @@ export const AdminPanel: React.FC = () => {
       setDueTpl(whatsAppTemplates.dueReminderMessage || '');
     }
   }, [whatsAppTemplates]);
+
+  // Redirect away from bulk-fd tab if disabled
+  useEffect(() => {
+    if (masterControlSettings && !masterControlSettings.bulkFdDateChangeEnabled && activeTab === 'bulk-fd') {
+      setActiveTab('overview');
+    }
+  }, [masterControlSettings, activeTab]);
 
   // Defensive Aggregates with safe array checks
   const safeLoans = loans || [];
@@ -110,6 +126,55 @@ export const AdminPanel: React.FC = () => {
     setMasterControlOpen(false);
   };
 
+  const startVoiceInput = (targetField: 'search' | 'offset' | 'date') => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showToast('Web Speech API is not supported in this browser.', 'error');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    showToast('Listening...', 'info');
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      if (targetField === 'search') {
+        setFdSearchText(transcript);
+      } else if (targetField === 'offset') {
+        const num = parseInt(transcript.replace(/[^0-9-]/g, ''), 10);
+        if (!isNaN(num)) {
+          setOffsetDaysValue(num);
+        } else {
+          showToast(`Could not understand number from: "${transcript}"`, 'warning');
+        }
+      } else if (targetField === 'date') {
+        try {
+          const parsedDate = new Date(transcript);
+          if (!isNaN(parsedDate.getTime())) {
+            const yyyy = parsedDate.getFullYear();
+            const mm = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
+            const dd = parsedDate.getDate().toString().padStart(2, '0');
+            setNewDepDateVal(`${yyyy}-${mm}-${dd}`);
+            showToast(`Set date: ${dd}/${mm}/${yyyy}`, 'success');
+          } else {
+            showToast(`Heard "${transcript}". Try saying a date like "2026-08-25".`, 'warning');
+          }
+        } catch {
+          showToast(`Could not parse date: "${transcript}"`, 'warning');
+        }
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      showToast(`Speech recognition error: ${event.error}`, 'error');
+    };
+
+    recognition.start();
+  };
+
   const handleAddAmountBand = () => {
     const newBand: AmountBand = {
       id: `band-${Date.now()}`,
@@ -145,10 +210,10 @@ export const AdminPanel: React.FC = () => {
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'fd-rates', label: 'FD Interest Rates' },
-          { key: 'bulk-fd', label: 'Bulk FD Date Change' },
+          masterControlSettings?.bulkFdDateChangeEnabled && { key: 'bulk-fd', label: 'Bulk FD Date Change' },
           { key: 'data-backup', label: 'Data & Backup' },
           { key: 'devices', label: 'Devices' }
-        ].map((t) => (
+        ].filter((x): x is { key: string; label: string } => !!x).map((t) => (
           <button
             key={t.key}
             type="button"
@@ -250,6 +315,220 @@ export const AdminPanel: React.FC = () => {
               </div>
               <div className="stat-card-icon"><Database size={16} /></div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'bulk-fd' && masterControlSettings?.bulkFdDateChangeEnabled && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="card" style={{ padding: '24px' }}>
+            <div className="card-header" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 className="card-title" style={{ fontSize: '18px', fontWeight: 800 }}>Bulk Fixed Deposit Date Change</h2>
+                <p className="card-description">Modify deposit dates in bulk for selected Fixed Deposits. Daybook entry dates will automatically synchronize.</p>
+              </div>
+              {safeFixedDeposits.length > 0 && (
+                <span className="badge badge-success">
+                  {safeFixedDeposits.filter((f) => f.status === 'ACTIVE').length} Active FDs
+                </span>
+              )}
+            </div>
+
+            {safeFixedDeposits.length === 0 ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No fixed deposits in this company yet.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', marginBottom: '20px' }}>
+                  <div style={{ position: 'relative', flex: 1, minWidth: '280px' }}>
+                    <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      placeholder="Search deposits by name, FD no, or phone..."
+                      className="input-control"
+                      style={{ paddingLeft: '36px', width: '100%' }}
+                      value={fdSearchText}
+                      onChange={(e) => setFdSearchText(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', padding: 0, backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)' }}
+                      onClick={() => startVoiceInput('search')}
+                      title="Voice Search"
+                    >
+                      <Mic size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${dateMode === 'shift' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ height: '38px', borderRadius: 'var(--radius-md)', fontWeight: 600 }}
+                      onClick={() => setDateMode('shift')}
+                    >
+                      Shift by Days
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${dateMode === 'set' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ height: '38px', borderRadius: 'var(--radius-md)', fontWeight: 600 }}
+                      onClick={() => setDateMode('set')}
+                    >
+                      Set Specific Date
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end', backgroundColor: 'var(--bg-surface-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: '20px' }}>
+                  {dateMode === 'shift' ? (
+                    <div className="form-group" style={{ margin: 0, flex: '1 1 200px' }}>
+                      <label className="form-label required">DAYS TO SHIFT (+/-)</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                          type="number"
+                          className="input-control"
+                          placeholder="e.g. 5 or -10"
+                          value={offsetDaysValue || ''}
+                          onChange={(e) => setOffsetDaysValue(Number(e.target.value))}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', padding: 0, backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+                          onClick={() => startVoiceInput('offset')}
+                          title="Voice input days offset"
+                        >
+                          <Mic size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="form-group" style={{ margin: 0, flex: '1 1 200px' }}>
+                      <label className="form-label required">NEW DEPOSIT DATE</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                          type="date"
+                          className="input-control"
+                          value={newDepDateVal}
+                          onChange={(e) => setNewDepDateVal(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', padding: 0, backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+                          onClick={() => startVoiceInput('date')}
+                          title="Voice input date"
+                        >
+                          <Mic size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ height: '38px', fontWeight: 700 }}
+                    disabled={selectedFdNos.length === 0 || (dateMode === 'shift' && !offsetDaysValue) || (dateMode === 'set' && !newDepDateVal)}
+                    onClick={async () => {
+                      let formattedDate: string | undefined = undefined;
+                      if (dateMode === 'set' && newDepDateVal) {
+                        const [yyyy, mm, dd] = newDepDateVal.split('-');
+                        formattedDate = `${dd}/${mm}/${yyyy}`;
+                      }
+
+                      const success = await bulkUpdateFixedDepositDates(
+                        selectedFdNos,
+                        formattedDate,
+                        dateMode === 'shift' ? offsetDaysValue : undefined
+                      );
+                      if (success) {
+                        setSelectedFdNos([]);
+                        setOffsetDaysValue(0);
+                        setNewDepDateVal('');
+                      }
+                    }}
+                  >
+                    Apply Change ({selectedFdNos.length} Selected)
+                  </button>
+                </div>
+
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '40px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedFdNos.length === safeFixedDeposits.filter((f) => f.status === 'ACTIVE').length && safeFixedDeposits.filter((f) => f.status === 'ACTIVE').length > 0}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedFdNos(safeFixedDeposits.filter((f) => f.status === 'ACTIVE').map((f) => f.fdNo));
+                              } else {
+                                setSelectedFdNos([]);
+                              }
+                            }}
+                          />
+                        </th>
+                        <th>FD NO</th>
+                        <th>DEPOSITOR</th>
+                        <th>PRINCIPAL</th>
+                        <th>RATE (% P.A.)</th>
+                        <th>DEPOSIT DATE</th>
+                        <th>MATURITY DATE</th>
+                        <th>STATUS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {safeFixedDeposits
+                        .filter((f) => {
+                          const search = fdSearchText.toLowerCase();
+                          return (
+                            f.fdNo.toLowerCase().includes(search) ||
+                            f.depositorName.toLowerCase().includes(search) ||
+                            f.phone.includes(search)
+                          );
+                        })
+                        .map((f) => {
+                          const isSelected = selectedFdNos.includes(f.fdNo);
+                          const isChangeable = f.status === 'ACTIVE';
+                          return (
+                            <tr key={f.id} style={{ opacity: isChangeable ? 1 : 0.6 }}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  disabled={!isChangeable}
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedFdNos((prev) => [...prev, f.fdNo]);
+                                    } else {
+                                      setSelectedFdNos((prev) => prev.filter((no) => no !== f.fdNo));
+                                    }
+                                  }}
+                                />
+                              </td>
+                              <td style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>{f.fdNo}</td>
+                              <td style={{ fontWeight: 600 }}>{f.depositorName}</td>
+                              <td style={{ fontWeight: 700 }}>₹{f.principal.toLocaleString('en-IN')}</td>
+                              <td>{f.interestRatePA}%</td>
+                              <td>{f.depositDate}</td>
+                              <td>{f.maturityDate}</td>
+                              <td>
+                                <span className={`badge ${f.status === 'ACTIVE' ? 'badge-success' : 'badge-warning'}`}>
+                                  {f.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
