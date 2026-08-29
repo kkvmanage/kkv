@@ -4,6 +4,7 @@ import { Loan, LoanTopUpRecord, Receipt, DayBookEntry } from '../types/index.js'
 import { customerService } from './customer.service.js';
 import { receiptService } from './receipt.service.js';
 import { accountingService } from './accounting.service.js';
+import { adminService } from './admin.service.js';
 
 const FILE_NAME = 'loans.json';
 
@@ -106,18 +107,40 @@ export class LoanService {
     };
   }
 
+  public getApplicableInterestRate(principal: number): number {
+    const masterSettings = adminService.getMasterSettings();
+    const bands = masterSettings?.amountBands || [];
+    if (bands.length > 0 && principal > 0) {
+      const sorted = [...bands].sort((a, b) => a.amount - b.amount);
+      for (const b of sorted) {
+        if (b.condition === 'Below' && principal <= b.amount) {
+          return b.baseRateMonthly;
+        }
+        if (b.condition === 'Above' && principal > b.amount) {
+          return b.baseRateMonthly;
+        }
+      }
+      const match = sorted.find((b) => principal <= b.amount) || sorted[sorted.length - 1];
+      if (match) return match.baseRateMonthly;
+    }
+    return masterSettings?.goldLoanMonthlyRate || 1.5;
+  }
+
   public create(loanData: Omit<Loan, 'id' | 'loanNo'>): Loan {
     const loans = this.getAll();
     const nextNumber = loans.length + 1;
     const loanNo = `GL-${nextNumber.toString().padStart(2, '0')}`;
     const id = `L-${Date.now()}`;
     
-    const calc = this.calculateFinancials(loanData.principal, loanData.interestRate, loanData.items || []);
+    // Automatically determine & enforce rate from Master Control settings
+    const interestRate = this.getApplicableInterestRate(loanData.principal);
+    const calc = this.calculateFinancials(loanData.principal, interestRate, loanData.items || []);
 
     const newLoan: Loan = {
       ...loanData,
       id,
       loanNo,
+      interestRate,
       monthlyInterest: calc.monthlyInterest,
       totalGrossWeight: calc.totalGrossWeight,
       totalNetWeight: calc.totalNetWeight,

@@ -211,6 +211,16 @@ export interface FDCustomer {
   createdAt: string;
 }
 
+export interface AmountBand {
+  id: string;
+  condition: 'Below' | 'Above';
+  amount: number;
+  baseRateMonthly: number;
+  penaltyAfterMonths: number;
+  penaltyStepUpMonthly: number;
+  penaltyCalculation: 'From the start — stepped rate over the whole overc' | 'After threshold';
+}
+
 export interface MasterControlSettings {
   goldLoanMonthlyRate: number;
   silverLoanMonthlyRate: number;
@@ -218,8 +228,12 @@ export interface MasterControlSettings {
   hirePurchaseMonthlyRate: number;
   defaultCardFee: number;
   overdueInterestRatePA: number;
+  overduePenaltyPerDayPercent?: number;
+  graceDays?: number;
   upiId: string;
   upiPayeeName: string;
+  showOnLoanIssue?: boolean;
+  amountBands?: AmountBand[];
 }
 
 export interface WhatsAppTemplates {

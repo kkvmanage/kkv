@@ -8,11 +8,12 @@ import {
   MapPin,
   Check,
   Search,
-  ArrowRight
+  ArrowRight,
+  Lock
 } from 'lucide-react';
 
 export const LoanIssue: React.FC = () => {
-  const { customers, loans, receipts, addLoan, topUpLoan, setCurrentPage, showToast } = useApp();
+  const { customers, loans, receipts, addLoan, topUpLoan, setCurrentPage, showToast, masterControlSettings } = useApp();
 
   // Active Top Tab: 'issue' | 'topup'
   const [activeTab, setActiveTab] = useState<'issue' | 'topup'>('issue');
@@ -67,7 +68,27 @@ export const LoanIssue: React.FC = () => {
 
   // Financial details
   const [principal, setPrincipal] = useState<number>(100000);
-  const [interestRate, setInterestRate] = useState<number>(1.5);
+  
+  // Calculate applicable interest rate automatically from Master Control amount bands
+  const getApplicableInterestRate = (principalAmount: number): number => {
+    const bands = masterControlSettings?.amountBands || [];
+    if (bands.length > 0 && principalAmount > 0) {
+      const sortedBands = [...bands].sort((a, b) => a.amount - b.amount);
+      for (const band of sortedBands) {
+        if (band.condition === 'Below' && principalAmount <= band.amount) {
+          return band.baseRateMonthly;
+        }
+        if (band.condition === 'Above' && principalAmount > band.amount) {
+          return band.baseRateMonthly;
+        }
+      }
+      const match = sortedBands.find((b) => principalAmount <= b.amount) || sortedBands[sortedBands.length - 1];
+      if (match) return match.baseRateMonthly;
+    }
+    return masterControlSettings?.goldLoanMonthlyRate || 1.5;
+  };
+
+  const interestRate = getApplicableInterestRate(principal);
   const [bankMode, setBankMode] = useState<'UPI' | 'Cash' | 'Bank Transfer' | 'Split'>('Cash');
 
   // Advance interest
@@ -659,8 +680,34 @@ export const LoanIssue: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label className="form-label required">INTEREST RATE (% per month)</label>
-                <input type="number" step="0.1" className="input-control" value={interestRate} onChange={(e) => setInterestRate(Number(e.target.value) || 0)} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label required">INTEREST RATE (% per month)</label>
+                  <span className="badge badge-info" style={{ fontSize: '10px', gap: '3px', display: 'flex', alignItems: 'center' }}>
+                    <Lock size={10} /> Auto-Locked
+                  </span>
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="input-control readonly"
+                    readOnly
+                    disabled
+                    value={interestRate}
+                    style={{
+                      backgroundColor: 'var(--bg-surface-secondary)',
+                      color: 'var(--text-primary)',
+                      fontWeight: 700,
+                      paddingRight: '36px',
+                      cursor: 'not-allowed',
+                      border: '1px solid var(--border-light)'
+                    }}
+                  />
+                  <Lock size={14} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                </div>
+                <small style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  🔒 Interest rate is automatically applied from Master Control based on loan principal.
+                </small>
               </div>
 
               <div className="form-group" style={{ justifyContent: 'center' }}>
