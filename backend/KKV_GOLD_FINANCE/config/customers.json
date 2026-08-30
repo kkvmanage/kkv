@@ -15,22 +15,5 @@
     "totalBorrowed": 100000,
     "status": "VERIFIED",
     "joinedDate": "25/08/2026"
-  },
-  {
-    "id": "CUST-002",
-    "name": "Thayba Begum",
-    "phone": "9123456789",
-    "gender": "Female",
-    "age": 32,
-    "occupation": "Housewife",
-    "email": "thaybabegum@example.com",
-    "currentAddress": "45 Lake View Road",
-    "permanentAddress": "45 Lake View Road",
-    "idProof": "PAN Card",
-    "idNumber": "ABCDE1234F",
-    "activeLoansCount": 0,
-    "totalBorrowed": 0,
-    "status": "VERIFIED",
-    "joinedDate": "25/08/2026"
   }
 ]

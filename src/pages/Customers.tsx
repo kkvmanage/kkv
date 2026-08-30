@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { UserPlus, RotateCcw, Edit3, Trash2 } from 'lucide-react';
+import { UserPlus, RotateCcw, Edit3, Trash2, AlertTriangle } from 'lucide-react';
 import { SearchInput } from '../components/common/SearchInput';
+import { EditCustomerModal } from '../components/common/EditCustomerModal';
+import { Customer } from '../types';
 
 export const Customers: React.FC = () => {
-  const { customers, addCustomer, showToast } = useApp();
-  const [showModal, setShowModal] = useState(false);
+  const { customers, addCustomer, updateCustomer, deleteCustomer, showToast } = useApp();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'VERIFIED' | 'PENDING'>('ALL');
 
-  // Form State
+  // Form State for Add Customer
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
@@ -23,11 +27,14 @@ export const Customers: React.FC = () => {
   const [sameAddress, setSameAddress] = useState(true);
 
   const filteredCustomers = customers.filter((c) => {
+    const query = searchTerm.toLowerCase().trim();
     const matchesSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm) ||
-      c.idNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.occupation.toLowerCase().includes(searchTerm.toLowerCase());
+      !query ||
+      c.name.toLowerCase().includes(query) ||
+      c.phone.includes(query) ||
+      c.id.toLowerCase().includes(query) ||
+      c.idNumber.toLowerCase().includes(query) ||
+      c.occupation.toLowerCase().includes(query);
     const matchesFilter = statusFilter === 'ALL' || c.status === statusFilter;
     return matchesSearch && matchesFilter;
   });
@@ -45,16 +52,16 @@ export const Customers: React.FC = () => {
     }
 
     addCustomer({
-      name,
-      phone,
+      name: name.trim(),
+      phone: phone.trim(),
       gender,
       age: Number(age),
-      occupation: occupation || 'Self Employed',
-      email,
-      currentAddress,
-      permanentAddress: sameAddress ? currentAddress : permanentAddress,
+      occupation: occupation.trim() || 'Self Employed',
+      email: email.trim(),
+      currentAddress: currentAddress.trim(),
+      permanentAddress: sameAddress ? currentAddress.trim() : permanentAddress.trim(),
       idProof,
-      idNumber: idNumber || 'DOC-VERIFIED',
+      idNumber: idNumber.trim() || 'DOC-VERIFIED',
       status: 'VERIFIED'
     });
 
@@ -68,7 +75,15 @@ export const Customers: React.FC = () => {
     setIdNumber('');
     setCurrentAddress('');
     setPermanentAddress('');
-    setShowModal(false);
+    setShowAddModal(false);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deletingCustomer) return;
+    const success = deleteCustomer(deletingCustomer.id);
+    if (success) {
+      setDeletingCustomer(null);
+    }
   };
 
   return (
@@ -77,7 +92,7 @@ export const Customers: React.FC = () => {
       <div className="card" style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
           {/* Left: Add Customer Button */}
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+          <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
             <UserPlus size={16} />
             <span>Add Customer</span>
           </button>
@@ -199,7 +214,7 @@ export const Customers: React.FC = () => {
                           className="icon-button"
                           style={{ width: '28px', height: '28px' }}
                           title="Edit Customer"
-                          onClick={() => showToast(`Edit modal opened for ${c.name}`, 'info')}
+                          onClick={() => setEditingCustomer(c)}
                         >
                           <Edit3 size={13} />
                         </button>
@@ -207,7 +222,7 @@ export const Customers: React.FC = () => {
                           className="icon-button"
                           style={{ width: '28px', height: '28px', color: 'var(--badge-danger-text)' }}
                           title="Delete Customer"
-                          onClick={() => showToast(`Customer record protected by KYC policy`, 'warning')}
+                          onClick={() => setDeletingCustomer(c)}
                         >
                           <Trash2 size={13} />
                         </button>
@@ -222,7 +237,7 @@ export const Customers: React.FC = () => {
       </div>
 
       {/* Add Customer KYC Modal */}
-      {showModal && (
+      {showAddModal && (
         <div
           style={{
             position: 'fixed',
@@ -245,7 +260,7 @@ export const Customers: React.FC = () => {
                 <h3 className="card-title">Add New Borrower KYC Profile</h3>
                 <p className="card-description">Create verified customer record for loan disbursement</p>
               </div>
-              <button className="icon-button" onClick={() => setShowModal(false)}>✕</button>
+              <button className="icon-button" onClick={() => setShowAddModal(false)}>✕</button>
             </div>
 
             <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -389,7 +404,7 @@ export const Customers: React.FC = () => {
               )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
@@ -397,6 +412,100 @@ export const Customers: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Customer Modal */}
+      <EditCustomerModal
+        isOpen={!!editingCustomer}
+        customer={editingCustomer}
+        onClose={() => setEditingCustomer(null)}
+        onSave={(id, updates) => updateCustomer(id, updates)}
+      />
+
+      {/* Delete Customer Confirmation Modal */}
+      {deletingCustomer && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: '20px'
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              borderRadius: 'var(--radius-lg, 12px)',
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+              >
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-dark)' }}>
+                  Delete Customer Record?
+                </h3>
+                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+                  ID: <strong>{deletingCustomer.id}</strong>
+                </p>
+              </div>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-dark)', lineHeight: '1.5' }}>
+              Are you sure you want to permanently delete customer <strong>{deletingCustomer.name}</strong>? This action cannot be undone.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setDeletingCustomer(null)}
+                style={{ height: '38px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleConfirmDelete}
+                style={{
+                  height: '38px',
+                  backgroundColor: '#dc2626',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  padding: '0 16px',
+                  borderRadius: 'var(--radius-md)'
+                }}
+              >
+                Delete Customer
+              </button>
+            </div>
           </div>
         </div>
       )}

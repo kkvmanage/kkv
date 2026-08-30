@@ -16,6 +16,8 @@ target/
 backend/.env
 backend/.env.local
 backend/config/*.json
+client-2-*.json
+*.json
 *.key
 *.pem
 

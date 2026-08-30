@@ -6,18 +6,39 @@ export class DriveController {
   public getStatus = async (req: Request, res: Response) => {
     try {
       const connected = googleDriveService.isConnected();
+      let rootAccessible = false;
+      let rootError = '';
+
+      if (connected) {
+        const rootCheck = await googleDriveService.testRootFolderAccess();
+        rootAccessible = rootCheck.accessible;
+        if (!rootCheck.accessible) {
+          rootError = rootCheck.error || '';
+        }
+      }
+
       return res.status(200).json({
         success: true,
+        enabled: connected,
+        connected: connected && rootAccessible,
         data: {
-          connected,
+          enabled: connected,
+          connected: connected && rootAccessible,
+          rootFolderAccessible: rootAccessible,
+          serviceAccountEmail: 'kkv-gold-finance-drive@client-2-507109.iam.gserviceaccount.com',
+          rootFolderId: googleDriveService.getRootFolderId(),
           message: connected
-            ? 'Google Drive API is connected via Service Account'
+            ? rootAccessible
+              ? 'Google Drive API is connected & root folder is accessible'
+              : rootError || 'Root folder is not accessible'
             : 'Google Drive operating in local storage mode'
         }
       });
     } catch (err: any) {
       return res.status(500).json({
         success: false,
+        enabled: false,
+        connected: false,
         message: 'Failed to check Google Drive status',
         error: { message: err.message }
       });

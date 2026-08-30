@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { KKVLogo } from '../common/KKVLogo';
+import { BackupCloseModal } from '../common/BackupCloseModal';
 
 export const Sidebar: React.FC = () => {
   const { currentPage, setCurrentPage, showToast, darkMode, toggleDarkMode, isMobileMenuOpen, closeMobileMenu, masterControlSettings, userRole, setUserRole, setIsWorkspaceSelected } = useApp();
@@ -78,8 +79,16 @@ export const Sidebar: React.FC = () => {
     }
   }, [currentPage]);
 
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
   const handleBackupAndClose = () => {
-    showToast('Snapshot backed up! Closing session...', 'success');
+    setIsBackupModalOpen(true);
+  };
+
+  const handleFinishCloseSession = () => {
+    setUserRole(null);
+    setIsWorkspaceSelected(false);
+    showToast('Session closed cleanly. Application signed out.', 'info');
   };
 
   return (
@@ -443,6 +452,13 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
       </aside>
+
+      {/* Backup & Close Workflow Modal */}
+      <BackupCloseModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        onFinishCloseSession={handleFinishCloseSession}
+      />
     </>
   );
 };

@@ -247,6 +247,7 @@ export interface Customer {
   phone: string;
   gender: 'Male' | 'Female' | 'Other';
   age?: number;
+  dateOfBirth?: string;
   occupation: string;
   email?: string;
   currentAddress: string;
@@ -257,6 +258,13 @@ export interface Customer {
   totalBorrowed: number;
   status: 'VERIFIED' | 'PENDING';
   joinedDate: string;
+  location?: CustomerLocationData;
+  profilePhotoDriveId?: string | null;
+  kycDocumentDriveIds?: string[];
+  nominee?: NomineeDetails | null;
+  guarantor?: GuarantorDetails | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AmountBand {

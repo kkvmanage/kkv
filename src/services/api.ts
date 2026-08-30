@@ -91,6 +91,23 @@ export const apiService = {
       throw new Error(err.message || 'Location link resolution failed');
     }
   },
+  async createCloudBackup(backupData?: any, deviceId?: string) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/backup/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backupData, deviceId })
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.message || 'Failed to create cloud backup');
+      }
+      const json = await res.json();
+      return json.data;
+    } catch (err: any) {
+      throw new Error(err.message || 'Cloud backup service unreachable');
+    }
+  },
 
   // Google Drive Endpoints
   async uploadDriveFile(
@@ -154,6 +171,17 @@ export const apiService = {
     return fetchJson<any>('/customers', {
       method: 'POST',
       body: JSON.stringify(customer),
+    });
+  },
+  async updateCustomer(id: string, customer: any) {
+    return fetchJson<any>(`/customers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(customer),
+    });
+  },
+  async deleteCustomer(id: string) {
+    return fetchJson<{ success: boolean; message: string }>(`/customers/${id}`, {
+      method: 'DELETE',
     });
   },
 

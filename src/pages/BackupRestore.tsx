@@ -225,14 +225,24 @@ export const BackupRestore: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {/* Cloud Backup */}
             <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Cloud Backup</h4>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>Last cloud backup: 25/08/2026, 4:04:56 PM</p>
+              <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Cloud Backup (Google Drive)</h4>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Primary database remains local. Backups uploaded securely to Google Drive.
+              </p>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button className="btn btn-primary" onClick={() => showToast('Cloud backup triggered!', 'success')}>
+                <button
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      showToast('Creating database snapshot & uploading to Google Drive...', 'info');
+                      const res = await apiService.createCloudBackup({ customers, loans, receipts, fixedDeposits }, 'Desktop');
+                      showToast(`Cloud backup uploaded: ${res.fileName}`, 'success');
+                    } catch (err: any) {
+                      showToast(`Cloud backup failed: ${err.message}`, 'error');
+                    }
+                  }}
+                >
                   Back up to cloud now
-                </button>
-                <button className="btn btn-secondary" onClick={() => showToast('Cloud restore ready', 'info')}>
-                  Restore from cloud
                 </button>
               </div>
             </div>

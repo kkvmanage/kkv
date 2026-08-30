@@ -238,6 +238,8 @@ interface AppContextType {
   addFixedDeposit: (fd: Omit<FixedDeposit, 'id' | 'fdNo'>) => FixedDeposit;
   addFDCustomer: (cust: Omit<FDCustomer, 'id' | 'createdAt'>) => FDCustomer;
   addCustomer: (customer: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>) => Customer;
+  updateCustomer: (id: string, updates: Partial<Customer>) => Customer | null;
+  deleteCustomer: (id: string) => boolean;
   addDayBookEntry: (entry: Omit<DayBookEntry, 'id' | 'time' | 'cashBal' | 'bankBal'>) => DayBookEntry;
   payFDInterest: (fdNo: string, amount: number, mode: 'Cash' | 'Bank' | 'UPI') => void;
   withdrawFD: (fdNo: string, mode: 'Cash' | 'Bank' | 'UPI', notes?: string) => void;
@@ -355,7 +357,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           apiService.getWhatsAppTemplates(),
           apiService.getTelegramConfig()
         ]);
-        if (cList && cList.length > 0) setCustomers(cList);
+        if (cList && cList.length > 0) {
+          setCustomers((prev) => {
+            const map = new Map<string, Customer>();
+            cList.forEach((c: Customer) => map.set(c.id, c));
+            prev.forEach((c: Customer) => map.set(c.id, c));
+            return Array.from(map.values());
+          });
+        }
         if (lList && lList.length > 0) setLoans(lList);
         if (rList && rList.length > 0) setReceipts(rList);
         if (fdList && fdList.length > 0) setFixedDeposits(fdList);
@@ -682,17 +691,77 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addCustomer = (custData: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>): Customer => {
+    const id = `CUST-${(customers.length + 1).toString().padStart(3, '0')}`;
     const newCust: Customer = {
       ...custData,
-      id: `CUST-${Date.now().toString().slice(-3)}`,
+      id,
       activeLoansCount: 0,
       totalBorrowed: 0,
-      joinedDate: new Date().toLocaleDateString('en-GB')
+      status: custData.status || 'VERIFIED',
+      joinedDate: new Date().toLocaleDateString('en-GB'),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
-    setCustomers((prev) => [newCust, ...prev]);
-    showToast(`Customer ${newCust.name} added successfully!`, 'success');
+    setCustomers((prev) => [newCust, ...prev.filter(c => c.id !== id)]);
+
+    // Persist to backend
+    apiService.createCustomer(newCust).catch((err) => {
+      console.warn('[AppContext] Customer backend save sync warning:', err);
+    });
+
+    showToast(`Customer ${newCust.name} (${newCust.id}) added successfully!`, 'success');
     return newCust;
+  };
+
+  const updateCustomer = (id: string, updates: Partial<Customer>): Customer | null => {
+    let updatedCust: Customer | null = null;
+
+    setCustomers((prev) => {
+      const index = prev.findIndex((c) => c.id === id);
+      if (index === -1) return prev;
+
+      updatedCust = {
+        ...prev[index],
+        ...updates,
+        id: prev[index].id, // Permanent ID protection
+        updatedAt: new Date().toISOString()
+      };
+
+      const newArr = [...prev];
+      newArr[index] = updatedCust;
+      return newArr;
+    });
+
+    if (updatedCust) {
+      apiService.updateCustomer(id, updates).catch((err) => {
+        console.warn('[AppContext] Customer backend update sync warning:', err);
+      });
+      showToast(`Customer ${updates.name || id} updated successfully!`, 'success');
+    }
+
+    return updatedCust;
+  };
+
+  const deleteCustomer = (id: string): boolean => {
+    const targetCust = customers.find((c) => c.id === id);
+    if (!targetCust) return false;
+
+    // Active loans safety check
+    const hasActiveLoans = loans.some((l) => (l.customerId === id || l.customerName.toLowerCase() === targetCust.name.toLowerCase()) && l.status !== 'CLOSED');
+    if (hasActiveLoans || targetCust.activeLoansCount > 0) {
+      showToast(`Customer ${targetCust.name} has active loans and cannot be deleted.`, 'warning');
+      return false;
+    }
+
+    setCustomers((prev) => prev.filter((c) => c.id !== id));
+
+    apiService.deleteCustomer(id).catch((err) => {
+      console.warn('[AppContext] Customer backend delete sync warning:', err);
+    });
+
+    showToast(`Customer ${targetCust.name} deleted successfully.`, 'success');
+    return true;
   };
 
   const addDayBookEntry = (entryData: Omit<DayBookEntry, 'id' | 'time' | 'cashBal' | 'bankBal'>): DayBookEntry => {
@@ -894,6 +963,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addFixedDeposit,
         addFDCustomer,
         addCustomer,
+        updateCustomer,
+        deleteCustomer,
         addDayBookEntry,
         payFDInterest,
         withdrawFD,
