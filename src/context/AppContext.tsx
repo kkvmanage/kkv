@@ -232,7 +232,7 @@ interface AppContextType {
   telegramConfig: TelegramConfig;
   updateTelegramConfig: (config: Partial<TelegramConfig>) => void;
 
-  addLoan: (loan: Omit<Loan, 'id' | 'loanNo'>) => Loan;
+  addLoan: (loan: Omit<Loan, 'id' | 'loanNo'> & { loanNo?: string }) => Loan;
   topUpLoan: (loanNo: string, amount: number, date: string, notes?: string) => boolean;
   addReceipt: (receipt: Omit<Receipt, 'id' | 'receiptNo'>) => Receipt;
   addFixedDeposit: (fd: Omit<FixedDeposit, 'id' | 'fdNo'>) => FixedDeposit;
@@ -428,9 +428,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Telegram configuration saved!', 'success');
   };
 
-  const addLoan = (loanData: Omit<Loan, 'id' | 'loanNo'>): Loan => {
+  const addLoan = (loanData: Omit<Loan, 'id' | 'loanNo'> & { loanNo?: string }): Loan => {
     const nextNumber = loans.length + 1;
-    const loanNo = `GL-${nextNumber.toString().padStart(2, '0')}`;
+    const loanNo = loanData.loanNo || `GL-${nextNumber.toString().padStart(2, '0')}`;
     const newLoan: Loan = {
       ...loanData,
       id: `L-${Date.now()}`,

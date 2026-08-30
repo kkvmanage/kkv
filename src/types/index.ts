@@ -54,6 +54,8 @@ export interface NomineeDetails {
 export interface GuarantorDetails {
   hasGuarantor: boolean;
   name: string;
+  relationship?: string;
+  age?: number;
   phone: string;
   idProof: string;
   address: string;
@@ -94,6 +96,7 @@ export interface Loan {
   customerLocation?: CustomerLocation;
   nominee?: NomineeDetails;
   guarantor?: GuarantorDetails;
+  kycDocuments?: string[];
   date: string;
   loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
   repaymentSystem: 'Monthly interest only' | 'EMI' | 'Bullet Repayment';
@@ -102,11 +105,13 @@ export interface Loan {
   principal: number;
   interestRate: number; // monthly %
   bankMode: 'Cash' | 'UPI' | 'Bank Transfer' | 'Split';
+  splitBankMode?: string;
   cashAmount: number;
   bankAmount: number;
   deductAdvanceInterest: boolean;
   advanceDays: number;
   advanceInterestAmount: number;
+  advanceInterestReceivingMethod?: 'Cash' | 'Bank' | 'Cash + Bank';
   cardFee: number;
   cardFeePaymentMode: 'Cash' | 'Bank';
   items: OrnamentItem[];
