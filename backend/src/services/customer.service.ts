@@ -1,4 +1,5 @@
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
+import { googleDriveService } from './googleDriveService.js';
 import { Customer } from '../types/index.js';
 
 const FILE_NAME = 'customers.json';
@@ -62,16 +63,27 @@ export class CustomerService {
     );
   }
 
-  public create(data: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>): Customer {
+  public async create(data: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>): Promise<Customer> {
     const customers = this.getAll();
     const id = `CUST-${Date.now().toString().slice(-4)}`;
+    let driveFolderId: string | undefined;
+
+    try {
+      const folders = await googleDriveService.ensureCustomerFolders(id);
+      driveFolderId = folders.customerFolderId;
+    } catch (e) {
+      console.warn('[CustomerService] Google Drive folder setup warning:', e);
+    }
+
     const newCustomer: Customer = {
       ...data,
       id,
       activeLoansCount: 0,
       totalBorrowed: 0,
       status: 'VERIFIED',
-      joinedDate: new Date().toLocaleDateString('en-GB')
+      joinedDate: new Date().toLocaleDateString('en-GB'),
+      driveFolderId,
+      kycDocumentDriveIds: []
     };
     customers.unshift(newCustomer);
     googleDriveRepository.writeJson(FILE_NAME, customers);

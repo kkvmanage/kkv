@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, FileSpreadsheet, FileText, Printer, Edit3, Copy } from 'lucide-react';
 import { Receipt } from '../types';
+import { SearchInput } from '../components/common/SearchInput';
+import { FileSpreadsheet, FileText, Printer, Edit3, Copy } from 'lucide-react';
 
 export const AllReceipts: React.FC = () => {
   const { receipts, setSelectedReceipt, setCurrentPage, showToast } = useApp();
@@ -57,19 +58,11 @@ export const AllReceipts: React.FC = () => {
         </div>
 
         {/* Search Bar */}
-        <div style={{ marginBottom: '18px', maxWidth: '420px', position: 'relative' }}>
-          <Search
-            size={15}
-            color="#8A9993"
-            style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
-          />
-          <input
-            type="text"
-            className="input-control"
-            style={{ paddingLeft: '36px', height: '38px', fontSize: '13px' }}
-            placeholder="Receipt no, loan no, or customer name..."
+        <div style={{ marginBottom: '18px', maxWidth: '420px' }}>
+          <SearchInput
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={setSearchTerm}
+            placeholder="Search receipt, loan, or customer..."
           />
         </div>
 

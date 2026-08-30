@@ -26,8 +26,8 @@ export const getLoanByNo = (req: Request, res: Response) => {
   });
 };
 
-export const createLoan = (req: Request, res: Response) => {
-  const newLoan = loanService.create(req.body);
+export const createLoan = async (req: Request, res: Response) => {
+  const newLoan = await loanService.create(req.body);
   return res.status(201).json({
     success: true,
     message: 'Loan issued successfully',

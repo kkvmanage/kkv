@@ -2,7 +2,7 @@ export interface OrnamentItem {
   id: string;
   item: string;
   qty: number;
-  purity: '22ct' | '24ct' | '18ct';
+  purity: '22ct' | '24ct' | '18ct' | '20ct' | '14ct' | 'Silver 925' | 'Silver 999';
   grossWeight: number;
   netWeight: number;
 }
@@ -20,6 +20,8 @@ export interface NomineeDetails {
 export interface GuarantorDetails {
   hasGuarantor: boolean;
   name: string;
+  relationship?: string;
+  age?: number;
   phone: string;
   idProof: string;
   address: string;
@@ -59,6 +61,9 @@ export interface Customer {
   totalBorrowed: number;
   status: 'VERIFIED' | 'PENDING';
   joinedDate: string;
+  profilePhotoDriveId?: string;
+  kycDocumentDriveIds?: string[];
+  driveFolderId?: string;
 }
 
 export interface Loan {
@@ -78,6 +83,7 @@ export interface Loan {
   customerLocation?: CustomerLocation;
   nominee?: NomineeDetails;
   guarantor?: GuarantorDetails;
+  kycDocuments?: string[];
   date: string;
   loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
   repaymentSystem: 'Monthly interest only' | 'EMI' | 'Bullet Repayment';
@@ -86,11 +92,13 @@ export interface Loan {
   principal: number;
   interestRate: number;
   bankMode: 'Cash' | 'UPI' | 'Bank Transfer' | 'Split';
+  splitBankMode?: string;
   cashAmount: number;
   bankAmount: number;
   deductAdvanceInterest: boolean;
   advanceDays: number;
   advanceInterestAmount: number;
+  advanceInterestReceivingMethod?: 'Cash' | 'Bank' | 'Cash + Bank';
   cardFee: number;
   cardFeePaymentMode: 'Cash' | 'Bank';
   items: OrnamentItem[];
@@ -109,6 +117,9 @@ export interface Loan {
   lastInterestPaidDate?: string;
   nextDueDate?: string;
   topUps?: LoanTopUpRecord[];
+  documentDriveIds?: string[];
+  receiptDriveIds?: string[];
+  driveFolderId?: string;
 }
 
 export interface Receipt {
@@ -133,6 +144,7 @@ export interface Receipt {
   nextDueDate?: string;
   daysLate?: number;
   notes?: string;
+  driveFileId?: string;
 }
 
 export interface DayBookEntry {
@@ -209,6 +221,9 @@ export interface FDCustomer {
   documents?: string[];
   photoUrl?: string;
   createdAt: string;
+  profilePhotoDriveId?: string;
+  kycDocumentDriveIds?: string[];
+  driveFolderId?: string;
 }
 
 export interface AmountBand {
@@ -306,4 +321,3 @@ export interface AdminUser {
   email: string;
   lastLogin?: string;
 }
-

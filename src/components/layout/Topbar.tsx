@@ -1,8 +1,9 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Search, Bell, Plus, Menu } from 'lucide-react';
+import { Bell, Plus, Menu } from 'lucide-react';
 import { NavPage } from '../../types';
 import { KKVLogo } from '../common/KKVLogo';
+import { GlobalSearch } from '../common/GlobalSearch';
 
 interface PageMetadata {
   title: string;
@@ -133,7 +134,7 @@ const pageTitles: Record<NavPage, PageMetadata> = {
 };
 
 export const Topbar: React.FC = () => {
-  const { currentPage, setCurrentPage, searchQuery, setSearchQuery, showToast, toggleMobileMenu } = useApp();
+  const { currentPage, setCurrentPage, showToast, toggleMobileMenu } = useApp();
 
   const meta = pageTitles[currentPage] || {
     title: 'KKV Gold Finance',
@@ -164,15 +165,7 @@ export const Topbar: React.FC = () => {
       {/* Right: Search, Notification Icon, + New Loan Button */}
       <div className="topbar-right">
         {/* Global Search Bar */}
-        <div className="topbar-search">
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Search customers, loans..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+        <GlobalSearch />
 
         {/* Notification Icon */}
         <button

@@ -10,10 +10,16 @@ import adminRoutes from './admin.routes.js';
 import backupRoutes from './backup.routes.js';
 import telegramRoutes from './telegram.routes.js';
 import reminderRoutes from './reminder.routes.js';
+import driveRoutes from './drive.routes.js';
+import searchRoutes from './search.routes.js';
+import locationRoutes from './location.routes.js';
 
 const router = Router();
 
 router.use('/health', healthRoutes);
+router.use('/search', searchRoutes);
+router.use('/location', locationRoutes);
+router.use('/drive', driveRoutes);
 router.use('/customers', customerRoutes);
 router.use('/loans', loanRoutes);
 router.use('/receipts', receiptRoutes);

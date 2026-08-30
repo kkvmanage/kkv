@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Loan } from '../types';
-import { Search, Receipt, FileSpreadsheet, Eye, Edit3, CheckCircle2 } from 'lucide-react';
+import { Receipt, FileSpreadsheet, Eye, Edit3, CheckCircle2 } from 'lucide-react';
+import { SearchInput } from '../components/common/SearchInput';
 
 export const LoanDisplay: React.FC = () => {
   const { loans, setSelectedLoan, setCurrentPage, showToast } = useApp();
@@ -67,19 +68,11 @@ export const LoanDisplay: React.FC = () => {
             ))}
           </div>
 
-          <div style={{ position: 'relative', width: '280px' }}>
-            <Search
-              size={15}
-              color="#8A9993"
-              style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }}
-            />
-            <input
-              type="text"
-              className="input-control"
-              style={{ paddingLeft: '32px', height: '34px', fontSize: '12.5px' }}
-              placeholder="Search by loan #, customer..."
+          <div style={{ width: '280px' }}>
+            <SearchInput
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={setSearchTerm}
+              placeholder="Search by loan #, customer..."
             />
           </div>
         </div>

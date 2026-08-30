@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { UserPlus, Search, RotateCcw, Edit3, Trash2 } from 'lucide-react';
+import { UserPlus, RotateCcw, Edit3, Trash2 } from 'lucide-react';
+import { SearchInput } from '../components/common/SearchInput';
 
 export const Customers: React.FC = () => {
   const { customers, addCustomer, showToast } = useApp();
@@ -83,19 +84,11 @@ export const Customers: React.FC = () => {
 
           {/* Center Search & Filters */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, maxWidth: '600px', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
-              <Search
-                size={15}
-                color="#8A9993"
-                style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
-              />
-              <input
-                type="text"
-                className="input-control"
-                style={{ paddingLeft: '36px', height: '38px', fontSize: '13px' }}
-                placeholder="Search name, phone, ID..."
+            <div style={{ flex: 1, minWidth: '220px' }}>
+              <SearchInput
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={setSearchTerm}
+                placeholder="Search name, phone, ID..."
               />
             </div>
 

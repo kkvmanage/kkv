@@ -68,6 +68,15 @@ export interface CustomerLocation {
   addressSummary: string;
 }
 
+export interface CustomerLocationData {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  source: 'gps' | 'google_maps_link' | 'manual';
+  googleMapsUrl: string;
+  capturedAt: string;
+}
+
 export interface LoanTopUpRecord {
   id: string;
   date: string;

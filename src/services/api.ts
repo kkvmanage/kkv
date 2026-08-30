@@ -1,5 +1,5 @@
 // API Client Service connecting Frontend to Local Node.js + Express Backend (http://localhost:8080/api)
-// with persistent Google Drive storage sync
+// with Google Drive integration for secure file management
 
 const API_BASE_URL = ((import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:8080/api';
 
@@ -21,10 +21,129 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T 
   }
 }
 
+function uploadWithProgress<T>(
+  endpoint: string,
+  formData: FormData,
+  onProgress?: (percent: number) => void
+): Promise<{ success: boolean; data?: T; message?: string }> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE_URL}${endpoint}`);
+
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve({ success: true, data: json.data || json, message: json.message });
+        } else {
+          resolve({ success: false, message: json.message || 'Upload failed' });
+        }
+      } catch {
+        resolve({ success: false, message: 'Invalid server response' });
+      }
+    };
+
+    xhr.onerror = () => {
+      resolve({ success: false, message: 'Network error occurred during upload' });
+    };
+
+    xhr.send(formData);
+  });
+}
+
 export const apiService = {
-  // Health
+  // Health & Search & Drive Status
   async getHealth() {
     return fetchJson<{ application: string; storage: string; googleDrive: string }>('/health');
+  },
+  async getDriveStatus() {
+    return fetchJson<{ connected: boolean; message: string }>('/drive/status');
+  },
+  async globalSearch(query: string) {
+    if (!query || !query.trim()) {
+      return { customers: [], loans: [], receipts: [] };
+    }
+    return fetchJson<{ customers: any[]; loans: any[]; receipts: any[] }>(`/search?q=${encodeURIComponent(query)}`);
+  },
+  async resolveLocationLink(url: string) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/location/resolve-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.message || 'Failed to resolve location link');
+      }
+      const json = await res.json();
+      return json.data;
+    } catch (err: any) {
+      throw new Error(err.message || 'Location link resolution failed');
+    }
+  },
+
+  // Google Drive Endpoints
+  async uploadDriveFile(
+    file: File,
+    meta?: { folderId?: string; customerId?: string; loanId?: string; category?: string },
+    onProgress?: (percent: number) => void
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (meta?.folderId) formData.append('folderId', meta.folderId);
+    if (meta?.customerId) formData.append('customerId', meta.customerId);
+    if (meta?.loanId) formData.append('loanId', meta.loanId);
+    if (meta?.category) formData.append('category', meta.category);
+
+    return uploadWithProgress<any>('/drive/upload', formData, onProgress);
+  },
+
+  async getDriveFiles(folderId?: string, search?: string) {
+    const params = new URLSearchParams();
+    if (folderId) params.append('folderId', folderId);
+    if (search) params.append('search', search);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return fetchJson<any[]>(`/drive/files${queryString}`);
+  },
+
+  async deleteDriveFile(fileId: string) {
+    return fetchJson<{ success: boolean; message: string }>(`/drive/file/${fileId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async uploadCustomerDocument(
+    customerId: string,
+    file: File,
+    category: 'profile' | 'kyc' = 'kyc',
+    onProgress?: (percent: number) => void
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category', category);
+    return uploadWithProgress<any>(`/drive/customers/${customerId}/documents`, formData, onProgress);
+  },
+
+  async uploadLoanDocument(
+    loanId: string,
+    file: File,
+    category: 'document' | 'receipt' = 'document',
+    onProgress?: (percent: number) => void
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category', category);
+    return uploadWithProgress<any>(`/drive/loans/${loanId}/documents`, formData, onProgress);
   },
 
   // Customers
@@ -180,4 +299,3 @@ export const apiService = {
     });
   }
 };
-

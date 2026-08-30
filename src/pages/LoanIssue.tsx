@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { OrnamentItem, PurityOption } from '../types';
+import { CustomerLocation } from '../components/common/CustomerLocation';
+import { CustomerAutocomplete } from '../components/common/CustomerAutocomplete';
 import { DobDatePicker } from '../components/common/DobDatePicker';
 import { DatePicker } from '../components/common/DatePicker';
+import { DriveFileUpload, DriveFileItem } from '../components/common/DriveFileUpload';
+import { CustomerPhotoUpload } from '../components/common/CustomerPhotoUpload';
+import { CustomerLocationData, OrnamentItem, PurityOption } from '../types';
+import { apiService } from '../services/api';
 import {
   Plus,
   Camera,
-  MapPin,
-  Check,
   Search,
   ArrowRight,
   Mic,
   X,
-  FileText,
   Image as ImageIcon
 } from 'lucide-react';
 
@@ -63,14 +65,14 @@ export const LoanIssue: React.FC = () => {
   const [idNumber, setIdNumber] = useState<string>('');
   const [currentAddress, setCurrentAddress] = useState<string>('');
   const [permanentAddress, setPermanentAddress] = useState<string>('');
-  const [photoCaptured, setPhotoCaptured] = useState<boolean>(false);
+  const [customerPhotoFile, setCustomerPhotoFile] = useState<File | null>(null);
+  const [customerPhotoUrl, setCustomerPhotoUrl] = useState<string | null>(null);
 
   // KYC Documents
   const [kycDocs, setKycDocs] = useState<string[]>([]);
 
   // Customer Location
-  const [locationCaptured, setLocationCaptured] = useState<boolean>(false);
-  const [mapsLink, setMapsLink] = useState<string>('');
+  const [customerLocationData, setCustomerLocationData] = useState<CustomerLocationData | null>(null);
 
   // Nominee Collapsible
   const [hasNominee, setHasNominee] = useState<boolean>(false);
@@ -204,13 +206,7 @@ export const LoanIssue: React.FC = () => {
   };
 
   // Search & fill customer logic
-  const filteredCustomersByName = customerSearchName.trim()
-    ? customers.filter(c => c.name.toLowerCase().includes(customerSearchName.toLowerCase()))
-    : [];
 
-  const filteredCustomersByPhone = customerSearchPhone.trim()
-    ? customers.filter(c => c.phone.includes(customerSearchPhone))
-    : [];
 
   const handleSelectCustomer = (cust: typeof customers[0]) => {
     setSelectedCustomerId(cust.id);
@@ -228,7 +224,7 @@ export const LoanIssue: React.FC = () => {
     setIdNumber(cust.idNumber || '');
     setCurrentAddress(cust.currentAddress || '');
     setPermanentAddress(cust.permanentAddress || '');
-    setPhotoCaptured(true);
+    if ((cust as any).customerPhotoUrl) setCustomerPhotoUrl((cust as any).customerPhotoUrl);
     setCustomerSearchName('');
     setCustomerSearchPhone('');
     showToast(`Loaded KYC details for ${cust.name}`, 'info');
@@ -275,48 +271,9 @@ export const LoanIssue: React.FC = () => {
     );
   };
 
-  // Location Handlers
-  const handleUseMapsLink = () => {
-    if (!mapsLink.trim()) {
-      showToast('Please enter or paste a valid Maps link or coordinates.', 'warning');
-      return;
-    }
-    setLocationCaptured(true);
-    showToast('Location coordinates pinned successfully!', 'success');
-  };
 
-  const handleCaptureGPS = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
-          setMapsLink(coords);
-          setLocationCaptured(true);
-          showToast(`Location captured: ${coords}`, 'success');
-        },
-        () => {
-          setMapsLink('11.3410, 77.7172');
-          setLocationCaptured(true);
-          showToast('Captured location: 11.3410, 77.7172', 'success');
-        }
-      );
-    } else {
-      setMapsLink('11.3410, 77.7172');
-      setLocationCaptured(true);
-      showToast('Captured location: 11.3410, 77.7172', 'success');
-    }
-  };
 
-  // KYC Docs upload mock
-  const handleDocUpload = () => {
-    if (kycDocs.length >= 6) {
-      showToast('Maximum 6 KYC documents allowed.', 'warning');
-      return;
-    }
-    const mockDoc = `Doc_${kycDocs.length + 1}.jpg`;
-    setKycDocs(prev => [...prev, mockDoc]);
-    showToast('KYC Document uploaded', 'info');
-  };
+
 
   // Ornament Photos upload mock
   const handlePhotoUpload = () => {
@@ -350,10 +307,10 @@ export const LoanIssue: React.FC = () => {
     setIdNumber('');
     setCurrentAddress('');
     setPermanentAddress('');
-    setPhotoCaptured(false);
+    setCustomerPhotoFile(null);
+    setCustomerPhotoUrl(null);
     setKycDocs([]);
-    setMapsLink('');
-    setLocationCaptured(false);
+    setCustomerLocationData(null);
     setHasNominee(false);
     setNomineeName('');
     setNomineeRelation('-');
@@ -390,7 +347,7 @@ export const LoanIssue: React.FC = () => {
   };
 
   // Submit Issue Loan
-  const handleSubmitIssue = (e: React.FormEvent) => {
+  const handleSubmitIssue = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!loanIssueDateIso || !loanIssueDate) {
@@ -444,25 +401,42 @@ export const LoanIssue: React.FC = () => {
       return;
     }
 
+    const targetCustomerId = selectedCustomerId || `CUST-${Date.now().toString().slice(-4)}`;
+    let finalPhotoUrl: string | undefined = customerPhotoUrl || undefined;
+
+    if (customerPhotoFile) {
+      try {
+        const uploadRes = await apiService.uploadCustomerDocument(targetCustomerId, customerPhotoFile, 'profile');
+        if (uploadRes.success && uploadRes.data) {
+          const driveFile = uploadRes.data.driveFile || uploadRes.data;
+          finalPhotoUrl = driveFile.webViewLink || driveFile.fileId;
+          showToast('Customer profile photo uploaded to Google Drive', 'success');
+        }
+      } catch (err) {
+        console.warn('[Photo Upload] Drive upload error:', err);
+      }
+    }
+
     addLoan({
       receiptBillNo,
       loanNo,
-      customerId: selectedCustomerId || `CUST-${Date.now().toString().slice(-4)}`,
+      customerId: targetCustomerId,
       customerName: name,
       customerPhone: phone,
       customerGender: gender === '-' ? 'Male' : (gender as any),
       customerAge: Number(age) || 30,
       customerOccupation: occupation || 'Self Employed',
       customerEmail: email,
+      customerPhotoUrl: finalPhotoUrl,
       customerCurrentAddress: currentAddress,
       customerPermanentAddress: permanentAddress || currentAddress,
-      customerLocation: locationCaptured
+      customerLocation: customerLocationData
         ? {
-          captured: true,
-          coordinates: mapsLink || '11.3410, 77.7172',
-          mapsUrl: mapsLink.includes('http') ? mapsLink : `https://maps.google.com/?q=${mapsLink || '11.3410,77.7172'}`,
-          addressSummary: currentAddress
-        }
+            captured: true,
+            coordinates: `${customerLocationData.latitude}, ${customerLocationData.longitude}`,
+            mapsUrl: customerLocationData.googleMapsUrl,
+            addressSummary: currentAddress
+          }
         : undefined,
       nominee: hasNominee
         ? {
@@ -962,44 +936,26 @@ export const LoanIssue: React.FC = () => {
 
               {/* Row 4: Existing Customer By Name | By Phone */}
               <div className="grid-2" style={{ gap: '16px' }}>
-                <div className="form-group" style={{ position: 'relative' }}>
-                  <label className="form-label">EXISTING CUSTOMER (BY NAME)</label>
-                  <input
-                    type="text"
-                    className="input-control"
-                    placeholder="Type the customer name..."
+                <div className="form-group">
+                  <CustomerAutocomplete
+                    label="EXISTING CUSTOMER (BY NAME)"
                     value={customerSearchName}
-                    onChange={(e) => setCustomerSearchName(e.target.value)}
+                    onChange={setCustomerSearchName}
+                    onSelectCustomer={handleSelectCustomer}
+                    placeholder="Type customer name..."
+                    searchBy="name"
                   />
-                  {filteredCustomersByName.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', zIndex: 60, boxShadow: 'var(--shadow-md)', maxHeight: '160px', overflowY: 'auto' }}>
-                      {filteredCustomersByName.map(c => (
-                        <div key={c.id} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', fontSize: '13px' }} onClick={() => handleSelectCustomer(c)}>
-                          <strong>{c.name}</strong> ({c.phone}) - {c.currentAddress}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
-                <div className="form-group" style={{ position: 'relative' }}>
-                  <label className="form-label">EXISTING CUSTOMER (BY PHONE)</label>
-                  <input
-                    type="text"
-                    className="input-control"
-                    placeholder="Type the phone number..."
+                <div className="form-group">
+                  <CustomerAutocomplete
+                    label="EXISTING CUSTOMER (BY PHONE)"
                     value={customerSearchPhone}
-                    onChange={(e) => setCustomerSearchPhone(e.target.value)}
+                    onChange={setCustomerSearchPhone}
+                    onSelectCustomer={handleSelectCustomer}
+                    placeholder="Type phone number..."
+                    searchBy="phone"
                   />
-                  {filteredCustomersByPhone.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', zIndex: 60, boxShadow: 'var(--shadow-md)', maxHeight: '160px', overflowY: 'auto' }}>
-                      {filteredCustomersByPhone.map(c => (
-                        <div key={c.id} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', fontSize: '13px' }} onClick={() => handleSelectCustomer(c)}>
-                          <strong>{c.name}</strong> ({c.phone}) - {c.currentAddress}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -1014,37 +970,15 @@ export const LoanIssue: React.FC = () => {
 
             <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr', gap: '20px', alignItems: 'start' }}>
               {/* Photo Box Column */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                <div style={{
-                  width: '140px',
-                  height: '160px',
-                  border: '2px dashed var(--border-subtle)',
-                  borderRadius: 'var(--radius-md)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: 'var(--bg-surface-subtle)',
-                  color: 'var(--text-muted)',
-                  fontSize: '12px'
-                }}>
-                  {photoCaptured ? (
-                    <div style={{ textAlign: 'center', color: 'var(--color-primary-dark)' }}>
-                      <Check size={36} color="var(--color-success)" />
-                      <p style={{ fontWeight: 700, marginTop: '6px', fontSize: '12px' }}>Photo Attached</p>
-                    </div>
-                  ) : (
-                    <>
-                      <Camera size={30} />
-                      <span style={{ marginTop: '8px', color: 'var(--text-muted)' }}>No photo</span>
-                    </>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button type="button" className="btn btn-secondary btn-sm" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => { setPhotoCaptured(true); showToast('Webcam photo captured', 'info'); }}>Webcam</button>
-                  <button type="button" className="btn btn-secondary btn-sm" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => { setPhotoCaptured(true); showToast('Photo uploaded', 'info'); }}>UPLOAD</button>
-                </div>
-              </div>
+              <CustomerPhotoUpload
+                photoFile={customerPhotoFile}
+                photoUrl={customerPhotoUrl}
+                onChange={(file, url) => {
+                  setCustomerPhotoFile(file);
+                  setCustomerPhotoUrl(url);
+                }}
+                onToast={(msg, type) => showToast(msg, type)}
+              />
 
               {/* Middle Column */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1180,33 +1114,12 @@ export const LoanIssue: React.FC = () => {
             </div>
 
             {/* Customer Location Container */}
-            <div style={{ marginTop: '16px', padding: '14px', backgroundColor: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid var(--border-subtle)' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                CUSTOMER LOCATION (FOR VISITS &amp; COLLECTION)
-              </span>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button type="button" className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }} onClick={handleCaptureGPS}>
-                  <MapPin size={15} color="#EF4444" />
-                  <span>Capture Current Location</span>
-                </button>
-                <input
-                  type="text"
-                  className="input-control"
-                  style={{ flex: 1 }}
-                  placeholder="...or paste a Maps link / 11.3410, 77.7172"
-                  value={mapsLink}
-                  onChange={(e) => setMapsLink(e.target.value)}
-                />
-                <button type="button" className="btn btn-primary" onClick={handleUseMapsLink}>Use link</button>
-              </div>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0, lineHeight: '1.4' }}>
-                {locationCaptured ? (
-                  <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>✓ Location saved ({mapsLink})</span>
-                ) : (
-                  'No location saved yet.'
-                )}
-                {' '}Press Capture while you are AT the customer's place — it saves where this phone is right now. Any Google Maps link works too — including the short maps.app.goo.gl/share-link. Tapping a saved link opens the place. Only Capture (or pasted numbers) can also measure distance and build the Collection Route.
-              </p>
+            <div style={{ marginTop: '16px' }}>
+              <CustomerLocation
+                location={customerLocationData}
+                onChange={setCustomerLocationData}
+                onToast={(msg, type) => showToast(msg, type)}
+              />
             </div>
 
             {/* Nominee & Guarantor Collapsibles */}
@@ -1320,27 +1233,17 @@ export const LoanIssue: React.FC = () => {
 
               {/* KYC Documents Uploader */}
               <div style={{ marginTop: '4px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  KYC DOCUMENTS (UP TO 6 PHOTOS)
-                </span>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 8px 0' }}>
-                  {kycDocs.length > 0 ? `${kycDocs.length} document(s) uploaded.` : 'No documents uploaded yet.'}
-                </p>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {kycDocs.map((doc, idx) => (
-                    <div key={idx} style={{ padding: '4px 10px', backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <FileText size={14} color="var(--color-primary-dark)" />
-                      <span>{doc}</span>
-                      <button type="button" onClick={() => setKycDocs(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 0 }}>
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
-                  <button type="button" className="btn btn-secondary btn-sm" style={{ gap: '6px', fontSize: '12px' }} onClick={handleDocUpload}>
-                    <Plus size={14} />
-                    <span>+ ADD DOCUMENT</span>
-                  </button>
-                </div>
+                <DriveFileUpload
+                  label="KYC DOCUMENTS (SECURE GOOGLE DRIVE UPLOAD)"
+                  category="kyc"
+                  customerId={selectedCustomerId || undefined}
+                  onUploadSuccess={(item: DriveFileItem) => {
+                    setKycDocs((prev) => [...prev, item.name]);
+                  }}
+                  onFileDeleted={() => {
+                    setKycDocs((prev) => prev.slice(0, -1));
+                  }}
+                />
               </div>
 
             </div>

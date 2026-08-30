@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
+import { googleDriveService } from './googleDriveService.js';
 import { Loan, LoanTopUpRecord, Receipt, DayBookEntry } from '../types/index.js';
 import { customerService } from './customer.service.js';
 import { receiptService } from './receipt.service.js';
@@ -126,12 +127,20 @@ export class LoanService {
     return masterSettings?.goldLoanMonthlyRate || 1.5;
   }
 
-  public create(loanData: Omit<Loan, 'id' | 'loanNo'>): Loan {
+  public async create(loanData: Omit<Loan, 'id' | 'loanNo'>): Promise<Loan> {
     const loans = this.getAll();
     const nextNumber = loans.length + 1;
     const loanNo = `GL-${nextNumber.toString().padStart(2, '0')}`;
     const id = `L-${Date.now()}`;
-    
+    let driveFolderId: string | undefined;
+
+    try {
+      const folders = await googleDriveService.ensureLoanFolders(id);
+      driveFolderId = folders.loanFolderId;
+    } catch (e) {
+      console.warn('[LoanService] Drive folder setup warning:', e);
+    }
+
     // Automatically determine & enforce rate from Master Control settings
     const interestRate = this.getApplicableInterestRate(loanData.principal);
     const calc = this.calculateFinancials(loanData.principal, interestRate, loanData.items || []);
@@ -151,7 +160,10 @@ export class LoanService {
       accruedInterest: calc.monthlyInterest,
       status: 'ACTIVE',
       lastInterestPaidDate: loanData.date,
-      nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
+      nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
+      driveFolderId,
+      documentDriveIds: [],
+      receiptDriveIds: []
     };
 
     loans.unshift(newLoan);

@@ -36,8 +36,8 @@ export const searchCustomers = (req: Request, res: Response) => {
   });
 };
 
-export const createCustomer = (req: Request, res: Response) => {
-  const newCustomer = customerService.create(req.body);
+export const createCustomer = async (req: Request, res: Response) => {
+  const newCustomer = await customerService.create(req.body);
   return res.status(201).json({
     success: true,
     message: 'Customer created successfully',
