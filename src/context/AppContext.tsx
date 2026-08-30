@@ -95,6 +95,30 @@ const defaultMasterSettings: MasterControlSettings = {
   upiId: 'yourbusiness@okhdfcbank',
   upiPayeeName: 'KKV GOLD FINANCE',
   showOnLoanIssue: true,
+  hireShowOnLoanIssue: true,
+  silverShowOnLoanIssue: true,
+  pronoteShowOnLoanIssue: true,
+  pronoteRate: 12,
+  goldCardFeeEnabled: true,
+  goldCardFee: 10,
+  silverCardFeeEnabled: true,
+  silverCardFee: 10,
+  pronoteCardFeeEnabled: true,
+  pronoteCardFee: 10,
+  hireCardFeeEnabled: true,
+  hireCardFee: 10,
+  overdueCalculationMethod: 'Whole months — a part month counts as full (recommended)',
+  silverAmountBands: [
+    {
+      id: 'silver-band-1',
+      condition: 'Above',
+      amount: 0,
+      baseRateMonthly: 2.0,
+      penaltyAfterMonths: 6,
+      penaltyStepUpMonthly: 0.1,
+      penaltyCalculation: 'From the start — stepped rate over the whole overc'
+    }
+  ],
   amountBands: [
     {
       id: 'band-1',
