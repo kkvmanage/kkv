@@ -45,6 +45,8 @@ export interface NomineeDetails {
   hasNominee: boolean;
   name: string;
   relationship: string;
+  relation?: string;
+  customRelation?: string | null;
   age?: number;
   phone: string;
   idProofNumber?: string;
@@ -55,6 +57,8 @@ export interface GuarantorDetails {
   hasGuarantor: boolean;
   name: string;
   relationship?: string;
+  relation?: string;
+  customRelation?: string | null;
   age?: number;
   phone: string;
   idProof: string;
@@ -123,6 +127,7 @@ export interface Loan {
   advanceInterestReceivingMethod?: 'Cash' | 'Bank' | 'Cash + Bank';
   cardFee: number;
   cardFeePaymentMode: 'Cash' | 'Bank';
+  cardFeeBankMode?: string;
   items: OrnamentItem[];
   totalGrossWeight: number;
   totalNetWeight: number;

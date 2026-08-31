@@ -8,10 +8,10 @@ export class DriveFolderService {
 
   constructor() {
     this.baseDir = path.resolve(process.cwd(), 'KKV_GOLD_FINANCE');
-    this.initStructure();
+    this.initLocalStructure();
   }
 
-  public async initStructure(): Promise<void> {
+  private initLocalStructure(): void {
     const folders = [
       'config',
       'customers',
@@ -29,22 +29,43 @@ export class DriveFolderService {
       'system/audit-logs'
     ];
 
-    // Local Disk Folder Tree Initialization
     for (const f of folders) {
       const fullPath = path.join(this.baseDir, f);
       if (!fs.existsSync(fullPath)) {
         fs.mkdirSync(fullPath, { recursive: true });
       }
     }
+  }
+
+  public async initStructure(): Promise<void> {
+    this.initLocalStructure();
+
+    const folders = [
+      'config',
+      'customers',
+      'loans',
+      'loan-receipts',
+      'interest-payments',
+      'fixed-deposits',
+      'fd-customers',
+      'fd-deposits',
+      'reminders',
+      'backups',
+      'reports',
+      'system/settings',
+      'system/admins',
+      'system/audit-logs'
+    ];
 
     // Google Drive Folder Tree Initialization if connected
     if (driveService.isConnected()) {
       try {
-        const rootId = await driveService.getOrCreateFolder('KKV_GOLD_FINANCE');
+        await driveService.verifyRootFolderAccess();
         for (const f of folders) {
-          const folderId = await driveService.getOrCreateFolder(f, rootId);
+          const folderId = await driveService.getOrCreateFolder(f);
           this.folderMap[f] = folderId;
         }
+        console.log('[DriveFolderService] Google Drive folder tree initialized successfully.');
       } catch (err) {
         console.error('[DriveFolderService] Error initializing Google Drive folders:', err);
       }

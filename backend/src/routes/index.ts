@@ -20,6 +20,7 @@ router.use('/health', healthRoutes);
 router.use('/search', searchRoutes);
 router.use('/location', locationRoutes);
 router.use('/drive', driveRoutes);
+router.use('/google-drive', driveRoutes);
 router.use('/customers', customerRoutes);
 router.use('/loans', loanRoutes);
 router.use('/receipts', receiptRoutes);

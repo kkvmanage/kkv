@@ -66,7 +66,7 @@ export const apiService = {
     return fetchJson<{ application: string; storage: string; googleDrive: string }>('/health');
   },
   async getDriveStatus() {
-    return fetchJson<{ connected: boolean; message: string }>('/drive/status');
+    return fetchJson<{ connected: boolean; googleAccount?: string; rootFolderConfigured?: boolean; message?: string }>('/google-drive/status');
   },
   async globalSearch(query: string) {
     if (!query || !query.trim()) {
@@ -325,5 +325,93 @@ export const apiService = {
       method: 'POST',
       body: JSON.stringify({ fdNos, newDepositDate, offsetDays })
     });
+  },
+
+  // Wipe All Data Integration
+  async initiateWipeBackup(confirmationText: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/wipe-all-data/initiate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmationText })
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Network error during backup initiation.' };
+    }
+  },
+
+  async confirmSystemWipe(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/wipe-all-data/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, confirmationText })
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Network error during system wipe.' };
+    }
+  },
+
+  // Hidden System Restore Integration
+  async getRestoreBackups(): Promise<{ success: boolean; data?: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/system/backups`);
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data || [],
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to fetch Google Drive backups.' };
+    }
+  },
+
+  async validateRestoreBackup(fileId: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/system/restore/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Network error during backup validation.' };
+    }
+  },
+
+  async executeSystemRestore(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/system/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, confirmationText })
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Network error during system restore.' };
+    }
   }
 };

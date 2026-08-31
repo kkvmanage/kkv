@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, User } from 'lucide-react';
+import { User, Save, X } from 'lucide-react';
 import { Customer } from '../../types';
+import {
+  validatePhone,
+  validateIDProof,
+  formatPhoneInput,
+  formatAadhaarInput
+} from '../../utils/kycValidation';
+import { IDProofInputFields } from './IDProofInputFields';
 
 export interface EditCustomerModalProps {
   isOpen: boolean;
@@ -17,13 +24,20 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [phoneTouched, setPhoneTouched] = useState(false);
+
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
   const [age, setAge] = useState<number>(30);
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [occupation, setOccupation] = useState('');
   const [email, setEmail] = useState('');
-  const [idProof, setIdProof] = useState('Aadhaar Card');
+  const [idProof, setIdProof] = useState('Aadhaar');
   const [idNumber, setIdNumber] = useState('');
+  const [extraPan, setExtraPan] = useState('');
+  const [docName, setDocName] = useState('');
+  const [idProofValid, setIdProofValid] = useState(false);
+
   const [currentAddress, setCurrentAddress] = useState('');
   const [permanentAddress, setPermanentAddress] = useState('');
   const [sameAddress, setSameAddress] = useState(true);
@@ -32,14 +46,28 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
   useEffect(() => {
     if (customer && isOpen) {
       setName(customer.name || '');
-      setPhone(customer.phone || '');
+      const cleanP = formatPhoneInput(customer.phone || '');
+      setPhone(cleanP);
+      setPhoneError('');
+      setPhoneTouched(false);
+
       setGender(customer.gender || 'Male');
       setAge(customer.age || 30);
       setDateOfBirth(customer.dateOfBirth || '');
       setOccupation(customer.occupation || '');
       setEmail(customer.email || '');
-      setIdProof(customer.idProof || 'Aadhaar Card');
-      setIdNumber(customer.idNumber || '');
+
+      const initialProof = customer.idProof || 'Aadhaar';
+      setIdProof(initialProof);
+
+      let initialId = customer.idNumber || '';
+      if (initialProof.toLowerCase().includes('aadhaar')) {
+        initialId = formatAadhaarInput(initialId);
+      }
+      setIdNumber(initialId);
+      setExtraPan('');
+      setDocName('');
+
       setCurrentAddress(customer.currentAddress || '');
       setPermanentAddress(customer.permanentAddress || '');
       setSameAddress(customer.currentAddress === customer.permanentAddress || !customer.permanentAddress);
@@ -49,22 +77,54 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
 
   if (!isOpen || !customer) return null;
 
+  const handlePhoneChange = (val: string) => {
+    const formatted = formatPhoneInput(val);
+    setPhone(formatted);
+    setPhoneTouched(true);
+    const res = validatePhone(formatted);
+    setPhoneError(res.isValid ? '' : (res.error || ''));
+  };
+
+  const handleIdProofChange = (payload: {
+    idProof: string;
+    idNumber: string;
+    extraPan?: string;
+    docName?: string;
+    isValid: boolean;
+    error?: string;
+    structured?: any;
+  }) => {
+    setIdProof(payload.idProof);
+    setIdNumber(payload.idNumber);
+    setExtraPan(payload.extraPan || '');
+    setDocName(payload.docName || '');
+    setIdProofValid(payload.isValid);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) {
+
+    setPhoneTouched(true);
+
+    const phoneRes = validatePhone(phone);
+    const idRes = validateIDProof(idProof, idNumber, extraPan, docName);
+
+    setPhoneError(phoneRes.isValid ? '' : (phoneRes.error || ''));
+
+    if (!name.trim() || !currentAddress.trim() || !phoneRes.isValid || !idRes.isValid) {
       return;
     }
 
     onSave(customer.id, {
       name: name.trim(),
-      phone: phone.trim(),
+      phone: phoneRes.normalizedValue || phone.trim(),
       gender,
       age: Number(age) || undefined,
       dateOfBirth: dateOfBirth || undefined,
       occupation: occupation.trim() || 'Self Employed',
       email: email.trim() || undefined,
       idProof,
-      idNumber: idNumber.trim() || 'DOC-VERIFIED',
+      idNumber: idRes.formattedValue || idNumber.trim(),
       currentAddress: currentAddress.trim(),
       permanentAddress: sameAddress ? currentAddress.trim() : permanentAddress.trim(),
       status
@@ -172,13 +232,47 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
 
             <div className="form-group">
               <label className="form-label required">Phone Number</label>
-              <input
-                type="text"
-                className="input-control"
-                required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span
+                  style={{
+                    padding: '0 10px',
+                    height: '38px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: 'var(--bg-surface-secondary, #f1f5f9)',
+                    border: '1px solid var(--border-light, #cbd5e1)',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    color: 'var(--text-secondary)'
+                  }}
+                >
+                  +91
+                </span>
+                <input
+                  type="text"
+                  className="input-control"
+                  style={{
+                    flex: 1,
+                    borderColor: phoneTouched && phoneError ? 'var(--color-danger, #ef4444)' : undefined
+                  }}
+                  required
+                  maxLength={10}
+                  placeholder="9876543210"
+                  value={phone}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  onBlur={() => {
+                    setPhoneTouched(true);
+                    const res = validatePhone(phone);
+                    setPhoneError(res.isValid ? '' : (res.error || ''));
+                  }}
+                />
+              </div>
+              {phoneTouched && phoneError && (
+                <small style={{ color: 'var(--color-danger, #ef4444)', fontSize: '11px', marginTop: '4px', display: 'block', fontWeight: 600 }}>
+                  {phoneError}
+                </small>
+              )}
             </div>
           </div>
 
@@ -242,33 +336,14 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
             </div>
           </div>
 
-          <div className="grid-2" style={{ gap: '14px' }}>
-            <div className="form-group">
-              <label className="form-label required">ID Proof Type</label>
-              <select
-                className="select-control"
-                value={idProof}
-                onChange={(e) => setIdProof(e.target.value)}
-              >
-                <option value="Aadhaar Card">Aadhaar Card</option>
-                <option value="PAN Card">PAN Card</option>
-                <option value="Voter ID">Voter ID</option>
-                <option value="Passport">Passport</option>
-                <option value="Driving License">Driving License</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label required">ID Proof Number</label>
-              <input
-                type="text"
-                className="input-control"
-                required
-                value={idNumber}
-                onChange={(e) => setIdNumber(e.target.value)}
-              />
-            </div>
-          </div>
+          {/* Dynamic ID Proof Fields System */}
+          <IDProofInputFields
+            idProof={idProof}
+            idNumber={idNumber}
+            extraPan={extraPan}
+            docName={docName}
+            onChange={handleIdProofChange}
+          />
 
           <div className="form-group">
             <label className="form-label required">Current Address</label>
@@ -309,7 +384,12 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
             <button type="button" className="btn btn-secondary" onClick={onClose} style={{ height: '38px', padding: '0 16px' }}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" style={{ height: '38px', gap: '8px', padding: '0 20px' }}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={!!phoneError || !idProofValid}
+              style={{ height: '38px', gap: '8px', padding: '0 20px', opacity: (phoneError || !idProofValid) ? 0.65 : 1 }}
+            >
               <Save size={16} />
               <span>Save Changes</span>
             </button>

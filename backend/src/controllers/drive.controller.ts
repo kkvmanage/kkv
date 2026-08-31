@@ -1,46 +1,119 @@
 import { Request, Response } from 'express';
+import { google } from 'googleapis';
 import { googleDriveService } from '../services/googleDriveService.js';
+import { driveService } from '../services/drive/DriveService.js';
+import { driveTokenService } from '../services/drive/DriveTokenService.js';
+import { env } from '../config/env.js';
 
 export class DriveController {
-  // Check Drive Status
+  // Generate OAuth Connect URL
+  public connect = async (req: Request, res: Response) => {
+    try {
+      const oauth2Client = driveService.getOAuthClient();
+      const scopes = ['https://www.googleapis.com/auth/drive.file'];
+
+      const authUrl = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        prompt: 'consent',
+        scope: scopes
+      });
+
+      if (req.query.json === 'true' || req.headers.accept?.includes('application/json')) {
+        return res.status(200).json({ success: true, url: authUrl });
+      }
+
+      return res.redirect(authUrl);
+    } catch (err: any) {
+      console.error('[DriveController] Error generating connect URL:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Google Drive authorization failed. Please try connecting again.'
+      });
+    }
+  };
+
+  // OAuth Callback Handler
+  public callback = async (req: Request, res: Response) => {
+    try {
+      const code = req.query.code as string;
+      if (!code) {
+        return res.status(400).json({
+          success: false,
+          message: 'Google Drive authorization failed. Missing authorization code.'
+        });
+      }
+
+      const oauth2Client = driveService.getOAuthClient();
+      const { tokens } = await oauth2Client.getToken(code);
+
+      let googleAccount = '';
+      try {
+        oauth2Client.setCredentials(tokens);
+        const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+        const userInfo = await oauth2.userinfo.get();
+        googleAccount = userInfo.data.email || '';
+      } catch (e) {
+        console.warn('[DriveController] Could not fetch user email during callback:', e);
+      }
+
+      if (tokens.refresh_token) {
+        driveTokenService.saveTokens({
+          refreshToken: tokens.refresh_token,
+          googleAccount,
+          scope: tokens.scope
+        });
+      } else {
+        console.warn('[DriveController] OAuth callback completed without new refresh token');
+      }
+
+      // Re-initialize Drive services with new credentials
+      driveService.initGoogleDrive();
+      googleDriveService.initGoogleDrive();
+
+      const frontendUrl = env.CORS_ORIGIN || 'http://localhost:5173';
+      return res.redirect(`${frontendUrl}/admin?drive_connected=true`);
+    } catch (err: any) {
+      console.error('[DriveController] Error handling OAuth callback:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Google Drive authorization failed. Please try connecting again.'
+      });
+    }
+  };
+
+  // Check Drive Connection Status
   public getStatus = async (req: Request, res: Response) => {
     try {
-      const connected = googleDriveService.isConnected();
-      let rootAccessible = false;
-      let rootError = '';
+      const isConnected = driveService.isConnected() || googleDriveService.isConnected();
+      const googleAccount = driveTokenService.getGoogleAccount();
+      const rootConfigured = !!(env.GOOGLE_DRIVE_ROOT_FOLDER_ID && env.GOOGLE_DRIVE_ROOT_FOLDER_ID !== 'KKV_GOLD_FINANCE');
 
-      if (connected) {
-        const rootCheck = await googleDriveService.testRootFolderAccess();
-        rootAccessible = rootCheck.accessible;
-        if (!rootCheck.accessible) {
-          rootError = rootCheck.error || '';
-        }
+      if (!isConnected) {
+        return res.status(200).json({
+          connected: false,
+          success: true,
+          googleAccount: '',
+          rootFolderConfigured: rootConfigured
+        });
       }
 
       return res.status(200).json({
+        connected: true,
         success: true,
-        enabled: connected,
-        connected: connected && rootAccessible,
+        googleAccount: googleAccount || undefined,
+        rootFolderConfigured: rootConfigured,
         data: {
-          enabled: connected,
-          connected: connected && rootAccessible,
-          rootFolderAccessible: rootAccessible,
-          serviceAccountEmail: 'kkv-gold-finance-drive@client-2-507109.iam.gserviceaccount.com',
-          rootFolderId: googleDriveService.getRootFolderId(),
-          message: connected
-            ? rootAccessible
-              ? 'Google Drive API is connected & root folder is accessible'
-              : rootError || 'Root folder is not accessible'
-            : 'Google Drive operating in local storage mode'
+          connected: true,
+          googleAccount: googleAccount || undefined,
+          rootFolderConfigured: rootConfigured,
+          rootFolderId: driveService.getRootFolderId()
         }
       });
     } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        enabled: false,
+      return res.status(200).json({
         connected: false,
-        message: 'Failed to check Google Drive status',
-        error: { message: err.message }
+        success: false,
+        message: 'Failed to check Google Drive status'
       });
     }
   };

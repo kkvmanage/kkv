@@ -19,6 +19,16 @@ export const BackupRestore: React.FC = () => {
   const [chatId, setChatId] = useState(telegramConfig.chatId || '');
   const [autoBackupOnOpen, setAutoBackupOnOpen] = useState(telegramConfig.autoBackupOnOpen || false);
 
+  const [driveStatus, setDriveStatus] = useState<{ connected: boolean; googleAccount?: string }>({ connected: false });
+
+  useEffect(() => {
+    apiService.getDriveStatus().then((res) => {
+      if (res && typeof res.connected === 'boolean') {
+        setDriveStatus({ connected: res.connected, googleAccount: res.googleAccount });
+      }
+    }).catch(() => {});
+  }, []);
+
   // Sync inputs dynamically when loaded from backend
   useEffect(() => {
     setBotToken(telegramConfig.botToken || '');
@@ -229,6 +239,28 @@ export const BackupRestore: React.FC = () => {
               <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
                 Primary database remains local. Backups uploaded securely to Google Drive.
               </p>
+
+              {driveStatus.connected ? (
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '4px', background: '#e6f4ea', color: '#137333', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <ShieldCheck size={14} />
+                    Google Drive Connected {driveStatus.googleAccount ? `(${driveStatus.googleAccount})` : ''}
+                  </span>
+                </div>
+              ) : (
+                <div style={{ marginBottom: '10px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 12px' }}
+                    onClick={() => {
+                      window.location.href = 'http://localhost:8080/api/google-drive/connect';
+                    }}
+                  >
+                    Connect Google Drive
+                  </button>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button
                   className="btn btn-primary"

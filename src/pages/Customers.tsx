@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { UserPlus, RotateCcw, Edit3, Trash2, AlertTriangle } from 'lucide-react';
+import { UserPlus, RotateCcw, Edit3, Trash2, ShieldCheck } from 'lucide-react';
 import { SearchInput } from '../components/common/SearchInput';
 import { EditCustomerModal } from '../components/common/EditCustomerModal';
+import { IDProofInputFields } from '../components/common/IDProofInputFields';
 import { Customer } from '../types';
+import {
+  validatePhone,
+  validateIDProof,
+  formatPhoneInput,
+  formatIdProofDisplay
+} from '../utils/kycValidation';
 
 export const Customers: React.FC = () => {
   const { customers, addCustomer, updateCustomer, deleteCustomer, showToast } = useApp();
@@ -16,12 +23,20 @@ export const Customers: React.FC = () => {
   // Form State for Add Customer
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [phoneTouched, setPhoneTouched] = useState(false);
+
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
   const [age, setAge] = useState<number>(30);
   const [occupation, setOccupation] = useState('');
   const [email, setEmail] = useState('');
-  const [idProof, setIdProof] = useState('Aadhaar Card');
+
+  const [idProof, setIdProof] = useState('Aadhaar');
   const [idNumber, setIdNumber] = useState('');
+  const [extraPan, setExtraPan] = useState('');
+  const [docName, setDocName] = useState('');
+  const [idProofValid, setIdProofValid] = useState(false);
+
   const [currentAddress, setCurrentAddress] = useState('');
   const [permanentAddress, setPermanentAddress] = useState('');
   const [sameAddress, setSameAddress] = useState(true);
@@ -44,16 +59,63 @@ export const Customers: React.FC = () => {
     setStatusFilter('ALL');
   };
 
+  const handlePhoneChange = (val: string) => {
+    const formatted = formatPhoneInput(val);
+    setPhone(formatted);
+    setPhoneTouched(true);
+    const res = validatePhone(formatted);
+    setPhoneError(res.isValid ? '' : (res.error || ''));
+  };
+
+  const handleIdProofChange = (payload: {
+    idProof: string;
+    idNumber: string;
+    extraPan?: string;
+    docName?: string;
+    isValid: boolean;
+    error?: string;
+    structured?: any;
+  }) => {
+    setIdProof(payload.idProof);
+    setIdNumber(payload.idNumber);
+    setExtraPan(payload.extraPan || '');
+    setDocName(payload.docName || '');
+    setIdProofValid(payload.isValid);
+  };
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) {
-      showToast('Please enter customer full name and phone number.', 'error');
+
+    setPhoneTouched(true);
+
+    const phoneRes = validatePhone(phone);
+    const idRes = validateIDProof(idProof, idNumber, extraPan, docName);
+
+    setPhoneError(phoneRes.isValid ? '' : (phoneRes.error || ''));
+
+    if (!name.trim()) {
+      showToast('Please enter customer full name.', 'error');
+      return;
+    }
+
+    if (!phoneRes.isValid) {
+      showToast(phoneRes.error || 'Please enter a valid 10-digit Indian mobile number.', 'error');
+      return;
+    }
+
+    if (!idRes.isValid) {
+      showToast(idRes.error || 'Please enter a valid ID proof number.', 'error');
+      return;
+    }
+
+    if (!currentAddress.trim()) {
+      showToast('Please enter customer current address.', 'error');
       return;
     }
 
     addCustomer({
       name: name.trim(),
-      phone: phone.trim(),
+      phone: phoneRes.normalizedValue || phone.trim(),
       gender,
       age: Number(age),
       occupation: occupation.trim() || 'Self Employed',
@@ -61,18 +123,26 @@ export const Customers: React.FC = () => {
       currentAddress: currentAddress.trim(),
       permanentAddress: sameAddress ? currentAddress.trim() : permanentAddress.trim(),
       idProof,
-      idNumber: idNumber.trim() || 'DOC-VERIFIED',
+      idNumber: idRes.formattedValue || idNumber.trim(),
       status: 'VERIFIED'
     });
+
+    showToast('Borrower KYC Profile created and verified successfully!', 'success');
 
     // Reset Form
     setName('');
     setPhone('');
+    setPhoneError('');
+    setPhoneTouched(false);
     setGender('Male');
     setAge(30);
     setOccupation('');
     setEmail('');
+    setIdProof('Aadhaar');
     setIdNumber('');
+    setExtraPan('');
+    setDocName('');
+    setIdProofValid(false);
     setCurrentAddress('');
     setPermanentAddress('');
     setShowAddModal(false);
@@ -191,7 +261,7 @@ export const Customers: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{c.phone}</td>
+                    <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>+91 {c.phone}</td>
                     <td>
                       <span className="badge badge-info" style={{ fontSize: '11px' }}>
                         {c.gender}
@@ -200,7 +270,8 @@ export const Customers: React.FC = () => {
                     <td style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{c.occupation}</td>
                     <td>
                       <div style={{ fontSize: '12px' }}>
-                        <strong style={{ color: 'var(--color-primary-dark)' }}>{c.idProof}:</strong> {c.idNumber}
+                        <strong style={{ color: 'var(--color-primary-dark)' }}>{c.idProof}:</strong>{' '}
+                        <span>{formatIdProofDisplay(c.idProof, c.idNumber)}</span>
                       </div>
                     </td>
                     <td>
@@ -279,14 +350,47 @@ export const Customers: React.FC = () => {
 
                 <div className="form-group">
                   <label className="form-label required">Phone Number</label>
-                  <input
-                    type="text"
-                    className="input-control"
-                    required
-                    placeholder="+91 98401 XXXXX"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span
+                      style={{
+                        padding: '0 10px',
+                        height: '38px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        background: 'var(--bg-surface-secondary, #f1f5f9)',
+                        border: '1px solid var(--border-light, #cbd5e1)',
+                        borderRadius: 'var(--radius-md, 6px)',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        color: 'var(--text-secondary)'
+                      }}
+                    >
+                      +91
+                    </span>
+                    <input
+                      type="text"
+                      className="input-control"
+                      style={{
+                        flex: 1,
+                        borderColor: phoneTouched && phoneError ? 'var(--color-danger, #ef4444)' : undefined
+                      }}
+                      required
+                      maxLength={10}
+                      placeholder="9876543210"
+                      value={phone}
+                      onChange={(e) => handlePhoneChange(e.target.value)}
+                      onBlur={() => {
+                        setPhoneTouched(true);
+                        const res = validatePhone(phone);
+                        setPhoneError(res.isValid ? '' : (res.error || ''));
+                      }}
+                    />
+                  </div>
+                  {phoneTouched && phoneError && (
+                    <small style={{ color: 'var(--color-danger, #ef4444)', fontSize: '11px', marginTop: '4px', display: 'block', fontWeight: 600 }}>
+                      {phoneError}
+                    </small>
+                  )}
                 </div>
               </div>
 
@@ -337,34 +441,16 @@ export const Customers: React.FC = () => {
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
-
-                <div className="form-group">
-                  <label className="form-label required">ID Proof Type</label>
-                  <select
-                    className="select-control"
-                    value={idProof}
-                    onChange={(e) => setIdProof(e.target.value)}
-                  >
-                    <option value="Aadhaar Card">Aadhaar Card</option>
-                    <option value="PAN Card">PAN Card</option>
-                    <option value="Voter ID">Voter ID</option>
-                    <option value="Passport">Passport</option>
-                    <option value="Driving License">Driving License</option>
-                  </select>
-                </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label required">ID Proof Number</label>
-                <input
-                  type="text"
-                  className="input-control"
-                  required
-                  placeholder="e.g. XXXX-XXXX-1234"
-                  value={idNumber}
-                  onChange={(e) => setIdNumber(e.target.value)}
-                />
-              </div>
+              {/* Dynamic ID Proof System */}
+              <IDProofInputFields
+                idProof={idProof}
+                idNumber={idNumber}
+                extraPan={extraPan}
+                docName={docName}
+                onChange={handleIdProofChange}
+              />
 
               <div className="form-group">
                 <label className="form-label required">Current Address</label>
@@ -407,8 +493,14 @@ export const Customers: React.FC = () => {
                 <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Customer &amp; Verify KYC
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={!!phoneError || !idProofValid}
+                  style={{ opacity: (phoneError || !idProofValid) ? 0.65 : 1, gap: '6px' }}
+                >
+                  <ShieldCheck size={16} />
+                  <span>Save Customer &amp; Verify KYC</span>
                 </button>
               </div>
             </form>
@@ -448,62 +540,23 @@ export const Customers: React.FC = () => {
               padding: '24px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '16px'
+              gap: '16px',
+              boxShadow: 'var(--shadow-xl)'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '50%',
-                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                  color: '#dc2626',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}
-              >
-                <AlertTriangle size={20} />
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-dark)' }}>
-                  Delete Customer Record?
-                </h3>
-                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-                  ID: <strong>{deletingCustomer.id}</strong>
-                </p>
-              </div>
-            </div>
-
-            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-dark)', lineHeight: '1.5' }}>
-              Are you sure you want to permanently delete customer <strong>{deletingCustomer.name}</strong>? This action cannot be undone.
+            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-dark)' }}>
+              Confirm Customer Deletion
+            </h3>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+              Are you sure you want to delete borrower profile <strong>{deletingCustomer.name}</strong> ({deletingCustomer.id})? This action cannot be undone.
             </p>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setDeletingCustomer(null)}
-                style={{ height: '38px' }}
-              >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button className="btn btn-secondary" onClick={() => setDeletingCustomer(null)}>
                 Cancel
               </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={handleConfirmDelete}
-                style={{
-                  height: '38px',
-                  backgroundColor: '#dc2626',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  padding: '0 16px',
-                  borderRadius: 'var(--radius-md)'
-                }}
-              >
-                Delete Customer
+              <button className="btn btn-danger" onClick={handleConfirmDelete}>
+                Delete Borrower Record
               </button>
             </div>
           </div>

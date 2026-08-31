@@ -1,10 +1,10 @@
 import { google, drive_v3 } from 'googleapis';
-import fs from 'fs';
-import path from 'path';
 import { env } from '../../config/env.js';
+import { driveTokenService } from './DriveTokenService.js';
 
 export class DriveService {
   private drive: drive_v3.Drive | null = null;
+  private oauth2Client: any = null;
   private isDriveConfigured = false;
   private rootFolderId = '';
 
@@ -12,62 +12,192 @@ export class DriveService {
     this.initGoogleDrive();
   }
 
-  private initGoogleDrive() {
+  public initGoogleDrive(): boolean {
     try {
-      const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-      let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+      this.rootFolderId = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
 
-      if (clientEmail && privateKey) {
-        // Fix newline formatting for private key
-        privateKey = privateKey.replace(/\\n/g, '\n');
-        const auth = new google.auth.JWT(
-          clientEmail,
-          undefined,
-          privateKey,
-          ['https://www.googleapis.com/auth/drive']
-        );
-        this.drive = google.drive({ version: 'v3', auth });
-        this.isDriveConfigured = true;
-        this.rootFolderId = env.GOOGLE_DRIVE_FOLDER_ID;
-        console.log('[DriveService] Initialized Google Drive API via Service Account');
-        return;
+      const clientId = env.GOOGLE_CLIENT_ID;
+      const clientSecret = env.GOOGLE_CLIENT_SECRET;
+      const redirectUri = env.GOOGLE_REDIRECT_URI;
+
+      if (!clientId || !clientSecret) {
+        console.log('[DriveService] Google OAuth credentials (CLIENT_ID / CLIENT_SECRET) not configured.');
+        this.isDriveConfigured = false;
+        this.drive = null;
+        return false;
       }
 
-      if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-        const oauth2Client = new google.auth.OAuth2(
-          env.GOOGLE_CLIENT_ID,
-          env.GOOGLE_CLIENT_SECRET
-        );
-        oauth2Client.setCredentials({ refresh_token: env.GOOGLE_REFRESH_TOKEN });
-        this.drive = google.drive({ version: 'v3', auth: oauth2Client });
+      this.oauth2Client = new google.auth.OAuth2(
+        clientId,
+        clientSecret,
+        redirectUri
+      );
+
+      // Listen for automatically refreshed tokens from Google OAuth client
+      this.oauth2Client.on('tokens', (tokens: any) => {
+        if (tokens.refresh_token) {
+          console.log('[DriveService] Received updated refresh token from OAuth client');
+          driveTokenService.saveTokens({ refreshToken: tokens.refresh_token });
+        }
+      });
+
+      // Fetch stored refresh token (or fallback to env variable if present)
+      const refreshToken = driveTokenService.getRefreshToken() || env.GOOGLE_REFRESH_TOKEN;
+
+      if (refreshToken) {
+        this.oauth2Client.setCredentials({ refresh_token: refreshToken });
+        this.drive = google.drive({ version: 'v3', auth: this.oauth2Client });
         this.isDriveConfigured = true;
-        this.rootFolderId = env.GOOGLE_DRIVE_FOLDER_ID;
-        console.log('[DriveService] Initialized Google Drive API via OAuth2');
-        return;
+        console.log('[DriveService] Initialized Google Drive API via OAuth 2.0 Client');
+        console.log(`[DriveService] Configured Root Folder ID: ${this.rootFolderId}`);
+        return true;
       }
 
-      console.log('[DriveService] Google Drive API credentials not provided — using local disk persistent storage (KKV_GOLD_FINANCE/)');
+      console.log('[DriveService] Google Drive OAuth refresh token not available — waiting for user authorization');
+      this.isDriveConfigured = false;
+      this.drive = null;
+      return false;
     } catch (err) {
-      console.warn('[DriveService] Failed to initialize Google Drive client:', err);
+      console.warn('[DriveService] Failed to initialize Google Drive OAuth client:', err);
+      this.isDriveConfigured = false;
+      this.drive = null;
+      return false;
     }
   }
 
   public isConnected(): boolean {
-    return this.isDriveConfigured && !!this.drive;
+    return this.isDriveConfigured && !!this.drive && driveTokenService.hasRefreshToken();
   }
 
-  // Google Drive folder search or creation
-  public async getOrCreateFolder(folderName: string, parentId?: string): Promise<string> {
-    if (!this.isDriveConfigured || !this.drive) {
-      return folderName;
+  public getOAuthClient(): any {
+    if (!this.oauth2Client) {
+      const clientId = env.GOOGLE_CLIENT_ID;
+      const clientSecret = env.GOOGLE_CLIENT_SECRET;
+      const redirectUri = env.GOOGLE_REDIRECT_URI;
+
+      if (!clientId || !clientSecret) {
+        throw new Error('Google OAuth Client ID and Secret must be configured in environment.');
+      }
+
+      this.oauth2Client = new google.auth.OAuth2(
+        clientId,
+        clientSecret,
+        redirectUri
+      );
+    }
+    return this.oauth2Client;
+  }
+
+  public getRootFolderId(): string {
+    return this.rootFolderId;
+  }
+
+  /**
+   * Verify that the configured root folder exists and is accessible using drive.files.get.
+   * Throws explicit error if inaccessible or permission is missing.
+   */
+  public async verifyRootFolderAccess(): Promise<{ id: string; name: string }> {
+    if (!driveTokenService.hasRefreshToken() && !env.GOOGLE_REFRESH_TOKEN) {
+      throw new Error('Google Drive is not connected. Please connect your Google account first.');
+    }
+
+    if (!this.isConnected() || !this.drive) {
+      // Attempt re-init
+      const success = this.initGoogleDrive();
+      if (!success || !this.drive) {
+        throw new Error('Google Drive authorization expired or is incomplete. Please reconnect your Google account.');
+      }
+    }
+
+    const rootId = (this.rootFolderId || '').trim();
+    if (!rootId || rootId === 'KKV_GOLD_FINANCE') {
+      throw new Error('Google Drive root folder configuration is invalid.');
     }
 
     try {
-      const parent = parentId || this.rootFolderId;
-      let query = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-      if (parent) {
-        query += ` and '${parent}' in parents`;
+      const res = await this.drive.files.get({
+        fileId: rootId,
+        fields: 'id, name, mimeType, trashed'
+      });
+
+      if (!res.data || res.data.trashed) {
+        throw new Error(`The configured Google Drive folder (${rootId}) is in trash or unavailable.`);
       }
+
+      console.log(`[DriveService] Root folder verified successfully: "${res.data.name}" (ID: ${res.data.id})`);
+      return { id: res.data.id!, name: res.data.name || '' };
+    } catch (err: any) {
+      const status = err?.status || err?.code || err?.response?.status;
+      const errorMsg = err?.message || String(err);
+      console.error(`[DriveService] Root folder access failed for root ID ${rootId}:`, errorMsg);
+
+      if (status === 404) {
+        throw new Error(`The configured Google Drive folder cannot be accessed by the authorized Google account.`);
+      }
+      if (status === 403) {
+        throw new Error(`The configured Google Drive folder cannot be accessed by the authorized Google account.`);
+      }
+
+      throw new Error(`The configured Google Drive folder cannot be accessed by the authorized Google account.`);
+    }
+  }
+
+  /**
+   * Hierarchical folder creation/resolution.
+   * Handles paths like "system/admins" or "system/audit-logs" by splitting by '/'
+   * and starting from current parentId or rootFolderId.
+   */
+  public async getOrCreateFolder(folderPath: string, parentId?: string): Promise<string> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        throw new Error('Google Drive is not connected. Please connect your Google account first.');
+      }
+    }
+
+    if (!folderPath || folderPath.trim() === '') {
+      throw new Error('[DriveService] Folder path cannot be empty.');
+    }
+
+    let currentParentId = (parentId || this.rootFolderId || '').trim();
+
+    if (!currentParentId || currentParentId === 'KKV_GOLD_FINANCE') {
+      throw new Error('Google Drive root folder configuration is invalid.');
+    }
+
+    const segments = folderPath.split('/').map(s => s.trim()).filter(Boolean);
+    if (segments.length === 0) {
+      return currentParentId;
+    }
+
+    let pathProgress = '';
+    for (const segment of segments) {
+      pathProgress = pathProgress ? `${pathProgress}/${segment}` : segment;
+      console.log(`[DriveService] Initializing folder path segment: "${pathProgress}" under parent ID: ${currentParentId}`);
+      currentParentId = await this.getOrCreateSingleFolderSegment(segment, currentParentId);
+    }
+
+    return currentParentId;
+  }
+
+  /**
+   * Look up or create a single folder segment under parentFolderId using search query:
+   * name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${parentFolderId}' in parents
+   */
+  private async getOrCreateSingleFolderSegment(folderName: string, parentFolderId: string): Promise<string> {
+    if (!parentFolderId || parentFolderId.trim() === '' || parentFolderId === 'KKV_GOLD_FINANCE') {
+      throw new Error('Google Drive root folder configuration is invalid.');
+    }
+
+    if (!this.drive) {
+      throw new Error('Google Drive is not connected. Please connect your Google account first.');
+    }
+
+    const cleanParentId = parentFolderId.trim();
+    const safeFolderName = folderName.replace(/'/g, "\\'");
+
+    try {
+      const query = `name = '${safeFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${cleanParentId}' in parents`;
 
       const res = await this.drive.files.list({
         q: query,
@@ -76,32 +206,40 @@ export class DriveService {
       });
 
       if (res.data.files && res.data.files.length > 0) {
-        return res.data.files[0].id!;
+        const foundId = res.data.files[0].id!;
+        console.log(`[DriveService] Found existing folder "${folderName}" -> ID: ${foundId}`);
+        return foundId;
       }
 
-      // Create new folder
+      // Create new folder under cleanParentId
       const folderMetadata: drive_v3.Schema$File = {
         name: folderName,
         mimeType: 'application/vnd.google-apps.folder',
-        parents: parent ? [parent] : undefined
+        parents: [cleanParentId]
       };
 
       const created = await this.drive.files.create({
         requestBody: folderMetadata,
-        fields: 'id'
+        fields: 'id, name'
       });
 
-      return created.data.id!;
-    } catch (err) {
-      console.error(`[DriveService] Error in getOrCreateFolder for ${folderName}:`, err);
-      return folderName;
+      const newId = created.data.id!;
+      console.log(`[DriveService] Created folder "${folderName}" under parent ID ${cleanParentId} -> ID: ${newId}`);
+      return newId;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      console.error(`[DriveService] Error in getOrCreateSingleFolderSegment for "${folderName}":`, msg);
+      throw new Error(`Failed to access or create Google Drive folder "${folderName}": ${msg}`);
     }
   }
 
   // Upload or update JSON file in Drive
   public async uploadJsonFile(fileName: string, content: any, folderId?: string): Promise<string | null> {
-    if (!this.isDriveConfigured || !this.drive) {
-      return null;
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        throw new Error('Google Drive is not connected. Please connect your Google account first.');
+      }
     }
 
     try {
@@ -111,11 +249,13 @@ export class DriveService {
         body: jsonStr
       };
 
-      const targetFolder = folderId || this.rootFolderId;
+      const targetFolder = (folderId || this.rootFolderId || '').trim();
+      if (!targetFolder || targetFolder === 'KKV_GOLD_FINANCE') {
+        throw new Error('Google Drive root folder configuration is invalid.');
+      }
 
-      // Check if file already exists
-      let query = `name = '${fileName}' and trashed = false`;
-      if (targetFolder) query += ` and '${targetFolder}' in parents`;
+      const safeFileName = fileName.replace(/'/g, "\\'");
+      const query = `name = '${safeFileName}' and trashed = false and '${targetFolder}' in parents`;
 
       const existing = await this.drive.files.list({
         q: query,
@@ -128,12 +268,13 @@ export class DriveService {
           fileId,
           media
         });
+        console.log(`[DriveService] Updated JSON file "${fileName}" (File ID: ${fileId})`);
         return fileId;
       }
 
       const fileMetadata: drive_v3.Schema$File = {
         name: fileName,
-        parents: targetFolder ? [targetFolder] : undefined
+        parents: [targetFolder]
       };
 
       const created = await this.drive.files.create({
@@ -142,23 +283,29 @@ export class DriveService {
         fields: 'id'
       });
 
-      return created.data.id!;
-    } catch (err) {
-      console.error(`[DriveService] Error uploading JSON file ${fileName}:`, err);
-      return null;
+      const newId = created.data.id!;
+      console.log(`[DriveService] Uploaded JSON file "${fileName}" (File ID: ${newId})`);
+      return newId;
+    } catch (err: any) {
+      console.error(`[DriveService] Error uploading JSON file ${fileName}:`, err?.message || err);
+      throw err;
     }
   }
 
   // Read JSON file content from Drive
   public async readJsonFile<T>(fileName: string, folderId?: string): Promise<T | null> {
-    if (!this.isDriveConfigured || !this.drive) {
+    if (!this.isConnected() || !this.drive) {
       return null;
     }
 
     try {
-      const targetFolder = folderId || this.rootFolderId;
-      let query = `name = '${fileName}' and trashed = false`;
-      if (targetFolder) query += ` and '${targetFolder}' in parents`;
+      const targetFolder = (folderId || this.rootFolderId || '').trim();
+      if (!targetFolder || targetFolder === 'KKV_GOLD_FINANCE') {
+        return null;
+      }
+
+      const safeFileName = fileName.replace(/'/g, "\\'");
+      const query = `name = '${safeFileName}' and trashed = false and '${targetFolder}' in parents`;
 
       const res = await this.drive.files.list({
         q: query,
@@ -176,8 +323,8 @@ export class DriveService {
       });
 
       return download.data as unknown as T;
-    } catch (err) {
-      console.error(`[DriveService] Error reading JSON file ${fileName}:`, err);
+    } catch (err: any) {
+      console.error(`[DriveService] Error reading JSON file ${fileName}:`, err?.message || err);
       return null;
     }
   }

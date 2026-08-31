@@ -1,6 +1,7 @@
 import { google, drive_v3 } from 'googleapis';
 import { Readable } from 'stream';
 import { env } from '../config/env.js';
+import { driveTokenService } from './drive/DriveTokenService.js';
 
 export interface CustomerFolderStructure {
   customerFolderId: string;
@@ -25,55 +26,60 @@ export interface DriveFileUploadResult {
 
 export class GoogleDriveService {
   private drive: drive_v3.Drive | null = null;
-  private rootFolderId: string = env.GOOGLE_DRIVE_FOLDER_ID || '15MY3DHoYCSccslvh5j31UOZ67zSYdlh';
+  private oauth2Client: any = null;
+  private rootFolderId: string = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '15MY3DHoYCSccsIvh5j31lUOZ6ZrSYdlh').trim();
   private isDriveConfigured: boolean = false;
 
   constructor() {
     this.initGoogleDrive();
   }
 
-  private initGoogleDrive() {
+  public initGoogleDrive(): boolean {
     try {
-      const clientEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL || env.GOOGLE_CLIENT_EMAIL;
-      let privateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || env.GOOGLE_PRIVATE_KEY;
+      this.rootFolderId = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '15MY3DHoYCSccsIvh5j31lUOZ6ZrSYdlh').trim();
 
-      if (clientEmail && privateKey) {
-        privateKey = privateKey.replace(/\\n/g, '\n');
-        const auth = new google.auth.JWT(
-          clientEmail,
-          undefined,
-          privateKey,
-          ['https://www.googleapis.com/auth/drive']
-        );
-        this.drive = google.drive({ version: 'v3', auth });
+      const clientId = env.GOOGLE_CLIENT_ID;
+      const clientSecret = env.GOOGLE_CLIENT_SECRET;
+      const redirectUri = env.GOOGLE_REDIRECT_URI;
+
+      if (!clientId || !clientSecret) {
+        console.warn('[GoogleDriveService] ⚠️ OAuth Client ID and Secret not configured.');
+        this.isDriveConfigured = false;
+        this.drive = null;
+        return false;
+      }
+
+      this.oauth2Client = new google.auth.OAuth2(
+        clientId,
+        clientSecret,
+        redirectUri
+      );
+
+      const refreshToken = driveTokenService.getRefreshToken() || env.GOOGLE_REFRESH_TOKEN;
+
+      if (refreshToken) {
+        this.oauth2Client.setCredentials({ refresh_token: refreshToken });
+        this.drive = google.drive({ version: 'v3', auth: this.oauth2Client });
         this.isDriveConfigured = true;
-        this.rootFolderId = env.GOOGLE_DRIVE_FOLDER_ID || '15MY3DHoYCSccslvh5j31UOZ67zSYdlh';
-        console.log('[GoogleDriveService] ✅ Initialized Google Drive API via Service Account:', clientEmail);
+        console.log('[GoogleDriveService] ✅ Initialized Google Drive API via OAuth 2.0 Client');
         console.log('[GoogleDriveService] 📁 Root Folder ID configured:', this.rootFolderId);
-        return;
+        return true;
       }
 
-      if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-        const oauth2Client = new google.auth.OAuth2(
-          env.GOOGLE_CLIENT_ID,
-          env.GOOGLE_CLIENT_SECRET
-        );
-        oauth2Client.setCredentials({ refresh_token: env.GOOGLE_REFRESH_TOKEN });
-        this.drive = google.drive({ version: 'v3', auth: oauth2Client });
-        this.isDriveConfigured = true;
-        this.rootFolderId = env.GOOGLE_DRIVE_FOLDER_ID || '15MY3DHoYCSccslvh5j31UOZ67zSYdlh';
-        console.log('[GoogleDriveService] ✅ Initialized Google Drive API via OAuth2');
-        return;
-      }
-
-      console.warn('[GoogleDriveService] ⚠️ Google Drive credentials not provided. Drive operations disabled.');
+      console.warn('[GoogleDriveService] ⚠️ Google Drive OAuth refresh token not available.');
+      this.isDriveConfigured = false;
+      this.drive = null;
+      return false;
     } catch (err) {
       console.error('[GoogleDriveService] ❌ Failed to initialize Google Drive client:', err);
+      this.isDriveConfigured = false;
+      this.drive = null;
+      return false;
     }
   }
 
   public isConnected(): boolean {
-    return this.isDriveConfigured && !!this.drive;
+    return this.isDriveConfigured && !!this.drive && (driveTokenService.hasRefreshToken() || !!env.GOOGLE_REFRESH_TOKEN);
   }
 
   public getRootFolderId(): string {
@@ -81,8 +87,11 @@ export class GoogleDriveService {
   }
 
   public async testRootFolderAccess(): Promise<{ accessible: boolean; folderName?: string; error?: string }> {
-    if (!this.drive) {
-      return { accessible: false, error: 'Google Drive API client is not initialized.' };
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        return { accessible: false, error: 'Google Drive is not connected. Please connect your Google account first.' };
+      }
     }
     try {
       const res = await this.drive.files.get({
@@ -99,32 +108,50 @@ export class GoogleDriveService {
       console.error(`[GoogleDriveService] ❌ Root folder access failed (${this.rootFolderId}):`, msg);
       return {
         accessible: false,
-        error: `The configured Google Drive root folder (${this.rootFolderId}) cannot be accessed by the Service Account (${env.GOOGLE_SERVICE_ACCOUNT_EMAIL}). Please share the folder with the Service Account email and give it Editor access. (Error: ${msg})`
+        error: `The configured Google Drive folder cannot be accessed by the authorized Google account.`
       };
     }
   }
 
   /**
    * Dynamically search for or create a folder on Google Drive.
-   * Returns the REAL Google Drive folder ID string.
+   * Supports path splitting (e.g., "system/admins") and returns the REAL Google Drive folder ID.
    */
-  public async getOrCreateFolder(folderName: string, parentId?: string): Promise<string> {
+  public async getOrCreateFolder(folderPath: string, parentId?: string): Promise<string> {
     if (!this.drive) {
       throw new Error('[GoogleDriveService] Google Drive API is not initialized or connected.');
     }
 
-    const parent = parentId || this.rootFolderId || undefined;
+    let currentParent = (parentId || this.rootFolderId || '').trim();
 
-    // Strict check: Never accept fake local fallback strings as Google Drive parent IDs
-    if (parent && parent.startsWith('local_')) {
-      throw new Error(`[GoogleDriveService] Cannot search/create folder "${folderName}" with invalid parent ID "${parent}".`);
+    // Strict check: Never accept fake local fallback strings or folder names as Google Drive parent IDs
+    if (!currentParent || currentParent.startsWith('local_') || currentParent === 'KKV_GOLD_FINANCE') {
+      throw new Error(`[GoogleDriveService] Cannot search/create folder "${folderPath}" with invalid parent ID "${currentParent}".`);
     }
 
+    const segments = folderPath.split('/').map(s => s.trim()).filter(Boolean);
+    if (segments.length === 0) {
+      return currentParent;
+    }
+
+    let currentPath = '';
+    for (const segment of segments) {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      console.log(`[GoogleDriveService] Processing folder segment: "${currentPath}" (parent ID: ${currentParent})`);
+      currentParent = await this.getOrCreateSingleSegment(segment, currentParent);
+    }
+
+    return currentParent;
+  }
+
+  private async getOrCreateSingleSegment(folderName: string, parentFolderId: string): Promise<string> {
+    if (!this.drive) {
+      throw new Error('[GoogleDriveService] Google Drive API is not initialized.');
+    }
+
+    const safeName = folderName.replace(/'/g, "\\'");
     try {
-      let query = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-      if (parent) {
-        query += ` and '${parent}' in parents`;
-      }
+      const query = `name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${parentFolderId}' in parents`;
 
       const res = await this.drive.files.list({
         q: query,
@@ -138,11 +165,11 @@ export class GoogleDriveService {
         return foundId;
       }
 
-      // Create new folder under parent
+      // Create new folder under parentFolderId
       const folderMetadata: drive_v3.Schema$File = {
         name: folderName,
         mimeType: 'application/vnd.google-apps.folder',
-        parents: parent ? [parent] : undefined
+        parents: [parentFolderId]
       };
 
       const created = await this.drive.files.create({
@@ -154,7 +181,7 @@ export class GoogleDriveService {
       console.log(`[GoogleDriveService] Created new Drive folder "${folderName}" -> ID: ${newId}`);
       return newId;
     } catch (err: any) {
-      console.error(`[GoogleDriveService] Error in getOrCreateFolder for "${folderName}":`, err?.message || err);
+      console.error(`[GoogleDriveService] Error in getOrCreateSingleSegment for "${folderName}":`, err?.message || err);
       throw new Error(`Failed to access or create Google Drive folder "${folderName}": ${err?.message || 'Drive API error'}`);
     }
   }

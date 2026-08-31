@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2, Mic, Search } from 'lucide-react';
+import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2, Mic, Search, CloudDownload } from 'lucide-react';
 import { AmountBand } from '../types';
 
 import { KKVLogo } from '../components/common/KKVLogo';
+import { WipeAllDataModal } from '../components/admin/WipeAllDataModal';
+import { SystemRestoreModal } from '../components/admin/SystemRestoreModal';
 
 export const AdminPanel: React.FC = () => {
+  const [showWipeModal, setShowWipeModal] = useState(false);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [showHiddenRestoreSection, setShowHiddenRestoreSection] = useState(false);
+  const [dangerClickCount, setDangerClickCount] = useState(0);
+  const [dangerClickTimer, setDangerClickTimer] = useState<any>(null);
   const {
     loans,
     customers,
@@ -60,6 +67,26 @@ export const AdminPanel: React.FC = () => {
   const [pronoteCardFeeVal, setPronoteCardFeeVal] = useState<number>(masterControlSettings?.pronoteCardFee ?? 10);
   const [hireCardFeeEnabled, setHireCardFeeEnabled] = useState<boolean>(masterControlSettings?.hireCardFeeEnabled ?? true);
   const [hireCardFeeVal, setHireCardFeeVal] = useState<number>(masterControlSettings?.hireCardFee ?? 10);
+
+  const handleDangerZoneTabClick = () => {
+    setMasterSubTab('danger');
+
+    const nextCount = dangerClickCount + 1;
+    setDangerClickCount(nextCount);
+
+    if (dangerClickTimer) clearTimeout(dangerClickTimer);
+
+    if (nextCount >= 5) {
+      setShowHiddenRestoreSection(true);
+      setDangerClickCount(0);
+      showToast('System Restore interface unlocked.', 'info');
+    } else {
+      const timer = setTimeout(() => {
+        setDangerClickCount(0);
+      }, 5000);
+      setDangerClickTimer(timer);
+    }
+  };
 
   // Overdue calculation method description selection
   const [overdueCalMethod, setOverdueCalMethod] = useState<string>(masterControlSettings?.overdueCalculationMethod || 'Whole months — a part month counts as full (recommended)');
@@ -394,7 +421,7 @@ export const AdminPanel: React.FC = () => {
       </div>
 
       {/* Main Tabs */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '10px', paddingBottom: '4px', flexWrap: 'wrap' }}>
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'fd-rates', label: 'FD Interest Rates' },
@@ -405,8 +432,18 @@ export const AdminPanel: React.FC = () => {
           <button
             key={t.key}
             type="button"
-            className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ borderRadius: 'var(--radius-full)', fontSize: '13px', padding: '6px 16px' }}
+            style={{
+              borderRadius: '10px',
+              fontSize: '13.5px',
+              padding: '8px 18px',
+              fontWeight: activeTab === t.key ? 700 : 600,
+              backgroundColor: activeTab === t.key ? '#176B52' : '#FFFFFF',
+              color: activeTab === t.key ? '#FFFFFF' : '#4B5E54',
+              border: activeTab === t.key ? '1px solid #176B52' : '1px solid #D8E0DA',
+              boxShadow: activeTab === t.key ? '0 4px 12px rgba(23, 107, 82, 0.28)' : '0 2px 4px rgba(15, 60, 45, 0.04)',
+              cursor: 'pointer',
+              transition: 'all 0.18s ease'
+            }}
             onClick={() => setActiveTab(t.key as any)}
           >
             {t.label}
@@ -416,92 +453,92 @@ export const AdminPanel: React.FC = () => {
 
       {/* Overview Tab Content */}
       {activeTab === 'overview' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="card" style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <div className="stat-card-icon icon-chip-green" style={{ flexShrink: 0 }}>
-                <Lock size={20} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          <div className="card" style={{ padding: '24px', borderRadius: '16px', border: '1px solid #DDE5DF', boxShadow: '0 6px 20px rgba(15, 60, 45, 0.08)', backgroundColor: '#FFFFFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Lock size={22} />
               </div>
               <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Master Control</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>Company roles &amp; passwords, bank &amp; UPI details, Telegram backup and danger-zone tools.</p>
+                <h3 style={{ fontSize: '17px', fontWeight: 800, color: '#1F2D26', margin: 0 }}>Master Control</h3>
+                <p style={{ fontSize: '13px', color: '#66756D', margin: '3px 0 0' }}>Company roles &amp; passwords, bank &amp; UPI details, Telegram backup and danger-zone tools.</p>
               </div>
             </div>
-            <button className="btn btn-primary" onClick={() => setMasterControlOpen(true)} style={{ gap: '8px' }}>
+            <button className="btn btn-primary" onClick={() => setMasterControlOpen(true)} style={{ backgroundColor: '#176B52', color: '#FFFFFF', fontWeight: 700, borderRadius: '10px', height: '42px', padding: '0 20px', boxShadow: '0 2px 8px rgba(23, 107, 82, 0.25)', gap: '8px' }}>
               <span>Open Master Control</span>
             </button>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }}>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>CUSTOMERS</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>{safeCustomers.length}</span>
+                <span className="stat-card-label">CUSTOMERS</span>
+                <span className="stat-card-value">{safeCustomers.length}</span>
               </div>
-              <div className="stat-card-icon"><Users size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Users size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>ACTIVE LOANS</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>{activeLoans.length}</span>
+                <span className="stat-card-label">ACTIVE LOANS</span>
+                <span className="stat-card-value">{activeLoans.length}</span>
               </div>
-              <div className="stat-card-icon"><CreditCard size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><CreditCard size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>TOTAL DISBURSED</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>₹{totalDisbursed.toLocaleString('en-IN')}</span>
+                <span className="stat-card-label">TOTAL DISBURSED</span>
+                <span className="stat-card-value">₹{totalDisbursed.toLocaleString('en-IN')}</span>
               </div>
-              <div className="stat-card-icon"><DollarSign size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><DollarSign size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>OUTSTANDING</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>₹{totalOutstanding.toLocaleString('en-IN')}</span>
+                <span className="stat-card-label">OUTSTANDING</span>
+                <span className="stat-card-value">₹{totalOutstanding.toLocaleString('en-IN')}</span>
               </div>
-              <div className="stat-card-icon"><Wallet size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Wallet size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>COLLECTED</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>₹{totalCollected.toLocaleString('en-IN')}</span>
+                <span className="stat-card-label">COLLECTED</span>
+                <span className="stat-card-value">₹{totalCollected.toLocaleString('en-IN')}</span>
               </div>
-              <div className="stat-card-icon"><CheckCircle2 size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.14)', color: '#059669' }}><CheckCircle2 size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>ACTIVE FDS</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>{activeFDs.length}</span>
+                <span className="stat-card-label">ACTIVE FDS</span>
+                <span className="stat-card-value">{activeFDs.length}</span>
               </div>
-              <div className="stat-card-icon"><PiggyBank size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><PiggyBank size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>CASH IN HAND</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>₹{(cashInHand || 0).toLocaleString('en-IN')}</span>
+                <span className="stat-card-label">CASH IN HAND</span>
+                <span className="stat-card-value">₹{(cashInHand || 0).toLocaleString('en-IN')}</span>
               </div>
-              <div className="stat-card-icon"><Wallet size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Wallet size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>CASH AT BANK</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>₹{(cashAtBank || 0).toLocaleString('en-IN')}</span>
+                <span className="stat-card-label">CASH AT BANK</span>
+                <span className="stat-card-value">₹{(cashAtBank || 0).toLocaleString('en-IN')}</span>
               </div>
-              <div className="stat-card-icon"><Building2 size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><Building2 size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>REMINDERS DUE</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>0</span>
+                <span className="stat-card-label">REMINDERS DUE</span>
+                <span className="stat-card-value">0</span>
               </div>
-              <div className="stat-card-icon"><Bell size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#D97706' }}><Bell size={20} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-card-info">
-                <span className="stat-card-label" style={{ fontSize: '10px' }}>RECORDS</span>
-                <span className="stat-card-value" style={{ fontSize: '20px' }}>{totalRecords}</span>
+                <span className="stat-card-label">RECORDS</span>
+                <span className="stat-card-value">{totalRecords}</span>
               </div>
-              <div className="stat-card-icon"><Database size={16} /></div>
+              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Database size={20} /></div>
             </div>
           </div>
         </div>
@@ -782,7 +819,13 @@ export const AdminPanel: React.FC = () => {
                         borderBottom: masterSubTab === mt.key ? `2px solid ${mt.key === 'danger' ? '#DC2626' : 'var(--color-primary-dark)'}` : 'none',
                         paddingBottom: '4px'
                       }}
-                      onClick={() => setMasterSubTab(mt.key as any)}
+                      onClick={() => {
+                        if (mt.key === 'danger') {
+                          handleDangerZoneTabClick();
+                        } else {
+                          setMasterSubTab(mt.key as any);
+                        }
+                      }}
                     >
                       {mt.label}
                     </button>
@@ -2051,22 +2094,43 @@ export const AdminPanel: React.FC = () => {
                 )}
 
                 {masterSubTab === 'danger' && (
-                  <div style={{ padding: '20px', backgroundColor: 'rgba(201, 106, 106, 0.08)', border: '1px solid rgba(201, 106, 106, 0.35)', borderRadius: 'var(--radius-md)' }}>
-                    <h4 style={{ fontSize: '16px', fontWeight: 800, color: '#991B1B' }}>WIPE ALL DATA</h4>
-                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
-                      Warning: This action resets all customers, loans, receipts, and accounting ledgers to initial state.
-                    </p>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ backgroundColor: '#DC2626', color: '#FFF' }}
-                      onClick={() => {
-                        resetAllData();
-                        setMasterControlOpen(false);
-                      }}
-                    >
-                      Wipe All Data
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ padding: '20px', backgroundColor: 'rgba(201, 106, 106, 0.08)', border: '1px solid rgba(201, 106, 106, 0.35)', borderRadius: 'var(--radius-md)' }}>
+                      <h4 style={{ fontSize: '16px', fontWeight: 800, color: '#991B1B' }}>WIPE ALL DATA</h4>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                        Warning: Permanently delete all customer, loan, payment, and financial ledger data. Requires verified Google Drive backup before deletion.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn"
+                        style={{ backgroundColor: '#DC2626', color: '#FFF', fontWeight: 800 }}
+                        onClick={() => setShowWipeModal(true)}
+                      >
+                        Wipe All Data
+                      </button>
+                    </div>
+
+                    {/* HIDDEN SYSTEM RESTORE SECTION (Unlocked after 5 clicks on Danger Zone) */}
+                    {showHiddenRestoreSection && (
+                      <div style={{ padding: '20px', backgroundColor: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(37, 99, 235, 0.35)', borderRadius: 'var(--radius-md)' }}>
+                        <h4 style={{ fontSize: '16px', fontWeight: 800, color: '#1E3A8A', margin: '0 0 6px' }}>SYSTEM RESTORE</h4>
+                        <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+                          Restore the complete KKV Gold Finance system from a previously verified Google Drive backup.
+                        </p>
+                        <div style={{ padding: '10px 14px', backgroundColor: 'rgba(245, 158, 11, 0.12)', color: '#92400E', borderRadius: '6px', fontSize: '12px', marginBottom: '14px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                          ⚠️ Warning: Restoring a backup will replace the current application business data with the selected backup.
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ backgroundColor: '#2563EB', color: '#FFF', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                          onClick={() => setShowRestoreModal(true)}
+                        >
+                          <CloudDownload size={16} />
+                          <span>☁ Restore From Google Drive</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2084,6 +2148,26 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Fail-Safe Wipe All Data Modal */}
+      <WipeAllDataModal
+        isOpen={showWipeModal}
+        onClose={() => setShowWipeModal(false)}
+        onSuccessReset={() => {
+          resetAllData();
+          setMasterControlOpen(false);
+        }}
+      />
+
+      {/* Hidden Fail-Safe System Restore Modal */}
+      <SystemRestoreModal
+        isOpen={showRestoreModal}
+        onClose={() => setShowRestoreModal(false)}
+        onSuccessReload={() => {
+          resetAllData();
+          setMasterControlOpen(false);
+        }}
+      />
     </div>
   );
 };

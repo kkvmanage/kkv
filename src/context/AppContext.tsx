@@ -886,19 +886,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetAllData = () => {
+    // Preserve authentication session in localStorage
+    const savedRole = localStorage.getItem('kkv_user_role');
+    const savedUser = localStorage.getItem('kkv_user');
+
     localStorage.clear();
-    setLoans(initialLoans);
-    setCustomers(initialCustomers);
-    setReceipts(initialReceipts);
-    setFixedDeposits(initialFixedDeposits);
-    setDayBookEntries(initialDayBook);
+
+    if (savedRole) localStorage.setItem('kkv_user_role', savedRole);
+    if (savedUser) localStorage.setItem('kkv_user', savedUser);
+
+    setLoans([]);
+    setCustomers([]);
+    setReceipts([]);
+    setFixedDeposits([]);
+    setDayBookEntries([]);
     setFdCustomers([]);
     setFdInterestPayouts([]);
     setFdWithdrawals([]);
-    setMasterControlSettings(defaultMasterSettings);
-    setWhatsAppTemplates(defaultWhatsAppTemplates);
-    setTelegramConfig(defaultTelegramConfig);
-    showToast('All system data reset to defaults!', 'warning');
+
+    showToast('All system operational data wiped. System ready for fresh start.', 'warning');
   };
 
   const restoreDataFromJSON = (jsonStr: string): boolean => {

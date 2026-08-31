@@ -14,7 +14,7 @@ export const createBackup = async (req: Request, res: Response) => {
         success: false,
         errorCode: 'GOOGLE_DRIVE_ROOT_FOLDER_NOT_ACCESSIBLE',
         stage: 'root-folder-access',
-        message: `The Google Drive root folder (${googleDriveService.getRootFolderId()}) is not accessible. Share this folder with ${env.GOOGLE_SERVICE_ACCOUNT_EMAIL} as Editor.`,
+        message: `The configured Google Drive folder cannot be accessed by the authorized Google account.`,
         details: rootCheck.error
       });
     }

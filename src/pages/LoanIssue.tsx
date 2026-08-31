@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import '../styles/LoanIssue.css';
 import { useApp } from '../context/AppContext';
 import { CustomerLocation } from '../components/common/CustomerLocation';
 import { CustomerAutocomplete } from '../components/common/CustomerAutocomplete';
 import { DobDatePicker } from '../components/common/DobDatePicker';
 import { DatePicker } from '../components/common/DatePicker';
+import { IDProofInputFields } from '../components/common/IDProofInputFields';
+import { OtherSelectField, RELATION_OPTIONS, resolveRelation } from '../components/common/OtherSelectField';
 import { DriveFileUpload, DriveFileItem } from '../components/common/DriveFileUpload';
 import { CustomerPhotoUpload } from '../components/common/CustomerPhotoUpload';
+import { FinancialTermsSection } from '../components/common/FinancialTermsSection';
 import { CustomerLocationData, OrnamentItem, PurityOption } from '../types';
 import { apiService } from '../services/api';
 import {
@@ -61,8 +65,10 @@ export const LoanIssue: React.FC = () => {
   const [dobError, setDobError] = useState<string>('');
   const [occupation, setOccupation] = useState<string>('');
   const [email, setEmail] = useState<string>('');
-  const [idProof, setIdProof] = useState<string>('-');
+  const [idProof, setIdProof] = useState<string>('Aadhaar');
   const [idNumber, setIdNumber] = useState<string>('');
+  const [extraPan, setExtraPan] = useState<string>('');
+  const [docName, setDocName] = useState<string>('');
   const [currentAddress, setCurrentAddress] = useState<string>('');
   const [permanentAddress, setPermanentAddress] = useState<string>('');
   const [customerPhotoFile, setCustomerPhotoFile] = useState<File | null>(null);
@@ -78,6 +84,7 @@ export const LoanIssue: React.FC = () => {
   const [hasNominee, setHasNominee] = useState<boolean>(false);
   const [nomineeName, setNomineeName] = useState<string>('');
   const [nomineeRelation, setNomineeRelation] = useState<string>('-');
+  const [nomineeCustomRelation, setNomineeCustomRelation] = useState<string>('');
   const [nomineeAge, setNomineeAge] = useState<string>('');
   const [nomineePhone, setNomineePhone] = useState<string>('');
   const [nomineeIdNo, setNomineeIdNo] = useState<string>('');
@@ -87,6 +94,7 @@ export const LoanIssue: React.FC = () => {
   const [hasGuarantor, setHasGuarantor] = useState<boolean>(false);
   const [guarantorName, setGuarantorName] = useState<string>('');
   const [guarantorRelation, setGuarantorRelation] = useState<string>('-');
+  const [guarantorCustomRelation, setGuarantorCustomRelation] = useState<string>('');
   const [guarantorAge, setGuarantorAge] = useState<string>('');
   const [guarantorPhone, setGuarantorPhone] = useState<string>('');
   const [guarantorIdNo, setGuarantorIdNo] = useState<string>('');
@@ -95,24 +103,40 @@ export const LoanIssue: React.FC = () => {
   // Financial details
   const [principal, setPrincipal] = useState<number | ''>(100000);
   const [disbursementMethod, setDisbursementMethod] = useState<'Cash' | 'Bank' | 'Cash + Bank'>('Cash');
+  const [bankMode, setBankMode] = useState<string>('UPI');
 
   // Cash + Bank Split Details
-  const [splitBankMode, setSplitBankMode] = useState<string>('UPI');
   const [splitCashAmount, setSplitCashAmount] = useState<number | ''>(50000);
   const [splitBankAmount, setSplitBankAmount] = useState<number | ''>(50000);
 
-  // Interest Rate
-  const getApplicableInterestRate = (principalAmount: number): number => {
+  // Interest Rate (Admin Controlled)
+  const getApplicableInterestRate = (principalAmount: number, type: string = 'GOLD LOAN'): number => {
+    if (type === 'SILVER LOAN') {
+      const bands = masterControlSettings?.silverAmountBands || [];
+      if (bands.length > 0 && principalAmount > 0) {
+        const sortedBands = [...bands].sort((a, b) => a.amount - b.amount);
+        for (const band of sortedBands) {
+          if (band.condition === 'Below' && principalAmount <= band.amount) return band.baseRateMonthly;
+          if (band.condition === 'Above' && principalAmount > band.amount) return band.baseRateMonthly;
+        }
+        const match = sortedBands.find((b) => principalAmount <= b.amount) || sortedBands[sortedBands.length - 1];
+        if (match) return match.baseRateMonthly;
+      }
+      return masterControlSettings?.silverLoanMonthlyRate || 2.0;
+    }
+    if (type === 'PRONOTE') {
+      return masterControlSettings?.pronoteRate || masterControlSettings?.pronoteMonthlyRate || 1.0;
+    }
+    if (type === 'HIRE PURCHASE') {
+      return masterControlSettings?.hirePurchaseMonthlyRate || 1.0;
+    }
+    // Default: GOLD LOAN
     const bands = masterControlSettings?.amountBands || [];
     if (bands.length > 0 && principalAmount > 0) {
       const sortedBands = [...bands].sort((a, b) => a.amount - b.amount);
       for (const band of sortedBands) {
-        if (band.condition === 'Below' && principalAmount <= band.amount) {
-          return band.baseRateMonthly;
-        }
-        if (band.condition === 'Above' && principalAmount > band.amount) {
-          return band.baseRateMonthly;
-        }
+        if (band.condition === 'Below' && principalAmount <= band.amount) return band.baseRateMonthly;
+        if (band.condition === 'Above' && principalAmount > band.amount) return band.baseRateMonthly;
       }
       const match = sortedBands.find((b) => principalAmount <= b.amount) || sortedBands[sortedBands.length - 1];
       if (match) return match.baseRateMonthly;
@@ -121,18 +145,18 @@ export const LoanIssue: React.FC = () => {
   };
 
   const numericPrincipal = typeof principal === 'number' ? principal : 0;
-  const interestRate = getApplicableInterestRate(numericPrincipal);
+  const interestRate = getApplicableInterestRate(numericPrincipal, loanType);
 
   // Advance Interest
   const [deductAdvanceInterest, setDeductAdvanceInterest] = useState<boolean>(false);
   const [advanceDays, setAdvanceDays] = useState<number>(0);
   const [advanceReceivingMethod, setAdvanceReceivingMethod] = useState<'Cash' | 'Bank' | 'Cash + Bank'>('Cash');
 
-  // Card Fee Pill
+  // Card Fee
   const [cardFeeEnabled, setCardFeeEnabled] = useState<boolean>(true);
   const [cardFeeAmount, setCardFeeAmount] = useState<number>(10);
   const [cardFeeMode, setCardFeeMode] = useState<'Cash' | 'Bank'>('Bank');
-  const [cardFeePaymentType, setCardFeePaymentType] = useState<'UPI' | 'Cash' | 'Bank Transfer'>('UPI');
+  const [cardFeeBankMode, setCardFeeBankMode] = useState<string>('UPI');
 
   // Ornament Items
   const [items, setItems] = useState<OrnamentItem[]>([
@@ -314,6 +338,7 @@ export const LoanIssue: React.FC = () => {
     setHasNominee(false);
     setNomineeName('');
     setNomineeRelation('-');
+    setNomineeCustomRelation('');
     setNomineeAge('');
     setNomineePhone('');
     setNomineeIdNo('');
@@ -321,6 +346,7 @@ export const LoanIssue: React.FC = () => {
     setHasGuarantor(false);
     setGuarantorName('');
     setGuarantorRelation('-');
+    setGuarantorCustomRelation('');
     setGuarantorAge('');
     setGuarantorPhone('');
     setGuarantorIdNo('');
@@ -387,17 +413,32 @@ export const LoanIssue: React.FC = () => {
       return;
     }
 
+    if (disbursementMethod === 'Bank' && !bankMode) {
+      showToast('Please select a Bank Mode.', 'error');
+      return;
+    }
+
     if (disbursementMethod === 'Cash + Bank') {
       const cAmt = Number(splitCashAmount) || 0;
       const bAmt = Number(splitBankAmount) || 0;
       if (cAmt <= 0 || bAmt <= 0 || cAmt + bAmt !== numericPrincipal) {
-        showToast('Cash + Bank split amounts must both be > 0 and sum exactly to full loan amount.', 'error');
+        showToast('Cash + Bank amount must equal the Principal Amount.', 'error');
         return;
       }
     }
 
     if (totalNetWeight <= 0) {
       showToast('Please specify ornament net weight.', 'error');
+      return;
+    }
+
+    // Validate "Other" relation fields
+    if (hasNominee && nomineeRelation === 'Other' && !nomineeCustomRelation.trim()) {
+      showToast('Please specify the nominee relationship.', 'error');
+      return;
+    }
+    if (hasGuarantor && guarantorRelation === 'Other' && !guarantorCustomRelation.trim()) {
+      showToast('Please specify the guarantor relationship.', 'error');
       return;
     }
 
@@ -416,6 +457,12 @@ export const LoanIssue: React.FC = () => {
         console.warn('[Photo Upload] Drive upload error:', err);
       }
     }
+
+    const effectiveCardFee = cardFeeEnabled ? cardFeeAmount : 0;
+    const finalDisbursedAmount = Math.max(
+      0,
+      numericPrincipal - (deductAdvanceInterest ? advanceInterestAmount : 0) - effectiveCardFee
+    );
 
     addLoan({
       receiptBillNo,
@@ -442,7 +489,9 @@ export const LoanIssue: React.FC = () => {
         ? {
           hasNominee: true,
           name: nomineeName,
-          relationship: nomineeRelation,
+          relationship: resolveRelation(nomineeRelation, nomineeCustomRelation),
+          relation: nomineeRelation,
+          customRelation: nomineeRelation === 'Other' ? nomineeCustomRelation.trim() || null : null,
           age: Number(nomineeAge) || undefined,
           phone: nomineePhone,
           idProofNumber: nomineeIdNo,
@@ -453,7 +502,9 @@ export const LoanIssue: React.FC = () => {
         ? {
           hasGuarantor: true,
           name: guarantorName,
-          relationship: guarantorRelation,
+          relationship: resolveRelation(guarantorRelation, guarantorCustomRelation),
+          relation: guarantorRelation,
+          customRelation: guarantorRelation === 'Other' ? guarantorCustomRelation.trim() || null : null,
           age: Number(guarantorAge) || undefined,
           phone: guarantorPhone,
           idProof: guarantorIdNo,
@@ -468,16 +519,17 @@ export const LoanIssue: React.FC = () => {
       showroom: showroom || 'Main Branch - Counter 1',
       principal: numericPrincipal,
       interestRate,
-      bankMode: disbursementMethod === 'Cash + Bank' ? 'Split' : (disbursementMethod as any),
-      splitBankMode: disbursementMethod === 'Cash + Bank' ? splitBankMode : undefined,
+      bankMode: disbursementMethod === 'Cash' ? 'Cash' : (disbursementMethod === 'Bank' ? (bankMode as any) : 'Split'),
+      splitBankMode: disbursementMethod === 'Cash + Bank' ? bankMode : undefined,
       cashAmount: disbursementMethod === 'Cash' ? numericPrincipal : (disbursementMethod === 'Cash + Bank' ? Number(splitCashAmount) || 0 : 0),
       bankAmount: disbursementMethod === 'Bank' ? numericPrincipal : (disbursementMethod === 'Cash + Bank' ? Number(splitBankAmount) || 0 : 0),
       deductAdvanceInterest,
       advanceDays,
       advanceInterestAmount,
       advanceInterestReceivingMethod: deductAdvanceInterest ? advanceReceivingMethod : undefined,
-      cardFee: cardFeeEnabled ? cardFeeAmount : 0,
+      cardFee: effectiveCardFee,
       cardFeePaymentMode: cardFeeMode,
+      cardFeeBankMode: cardFeeMode === 'Bank' ? cardFeeBankMode : undefined,
       items,
       totalGrossWeight,
       totalNetWeight,
@@ -487,7 +539,7 @@ export const LoanIssue: React.FC = () => {
       notes: additionalNotes,
       photos: ornamentPhotos,
       status: 'ACTIVE',
-      disbursedAmount: numericPrincipal - advanceInterestAmount,
+      disbursedAmount: finalDisbursedAmount,
       outstandingPrincipal: numericPrincipal,
       accruedInterest: 0,
       renewalDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB').replace(/\//g, '-')
@@ -516,21 +568,7 @@ export const LoanIssue: React.FC = () => {
     }
   };
 
-  // Dynamic ID field label & subtext
-  const getIdFieldConfig = () => {
-    if (idProof.includes('Aadhaar') && idProof.includes('PAN')) {
-      return { label: 'AADHAAR NUMBER', placeholder: 'XXXX XXXX XXXX', subtext: '12 digits, as printed on the card.' };
-    }
-    if (idProof.includes('Aadhaar')) {
-      return { label: 'AADHAAR NUMBER', placeholder: 'XXXX XXXX XXXX', subtext: '12 digits, as printed on the card.' };
-    }
-    if (idProof.includes('PAN')) {
-      return { label: 'PAN NUMBER', placeholder: 'ABCDE1234F', subtext: '10-character alphanumeric PAN.' };
-    }
-    return { label: 'ID NUMBER', placeholder: 'ID proof number', subtext: 'Enter official document ID number.' };
-  };
 
-  const idConfig = getIdFieldConfig();
 
   // Simulated Voice Fill
   const handleSimulateVoice = () => {
@@ -565,44 +603,28 @@ export const LoanIssue: React.FC = () => {
   };
 
   return (
-    <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="page-content fi-page">
 
-      {/* HEADER BAR */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* PAGE HEADER */}
+      <div className="fi-page-header">
         <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Loan Issue</h1>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-            Issue new loans and view recent loan list.
-          </p>
+          <h1 className="fi-page-title">Loan Issue</h1>
+          <p className="fi-page-subtitle">Issue new loans and manage top-ups.</p>
         </div>
       </div>
 
-      {/* SUB-TABS BAR */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid var(--border-subtle)', paddingBottom: '2px' }}>
+      {/* TAB BAR */}
+      <div className="fi-tab-bar">
         <button
           type="button"
-          className={`btn ${activeTab === 'issue' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{
-            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-            padding: '10px 24px',
-            fontWeight: 700,
-            backgroundColor: activeTab === 'issue' ? 'var(--color-primary-accent)' : 'transparent',
-            color: activeTab === 'issue' ? '#fff' : 'var(--text-secondary)'
-          }}
+          className={`fi-tab${activeTab === 'issue' ? ' fi-tab--active' : ''}`}
           onClick={() => setActiveTab('issue')}
         >
           Issue New Loan
         </button>
         <button
           type="button"
-          className={`btn ${activeTab === 'topup' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{
-            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-            padding: '10px 24px',
-            fontWeight: 700,
-            backgroundColor: activeTab === 'topup' ? 'var(--color-primary-accent)' : 'transparent',
-            color: activeTab === 'topup' ? '#fff' : 'var(--text-secondary)'
-          }}
+          className={`fi-tab${activeTab === 'topup' ? ' fi-tab--active' : ''}`}
           onClick={() => setActiveTab('topup')}
         >
           Loan Top-up
@@ -808,89 +830,60 @@ export const LoanIssue: React.FC = () => {
         </div>
       ) : (
         /* ISSUE NEW LOAN FORM */
-        <form onSubmit={handleSubmitIssue} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+        <form onSubmit={handleSubmitIssue} className="fi-rows fi-rows--lg">
 
-          {/* SECTION 1: ISSUE NEW LOAN TOP CARD */}
-          <div className="card" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 className="card-title" style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>Issue New Loan</h2>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Fill in the details below and click Issue Loan</span>
-            </div>
-
-            {/* Voice Fill Button */}
-            <div style={{ marginBottom: '20px' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 16px',
-                  borderRadius: 'var(--radius-full)',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  border: '1px solid var(--border-light)'
-                }}
-                onClick={() => setShowVoiceModal(true)}
-              >
-                <Mic size={16} color="var(--color-primary-dark)" />
-                <span>Voice Fill (Alt+V)</span>
+          {/* SECTION 1 — LOAN CONFIGURATION */}
+          <div className="fi-card">
+            <div className="fi-section-header">
+              <div className="fi-section-title-group">
+                <span className="fi-section-icon">📋</span>
+                <div>
+                  <h2 className="fi-section-title">Loan Configuration</h2>
+                  <p className="fi-section-desc">Reference numbers, type, and branch details</p>
+                </div>
+              </div>
+              <button type="button" className="fi-btn-ghost" onClick={() => setShowVoiceModal(true)}>
+                <Mic size={14} />
+                Voice Fill
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Row 1: Receipt / Bill No | Loan No | Loan Issue Date */}
-              <div className="grid-3" style={{ gap: '16px' }}>
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label className="form-label required">RECEIPT / BILL NO</label>
-                    <span style={{ color: 'var(--color-success)', fontSize: '11px', fontWeight: 700 }}>✓ Available</span>
+            <div className="fi-rows">
+              <div className="fi-grid-3">
+                <div className="fi-field">
+                  <div className="fi-label-sub">
+                    <label className="fi-label">Receipt / Bill No <span className="fi-req">*</span></label>
+                    <span className="fi-label-badge">✓ Auto</span>
                   </div>
-                  <input
-                    type="number"
-                    className="input-control"
-                    value={receiptBillNo}
-                    onChange={(e) => setReceiptBillNo(Number(e.target.value) || 1)}
-                  />
-                  <small style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                    Auto-filled - edit only to match a manual register.
-                  </small>
+                  <input type="number" className="input-control" value={receiptBillNo}
+                    onChange={(e) => setReceiptBillNo(Number(e.target.value) || 1)} />
+                  <span className="fi-hint">Edit only to match a manual register</span>
                 </div>
 
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label className="form-label required">LOAN NO</label>
-                    <span style={{ color: 'var(--color-success)', fontSize: '11px', fontWeight: 700 }}>✓ Available</span>
+                <div className="fi-field">
+                  <div className="fi-label-sub">
+                    <label className="fi-label">Loan No <span className="fi-req">*</span></label>
+                    <span className="fi-label-badge">✓ Auto</span>
                   </div>
-                  <input
-                    type="text"
-                    className="input-control"
-                    value={loanNo}
-                    onChange={(e) => setLoanNo(e.target.value)}
-                  />
+                  <input type="text" className="input-control" value={loanNo}
+                    onChange={(e) => setLoanNo(e.target.value)} />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label required">LOAN ISSUE DATE</label>
+                <div className="fi-field">
+                  <label className="fi-label">Loan Issue Date <span className="fi-req">*</span></label>
                   <DatePicker
                     isoValue={loanIssueDateIso}
                     displayValue={loanIssueDate}
-                    onChange={(iso, display) => {
-                      setLoanIssueDateIso(iso);
-                      setLoanIssueDate(display);
-                      setLoanIssueDateError('');
-                    }}
+                    onChange={(iso, display) => { setLoanIssueDateIso(iso); setLoanIssueDate(display); setLoanIssueDateError(''); }}
                     error={loanIssueDateError}
                     placeholder="DD-MM-YYYY"
                   />
                 </div>
               </div>
 
-              {/* Row 2: Loan Type | Repayment System */}
-              <div className="grid-2" style={{ gap: '16px' }}>
-                <div className="form-group">
-                  <label className="form-label required">LOAN TYPE</label>
+              <div className="fi-grid-4">
+                <div className="fi-field">
+                  <label className="fi-label">Loan Type <span className="fi-req">*</span></label>
                   <select className="input-control" value={loanType} onChange={(e) => setLoanType(e.target.value as any)}>
                     <option value="GOLD LOAN">Gold Loan</option>
                     <option value="SILVER LOAN">Silver Loan</option>
@@ -899,61 +892,46 @@ export const LoanIssue: React.FC = () => {
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label required">REPAYMENT SYSTEM</label>
+                <div className="fi-field">
+                  <label className="fi-label">Repayment System <span className="fi-req">*</span></label>
                   <select className="input-control" value={repaymentSystem} onChange={(e) => setRepaymentSystem(e.target.value as any)}>
-                    <option value="Monthly interest only">Monthly Interest only</option>
+                    <option value="Monthly interest only">Monthly Interest Only</option>
                     <option value="EMI">EMI</option>
                     <option value="Bullet Repayment">Bullet Repayment</option>
                   </select>
                 </div>
-              </div>
 
-              {/* Row 3: Area | Showroom */}
-              <div className="grid-2" style={{ gap: '16px' }}>
-                <div className="form-group">
-                  <label className="form-label">AREA</label>
-                  <input
-                    type="text"
-                    className="input-control"
-                    placeholder="Type to search..."
-                    value={area}
-                    onChange={(e) => setArea(e.target.value)}
-                  />
+                <div className="fi-field">
+                  <label className="fi-label">Area</label>
+                  <input type="text" className="input-control" placeholder="e.g. T. Nagar"
+                    value={area} onChange={(e) => setArea(e.target.value)} />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">SHOWROOM</label>
-                  <input
-                    type="text"
-                    className="input-control"
-                    placeholder="Type to search..."
-                    value={showroom}
-                    onChange={(e) => setShowroom(e.target.value)}
-                  />
+                <div className="fi-field">
+                  <label className="fi-label">Showroom</label>
+                  <input type="text" className="input-control" placeholder="e.g. Main Branch"
+                    value={showroom} onChange={(e) => setShowroom(e.target.value)} />
                 </div>
               </div>
 
-              {/* Row 4: Existing Customer By Name | By Phone */}
-              <div className="grid-2" style={{ gap: '16px' }}>
-                <div className="form-group">
+              <div className="fi-grid-2">
+                <div className="fi-field">
                   <CustomerAutocomplete
-                    label="EXISTING CUSTOMER (BY NAME)"
+                    label="Existing Customer (by Name)"
                     value={customerSearchName}
                     onChange={setCustomerSearchName}
                     onSelectCustomer={handleSelectCustomer}
-                    placeholder="Type customer name..."
+                    placeholder="Type customer name…"
                     searchBy="name"
                   />
                 </div>
-
-                <div className="form-group">
+                <div className="fi-field">
                   <CustomerAutocomplete
-                    label="EXISTING CUSTOMER (BY PHONE)"
+                    label="Existing Customer (by Phone)"
                     value={customerSearchPhone}
                     onChange={setCustomerSearchPhone}
                     onSelectCustomer={handleSelectCustomer}
-                    placeholder="Type phone number..."
+                    placeholder="Type phone number…"
                     searchBy="phone"
                   />
                 </div>
@@ -962,500 +940,277 @@ export const LoanIssue: React.FC = () => {
             </div>
           </div>
 
-          {/* SECTION 2: CUSTOMER / KYC DETAILS CARD */}
-          <div className="card" style={{ padding: '24px' }}>
-            <div className="card-header" style={{ marginBottom: '16px' }}>
-              <h3 className="card-title" style={{ fontSize: '16px', fontWeight: 700 }}>Customer / KYC Details</h3>
+          {/* SECTION 2 — CUSTOMER / KYC DETAILS */}
+          <div className="fi-card">
+            <div className="fi-section-header">
+              <div className="fi-section-title-group">
+                <span className="fi-section-icon">👤</span>
+                <div>
+                  <h3 className="fi-section-title">Customer / KYC Details</h3>
+                  <p className="fi-section-desc">Personal information, identity proof, and addresses</p>
+                </div>
+              </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr', gap: '20px', alignItems: 'start' }}>
-              {/* Photo Box Column */}
+            {/* Photo + fields grid */}
+            <div className="fi-kyc-layout">
+              {/* Photo Column */}
               <CustomerPhotoUpload
                 photoFile={customerPhotoFile}
                 photoUrl={customerPhotoUrl}
-                onChange={(file, url) => {
-                  setCustomerPhotoFile(file);
-                  setCustomerPhotoUrl(url);
-                }}
+                onChange={(file, url) => { setCustomerPhotoFile(file); setCustomerPhotoUrl(url); }}
                 onToast={(msg, type) => showToast(msg, type)}
               />
 
-              {/* Middle Column */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div className="form-group">
-                  <label className="form-label required">FULL NAME</label>
+              {/* Personal — col 2 */}
+              <div className="fi-rows">
+                <div className="fi-field">
+                  <label className="fi-label">Full Name <span className="fi-req">*</span></label>
                   <input type="text" className="input-control" value={name} onChange={(e) => setName(e.target.value)} />
                 </div>
-
-                <div className="form-group">
-                  <label className="form-label required">GENDER</label>
+                <div className="fi-field">
+                  <label className="fi-label">Gender <span className="fi-req">*</span></label>
                   <select className="input-control" value={gender} onChange={(e) => setGender(e.target.value as any)}>
-                    <option value="-">-</option>
+                    <option value="-">— Select —</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
                     <option value="Other">Other</option>
                   </select>
                 </div>
-
-                <div className="form-group">
-                  <label className="form-label">OCCUPATION / WORK</label>
-                  <input type="text" className="input-control" placeholder="e.g. Farmer" value={occupation} onChange={(e) => setOccupation(e.target.value)} />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">ID PROOF TYPE</label>
-                  <select className="input-control" value={idProof} onChange={(e) => setIdProof(e.target.value)}>
-                    <option value="-">-</option>
-                    <option value="Aadhaar">Aadhaar</option>
-                    <option value="PAN">PAN</option>
-                    <option value="Aadhaar + PAN">Aadhaar + PAN</option>
-                    <option value="Voter ID">Voter ID</option>
-                    <option value="Driving Licence">Driving Licence</option>
-                    <option value="Passport">Passport</option>
-                    <option value="Other">Other</option>
-                  </select>
+                <div className="fi-field">
+                  <label className="fi-label">Occupation / Work</label>
+                  <input type="text" className="input-control" placeholder="e.g. Farmer"
+                    value={occupation} onChange={(e) => setOccupation(e.target.value)} />
                 </div>
               </div>
 
-              {/* Right Column */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div className="form-group">
-                  <label className="form-label required">PHONE</label>
+              {/* Contact — col 3 */}
+              <div className="fi-rows">
+                <div className="fi-field">
+                  <label className="fi-label">Phone <span className="fi-req">*</span></label>
                   <input type="text" className="input-control" value={phone} onChange={(e) => setPhone(e.target.value)} />
                 </div>
-
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <label className="form-label">AGE / DATE OF BIRTH</label>
-                    <div style={{ display: 'flex', gap: '2px', backgroundColor: 'var(--bg-surface-secondary)', padding: '2px', borderRadius: 'var(--radius-sm)' }}>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${dobMode === 'dob' ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
-                        onClick={() => setDobMode('dob')}
-                      >
-                        DOB
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${dobMode === 'age' ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
-                        onClick={() => setDobMode('age')}
-                      >
-                        AGE
-                      </button>
+                <div className="fi-field">
+                  <div className="fi-label-sub">
+                    <label className="fi-label">Age / Date of Birth</label>
+                    <div className="fi-dob-toggle">
+                      <button type="button"
+                        className={`fi-dob-btn ${dobMode === 'dob' ? 'fi-dob-btn--active' : 'fi-dob-btn--inactive'}`}
+                        onClick={() => setDobMode('dob')}>DOB</button>
+                      <button type="button"
+                        className={`fi-dob-btn ${dobMode === 'age' ? 'fi-dob-btn--active' : 'fi-dob-btn--inactive'}`}
+                        onClick={() => setDobMode('age')}>AGE</button>
                     </div>
                   </div>
                   {dobMode === 'dob' ? (
-                    <DobDatePicker
-                      isoValue={dobIso}
-                      displayValue={dob}
-                      onChange={handleDobPickerChange}
-                      error={dobError}
-                    />
+                    <DobDatePicker isoValue={dobIso} displayValue={dob} onChange={handleDobPickerChange} error={dobError} />
                   ) : (
                     <div>
-                      <input
-                        type="number"
-                        className="input-control"
-                        placeholder="Age in years (1 - 120)"
-                        min={1}
-                        max={120}
-                        value={age}
-                        onChange={(e) => handleAgeInputChange(e.target.value)}
-                      />
-                      {dobError && (
-                        <small style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', display: 'block' }}>
-                          {dobError}
-                        </small>
-                      )}
+                      <input type="number" className="input-control" placeholder="Age in years (1–120)"
+                        min={1} max={120} value={age} onChange={(e) => handleAgeInputChange(e.target.value)} />
+                      {dobError && <small className="fi-error">{dobError}</small>}
                     </div>
                   )}
                 </div>
-
-                <div className="form-group">
-                  <label className="form-label">EMAIL</label>
+                <div className="fi-field">
+                  <label className="fi-label">Email</label>
                   <input type="email" className="input-control" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </div>
-
-                <div className="form-group">
-                  <label className="form-label">{idConfig.label}</label>
-                  <input
-                    type="text"
-                    className="input-control"
-                    placeholder={idConfig.placeholder}
-                    value={idNumber}
-                    onChange={(e) => setIdNumber(e.target.value)}
-                  />
-                  <small style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {idConfig.subtext}
-                  </small>
-                </div>
               </div>
             </div>
 
-            {/* Addresses Row */}
-            <div className="grid-2" style={{ marginTop: '16px', gap: '16px' }}>
-              <div className="form-group">
-                <label className="form-label required">CURRENT ADDRESS</label>
-                <textarea className="input-control" rows={2} value={currentAddress} onChange={(e) => setCurrentAddress(e.target.value)} />
-              </div>
+            {/* ID Proof */}
+            <div className="fi-divider" />
+            <IDProofInputFields
+              idProof={idProof}
+              idNumber={idNumber}
+              extraPan={extraPan}
+              docName={docName}
+              onChange={(payload) => {
+                setIdProof(payload.idProof);
+                setIdNumber(payload.idNumber);
+                setExtraPan(payload.extraPan || '');
+                setDocName(payload.docName || '');
+              }}
+            />
 
-              <div className="form-group">
-                <label className="form-label">PERMANENT ADDRESS</label>
-                <textarea
-                  className="input-control"
-                  rows={2}
-                  placeholder="If same as current address, leave blank"
+            {/* Addresses */}
+            <div className="fi-grid-2">
+              <div className="fi-field">
+                <label className="fi-label">Current Address <span className="fi-req">*</span></label>
+                <textarea className="input-control" rows={2} value={currentAddress}
+                  onChange={(e) => setCurrentAddress(e.target.value)} />
+              </div>
+              <div className="fi-field">
+                <label className="fi-label">Permanent Address</label>
+                <textarea className="input-control" rows={2}
+                  placeholder="Leave blank if same as current address"
                   value={permanentAddress}
-                  onChange={(e) => setPermanentAddress(e.target.value)}
-                />
+                  onChange={(e) => setPermanentAddress(e.target.value)} />
               </div>
             </div>
 
-            {/* Customer Location Container */}
-            <div style={{ marginTop: '16px' }}>
-              <CustomerLocation
-                location={customerLocationData}
-                onChange={setCustomerLocationData}
-                onToast={(msg, type) => showToast(msg, type)}
+            {/* Location */}
+            <CustomerLocation
+              location={customerLocationData}
+              onChange={setCustomerLocationData}
+              onToast={(msg, type) => showToast(msg, type)}
+            />
+
+            {/* Nominee & Guarantor */}
+            <div className="fi-rows">
+
+              {/* Nominee */}
+              <div>
+                <label className="fi-checkbox-row">
+                  <input type="checkbox" checked={hasNominee} onChange={(e) => setHasNominee(e.target.checked)} />
+                  <span className="fi-checkbox-label"><span className="fi-checkbox-label-icon">👤</span> Do you have a Nominee?</span>
+                </label>
+                {hasNominee && (
+                  <div className="fi-sub-panel fi-rows">
+                    <div className="fi-grid-2">
+                      <div className="fi-field">
+                        <label className="fi-label">Nominee Name</label>
+                        <input type="text" className="input-control" placeholder="Full name"
+                          value={nomineeName} onChange={(e) => setNomineeName(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <OtherSelectField label="Relation" value={nomineeRelation} customValue={nomineeCustomRelation}
+                          options={RELATION_OPTIONS} customPlaceholder="e.g. Uncle, Aunt, Cousin, Guardian"
+                          customLabel="Specify Relation"
+                          onChange={(val, custom) => { setNomineeRelation(val); setNomineeCustomRelation(custom); }}
+                        />
+                      </div>
+                    </div>
+                    {nomineeRelation === 'Other' && nomineeCustomRelation && null /* already handled inside OtherSelectField */}
+                    <div className="fi-grid-4">
+                      <div className="fi-field">
+                        <label className="fi-label">Age</label>
+                        <input type="number" className="input-control" placeholder="yrs"
+                          value={nomineeAge} onChange={(e) => setNomineeAge(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <label className="fi-label">Phone</label>
+                        <input type="text" className="input-control" placeholder="10-digit mobile"
+                          value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <label className="fi-label">Aadhaar / ID No.</label>
+                        <input type="text" className="input-control" placeholder="ID number"
+                          value={nomineeIdNo} onChange={(e) => setNomineeIdNo(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <label className="fi-label">Address</label>
+                        <input type="text" className="input-control" placeholder="Nominee address"
+                          value={nomineeAddress} onChange={(e) => setNomineeAddress(e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Guarantor */}
+              <div>
+                <label className="fi-checkbox-row">
+                  <input type="checkbox" checked={hasGuarantor} onChange={(e) => setHasGuarantor(e.target.checked)} />
+                  <span className="fi-checkbox-label"><span className="fi-checkbox-label-icon">🤝</span> Do you have a Guarantor?</span>
+                </label>
+                {hasGuarantor && (
+                  <div className="fi-sub-panel fi-rows">
+                    <div className="fi-grid-2">
+                      <div className="fi-field">
+                        <label className="fi-label">Guarantor Name</label>
+                        <input type="text" className="input-control" placeholder="Full name"
+                          value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <OtherSelectField label="Relation" value={guarantorRelation} customValue={guarantorCustomRelation}
+                          options={RELATION_OPTIONS} customPlaceholder="e.g. Uncle, Aunt, Cousin, Guardian"
+                          customLabel="Specify Relation"
+                          onChange={(val, custom) => { setGuarantorRelation(val); setGuarantorCustomRelation(custom); }}
+                        />
+                      </div>
+                    </div>
+                    <div className="fi-grid-4">
+                      <div className="fi-field">
+                        <label className="fi-label">Age</label>
+                        <input type="number" className="input-control" placeholder="yrs"
+                          value={guarantorAge} onChange={(e) => setGuarantorAge(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <label className="fi-label">Phone</label>
+                        <input type="text" className="input-control" placeholder="10-digit mobile"
+                          value={guarantorPhone} onChange={(e) => setGuarantorPhone(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <label className="fi-label">Aadhaar / ID No.</label>
+                        <input type="text" className="input-control" placeholder="ID number"
+                          value={guarantorIdNo} onChange={(e) => setGuarantorIdNo(e.target.value)} />
+                      </div>
+                      <div className="fi-field">
+                        <label className="fi-label">Address</label>
+                        <input type="text" className="input-control" placeholder="Guarantor address"
+                          value={guarantorAddress} onChange={(e) => setGuarantorAddress(e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* KYC Documents */}
+              <DriveFileUpload
+                label="KYC Documents (Secure Google Drive Upload)"
+                category="kyc"
+                customerId={selectedCustomerId || undefined}
+                onUploadSuccess={(item: DriveFileItem) => setKycDocs((prev) => [...prev, item.name])}
+                onFileDeleted={() => setKycDocs((prev) => prev.slice(0, -1))}
               />
             </div>
-
-            {/* Nominee & Guarantor Collapsibles */}
-            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-
-              {/* Nominee Checkbox */}
-              <div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700 }}>
-                  <input type="checkbox" checked={hasNominee} onChange={(e) => setHasNominee(e.target.checked)} />
-                  <span>👤 DO YOU HAVE A NOMINEE?</span>
-                </label>
-
-                {hasNominee && (
-                  <div style={{ marginTop: '10px', padding: '16px', backgroundColor: 'var(--bg-surface-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '12px', border: '1px solid var(--border-subtle)' }}>
-                    <div className="grid-4" style={{ gap: '12px' }}>
-                      <div className="form-group">
-                        <label className="form-label">NOMINEE NAME</label>
-                        <input type="text" className="input-control" placeholder="Full name" value={nomineeName} onChange={(e) => setNomineeName(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">RELATION</label>
-                        <select className="input-control" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)}>
-                          <option value="-">- Select -</option>
-                          <option value="Spouse">Spouse</option>
-                          <option value="Son">Son</option>
-                          <option value="Daughter">Daughter</option>
-                          <option value="Father">Father</option>
-                          <option value="Mother">Mother</option>
-                          <option value="Brother">Brother</option>
-                          <option value="Sister">Sister</option>
-                          <option value="Friend">Friend</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">AGE</label>
-                        <input type="number" className="input-control" placeholder="yrs" value={nomineeAge} onChange={(e) => setNomineeAge(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">PHONE</label>
-                        <input type="text" className="input-control" placeholder="10-digit mobile" value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value)} />
-                      </div>
-                    </div>
-
-                    <div className="grid-2" style={{ gap: '12px' }}>
-                      <div className="form-group">
-                        <label className="form-label">AADHAAR / ID NO.</label>
-                        <input type="text" className="input-control" placeholder="Aadhaar / PAN / other" value={nomineeIdNo} onChange={(e) => setNomineeIdNo(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">ADDRESS</label>
-                        <input type="text" className="input-control" placeholder="Nominee address" value={nomineeAddress} onChange={(e) => setNomineeAddress(e.target.value)} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Guarantor Checkbox */}
-              <div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700 }}>
-                  <input type="checkbox" checked={hasGuarantor} onChange={(e) => setHasGuarantor(e.target.checked)} />
-                  <span>👤 DO YOU HAVE A GUARANTOR?</span>
-                </label>
-
-                {hasGuarantor && (
-                  <div style={{ marginTop: '10px', padding: '16px', backgroundColor: 'var(--bg-surface-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '12px', border: '1px solid var(--border-subtle)' }}>
-                    <div className="grid-4" style={{ gap: '12px' }}>
-                      <div className="form-group">
-                        <label className="form-label">GUARANTOR NAME</label>
-                        <input type="text" className="input-control" placeholder="Full name" value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">RELATION</label>
-                        <select className="input-control" value={guarantorRelation} onChange={(e) => setGuarantorRelation(e.target.value)}>
-                          <option value="-">- Select -</option>
-                          <option value="Spouse">Spouse</option>
-                          <option value="Son">Son</option>
-                          <option value="Daughter">Daughter</option>
-                          <option value="Father">Father</option>
-                          <option value="Mother">Mother</option>
-                          <option value="Brother">Brother</option>
-                          <option value="Sister">Sister</option>
-                          <option value="Friend">Friend</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">AGE</label>
-                        <input type="number" className="input-control" placeholder="yrs" value={guarantorAge} onChange={(e) => setGuarantorAge(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">PHONE</label>
-                        <input type="text" className="input-control" placeholder="10-digit mobile" value={guarantorPhone} onChange={(e) => setGuarantorPhone(e.target.value)} />
-                      </div>
-                    </div>
-
-                    <div className="grid-2" style={{ gap: '12px' }}>
-                      <div className="form-group">
-                        <label className="form-label">AADHAAR / ID NO.</label>
-                        <input type="text" className="input-control" placeholder="Aadhaar / PAN / other" value={guarantorIdNo} onChange={(e) => setGuarantorIdNo(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">ADDRESS</label>
-                        <input type="text" className="input-control" placeholder="Guarantor address" value={guarantorAddress} onChange={(e) => setGuarantorAddress(e.target.value)} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* KYC Documents Uploader */}
-              <div style={{ marginTop: '4px' }}>
-                <DriveFileUpload
-                  label="KYC DOCUMENTS (SECURE GOOGLE DRIVE UPLOAD)"
-                  category="kyc"
-                  customerId={selectedCustomerId || undefined}
-                  onUploadSuccess={(item: DriveFileItem) => {
-                    setKycDocs((prev) => [...prev, item.name]);
-                  }}
-                  onFileDeleted={() => {
-                    setKycDocs((prev) => prev.slice(0, -1));
-                  }}
-                />
-              </div>
-
-            </div>
           </div>
 
-          {/* SECTION 3: FINANCIAL TERMS & DISBURSEMENT */}
-          <div className="card" style={{ padding: '24px' }}>
+          {/* SECTION 3 — FINANCIAL TERMS & DISBURSEMENT */}
+          <FinancialTermsSection
+            principal={principal}
+            onPrincipalChange={setPrincipal}
+            disbursementMethod={disbursementMethod}
+            onDisbursementMethodChange={setDisbursementMethod}
+            bankMode={bankMode}
+            onBankModeChange={setBankMode}
+            splitCashAmount={splitCashAmount}
+            onSplitCashAmountChange={setSplitCashAmount}
+            splitBankAmount={splitBankAmount}
+            onSplitBankAmountChange={setSplitBankAmount}
+            interestRate={interestRate}
+            deductAdvanceInterest={deductAdvanceInterest}
+            onDeductAdvanceInterestChange={setDeductAdvanceInterest}
+            advanceDays={advanceDays}
+            onAdvanceDaysChange={setAdvanceDays}
+            advanceInterestAmount={advanceInterestAmount}
+            advanceReceivingMethod={advanceReceivingMethod}
+            onAdvanceReceivingMethodChange={setAdvanceReceivingMethod}
+            cardFeeEnabled={cardFeeEnabled}
+            onCardFeeEnabledChange={setCardFeeEnabled}
+            cardFeeAmount={cardFeeAmount}
+            onCardFeeAmountChange={setCardFeeAmount}
+            cardFeeMode={cardFeeMode}
+            onCardFeeModeChange={setCardFeeMode}
+            cardFeeBankMode={cardFeeBankMode}
+            onCardFeeBankModeChange={setCardFeeBankMode}
+          />
 
-            <div className="grid-2" style={{ gap: '16px' }}>
-              <div className="form-group">
-                <label className="form-label required">PRINCIPAL (INR)</label>
-                <input
-                  type="number"
-                  className="input-control"
-                  value={principal}
-                  onChange={(e) => setPrincipal(e.target.value === '' ? '' : Number(e.target.value))}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label required">DISBURSEMENT METHOD</label>
-                <select className="input-control" value={disbursementMethod} onChange={(e) => setDisbursementMethod(e.target.value as any)}>
-                  <option value="Cash">Cash</option>
-                  <option value="Bank">Bank</option>
-                  <option value="Cash + Bank">Cash + Bank</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Split Cash + Bank Box */}
-            {disbursementMethod === 'Cash + Bank' && (
-              <div style={{ marginTop: '14px', padding: '16px', backgroundColor: 'rgba(79, 175, 134, 0.08)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(79, 175, 134, 0.25)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Cash + Bank split - both must be &gt; 0 and sum to full loan amount.
-                </span>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '12px', alignItems: 'flex-end' }}>
-                  <div className="form-group">
-                    <label className="form-label">BANK MODE</label>
-                    <select className="input-control" value={splitBankMode} onChange={(e) => setSplitBankMode(e.target.value)}>
-                      <option value="UPI">UPI</option>
-                      <option value="NEFT/RTGS/IMPS">NEFT/RTGS/IMPS</option>
-                      <option value="Cheque">Cheque</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">CASH (₹)</label>
-                    <input
-                      type="number"
-                      className="input-control"
-                      value={splitCashAmount}
-                      onChange={(e) => setSplitCashAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">BANK (₹)</label>
-                    <input
-                      type="number"
-                      className="input-control"
-                      value={splitBankAmount}
-                      onChange={(e) => setSplitBankAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">TOTAL</label>
-                    <div className="input-control readonly" style={{ fontWeight: 800, color: (Number(splitCashAmount) || 0) + (Number(splitBankAmount) || 0) === numericPrincipal ? 'var(--color-success)' : '#EF4444' }}>
-                      ₹{((Number(splitCashAmount) || 0) + (Number(splitBankAmount) || 0)).toLocaleString('en-IN')}
-                    </div>
-                  </div>
+          {/* SECTION 4 — GOLD ORNAMENT DETAILS */}
+          <div className="fi-card">
+            <div className="fi-section-header">
+              <div className="fi-section-title-group">
+                <span className="fi-section-icon">🢙</span>
+                <div>
+                  <h3 className="fi-section-title">Gold Ornament Details</h3>
+                  <p className="fi-section-desc">Items pledged as collateral, weights, and purity</p>
                 </div>
               </div>
-            )}
-
-            <div className="grid-2" style={{ gap: '16px', marginTop: '16px' }}>
-              <div className="form-group">
-                <label className="form-label required">INTEREST RATE</label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="input-control"
-                    value={interestRate}
-                    readOnly
-                    disabled
-                    style={{ backgroundColor: 'var(--bg-surface-secondary)', fontWeight: 700 }}
-                  />
-                </div>
-                <small style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                  % per month (auto)
-                </small>
-              </div>
-            </div>
-
-            {/* Deduct Advance Interest Container */}
-            <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'rgba(210, 168, 74, 0.08)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(210, 168, 74, 0.2)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                <input
-                  type="checkbox"
-                  checked={deductAdvanceInterest}
-                  onChange={(e) => {
-                    setDeductAdvanceInterest(e.target.checked);
-                    if (e.target.checked && advanceDays === 0) setAdvanceDays(30);
-                  }}
-                />
-                <span>DEDUCT ADVANCE INTEREST AT DISBURSEMENT</span>
-              </label>
-
-              <div className="grid-2" style={{ gap: '16px' }}>
-                <div className="form-group">
-                  <label className="form-label">DAYS OF ADVANCE INTEREST</label>
-                  <input
-                    type="number"
-                    className="input-control"
-                    value={advanceDays}
-                    onChange={(e) => setAdvanceDays(Number(e.target.value) || 0)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">ADVANCE INTEREST AMOUNT</label>
-                  <input
-                    type="text"
-                    className="input-control readonly"
-                    readOnly
-                    value={deductAdvanceInterest ? `₹${advanceInterestAmount.toLocaleString('en-IN')}` : 'auto'}
-                  />
-                </div>
-              </div>
-
-              {deductAdvanceInterest && (
-                <div className="form-group" style={{ marginTop: '4px' }}>
-                  <label className="form-label">RECEIVING METHOD</label>
-                  <select className="input-control" value={advanceReceivingMethod} onChange={(e) => setAdvanceReceivingMethod(e.target.value as any)}>
-                    <option value="Cash">Cash</option>
-                    <option value="Bank">Bank</option>
-                    <option value="Cash + Bank">Cash + Bank</option>
-                  </select>
-                  <small style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    All-cash receipt of advance interest.
-                  </small>
-                </div>
-              )}
-            </div>
-
-            {/* Card Fee Green Badge Pill */}
-            <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center' }}>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '6px 14px',
-                backgroundColor: 'var(--badge-success-bg)',
-                color: 'var(--badge-success-text)',
-                borderRadius: 'var(--radius-full)',
-                border: '1px solid rgba(79, 175, 134, 0.3)',
-                fontSize: '13px',
-                fontWeight: 700
-              }}>
-                <input
-                  type="checkbox"
-                  checked={cardFeeEnabled}
-                  onChange={(e) => setCardFeeEnabled(e.target.checked)}
-                />
-                <span>💳 Card Fee</span>
-                <span style={{ color: 'var(--badge-success-text)' }}>₹</span>
-                <input
-                  type="number"
-                  style={{
-                    width: '45px',
-                    background: 'none',
-                    border: 'none',
-                    color: 'inherit',
-                    fontWeight: 800,
-                    textAlign: 'center',
-                    borderBottom: '1px solid currentColor'
-                  }}
-                  value={cardFeeAmount}
-                  onChange={(e) => setCardFeeAmount(Number(e.target.value) || 0)}
-                />
-                <select
-                  value={cardFeeMode}
-                  onChange={(e) => setCardFeeMode(e.target.value as any)}
-                  style={{ background: 'none', border: 'none', color: 'inherit', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  <option value="Bank" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)' }}>Bank</option>
-                  <option value="Cash" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)' }}>Cash</option>
-                </select>
-                <select
-                  value={cardFeePaymentType}
-                  onChange={(e) => setCardFeePaymentType(e.target.value as any)}
-                  style={{ background: 'none', border: 'none', color: 'inherit', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  <option value="UPI" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)' }}>UPI</option>
-                  <option value="Cash" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)' }}>Cash</option>
-                  <option value="Bank Transfer" style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)' }}>Bank Transfer</option>
-                </select>
-              </div>
-            </div>
-
-          </div>
-
-          {/* SECTION 4: GOLD ORNAMENT DETAILS CARD */}
-          <div className="card" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 className="card-title" style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>Gold Ornament Details</h3>
-              <button type="button" className="btn btn-secondary btn-sm" style={{ gap: '6px' }} onClick={handleAddItem}>
+              <button type="button" className="fi-btn-ghost" onClick={handleAddItem}>
                 <Plus size={14} />
-                <span>+ Add Item</span>
+                Add Item
               </button>
             </div>
 
@@ -1549,43 +1304,31 @@ export const LoanIssue: React.FC = () => {
             </div>
 
             {/* Calculations Row */}
-            <div className="grid-3" style={{ marginTop: '16px', gap: '16px' }}>
-              <div className="form-group">
-                <label className="form-label">TOTAL WEIGHT (G)</label>
-                <input
-                  type="text"
-                  className="input-control readonly"
-                  readOnly
-                  value={totalNetWeight > 0 ? `${totalNetWeight.toFixed(3)} g` : 'auto'}
-                />
+            <div className="fi-grid-3">
+              <div className="fi-field">
+                <label className="fi-label">Total Weight (g)</label>
+                <input type="text" className="input-control" readOnly
+                  value={totalNetWeight > 0 ? `${totalNetWeight.toFixed(3)} g` : 'auto'} />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">MARKET VALUE (₹)</label>
-                <input
-                  type="text"
-                  className="input-control readonly"
-                  readOnly
-                  value={marketValue > 0 ? `Estimated ₹${marketValue.toLocaleString('en-IN')}` : 'Estimated'}
-                />
+              <div className="fi-field">
+                <label className="fi-label">Market Value (₹)</label>
+                <input type="text" className="input-control" readOnly
+                  value={marketValue > 0 ? `Estimated ₹${marketValue.toLocaleString('en-IN')}` : 'Estimated'} />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">LTV %</label>
-                <input
-                  type="text"
-                  className="input-control readonly"
-                  readOnly
-                  value={numericPrincipal > 0 && marketValue > 0 ? `${ltv}%` : ''}
-                />
+              <div className="fi-field">
+                <label className="fi-label">LTV %</label>
+                <input type="text" className="input-control" readOnly
+                  value={numericPrincipal > 0 && marketValue > 0 ? `${ltv}%` : ''} />
               </div>
             </div>
 
             {/* Additional Notes Textarea */}
-            <div className="form-group" style={{ marginTop: '16px' }}>
-              <label className="form-label">ADDITIONAL NOTES (OPTIONAL)</label>
+            <div className="fi-field">
+              <label className="fi-label">Additional Notes (Optional)</label>
               <textarea
-                className="input-control"
+                className="input-control fi-textarea"
                 rows={2}
                 placeholder="Any extra remarks about the pledged items"
                 value={additionalNotes}
@@ -1594,92 +1337,60 @@ export const LoanIssue: React.FC = () => {
             </div>
 
             {/* Ornament Photos Uploader */}
-            <div style={{ marginTop: '16px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                ORNAMENT PHOTOS (UP TO 6)
-              </span>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 8px 0' }}>
+            <div className="fi-field">
+              <label className="fi-label">Ornament Photos (up to 6)</label>
+              <span className="fi-hint">
                 {ornamentPhotos.length > 0 ? `${ornamentPhotos.length} photo(s) uploaded.` : 'No photos uploaded yet.'}
-              </p>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              </span>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '6px' }}>
                 {ornamentPhotos.map((photo, idx) => (
-                  <div key={idx} style={{ padding: '4px 10px', backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div key={idx} className="fi-photo-tag">
                     <ImageIcon size={14} color="var(--color-primary-dark)" />
                     <span>{photo}</span>
-                    <button type="button" onClick={() => setOrnamentPhotos(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 0 }}>
+                    <button type="button" onClick={() => setOrnamentPhotos(prev => prev.filter((_, i) => i !== idx))} className="fi-btn-icon">
                       <X size={12} />
                     </button>
                   </div>
                 ))}
-                <button type="button" className="btn btn-secondary btn-sm" style={{ gap: '6px', fontSize: '12px' }} onClick={handlePhotoUpload}>
+                <button type="button" className="fi-btn-ghost" onClick={handlePhotoUpload}>
                   <Plus size={14} />
-                  <span>+ ADD PHOTO</span>
+                  Add Photo
                 </button>
               </div>
             </div>
 
           </div>
 
-          {/* SECTION 5: MONTHLY INTEREST HIGHLIGHT BOX & BUTTONS */}
-          <div style={{
-            padding: '24px',
-            backgroundColor: 'var(--bg-surface-secondary)',
-            borderRadius: 'var(--radius-lg)',
-            textAlign: 'center',
-            border: '1px solid var(--border-subtle)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '6px'
-          }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              MONTHLY INTEREST
-            </span>
-            <h1 style={{ fontSize: '36px', fontWeight: 900, color: 'var(--color-primary-dark)', margin: 0 }}>
-              ₹{monthlyInterest.toLocaleString('en-IN')} / month
-            </h1>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
-              {interestRate}%/month (30-day cycle) on ₹{numericPrincipal.toLocaleString('en-IN')} = ₹{monthlyInterest.toLocaleString('en-IN')}/mo (interest only) . Penalty after 3 months
-            </p>
+          {/* SECTION 5 — MONTHLY INTEREST HIGHLIGHT BOX & BUTTONS */}
+          <div className="fi-interest-highlight">
+            <div className="fi-interest-label">Monthly Interest</div>
+            <div className="fi-interest-amount">
+              ₹{monthlyInterest.toLocaleString('en-IN')} <span style={{ fontSize: '20px', fontWeight: 600 }}>/ mo</span>
+            </div>
+            <div className="fi-interest-sub">
+              {interestRate}%/month (30-day cycle) on ₹{numericPrincipal.toLocaleString('en-IN')} = ₹{monthlyInterest.toLocaleString('en-IN')}/mo (interest only) · Penalty after 3 months
+            </div>
           </div>
 
           {/* Submit Action Buttons */}
-          <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{
-                padding: '12px 28px',
-                fontSize: '15px',
-                fontWeight: 700,
-                borderRadius: 'var(--radius-md)',
-                backgroundColor: 'var(--color-primary-accent)',
-                boxShadow: 'var(--shadow-md)'
-              }}
-            >
+          <div className="fi-actions">
+            <button type="submit" className="fi-btn-primary">
               Issue Loan &amp; Generate Receipt
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                fontWeight: 600,
-                borderRadius: 'var(--radius-md)'
-              }}
-              onClick={handleClearForm}
-            >
+            <button type="button" className="fi-btn-secondary" onClick={handleClearForm}>
               Clear Form
             </button>
           </div>
 
-          {/* SECTION 6: RECENT LOANS TABLE */}
-          <div className="card" style={{ padding: '24px', marginTop: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h3 className="card-title" style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>Recent Loans</h3>
-                <p className="card-description" style={{ margin: '2px 0 0 0' }}>Last 10 issued. See Total Loans for the full list.</p>
+          {/* SECTION 6 — RECENT LOANS TABLE */}
+          <div className="fi-card">
+            <div className="fi-section-header">
+              <div className="fi-section-title-group">
+                <span className="fi-section-icon">📜</span>
+                <div>
+                  <h3 className="fi-section-title">Recent Loans</h3>
+                  <p className="fi-section-desc">Last 10 issued loans</p>
+                </div>
               </div>
             </div>
 

@@ -101,6 +101,7 @@ export interface Loan {
   advanceInterestReceivingMethod?: 'Cash' | 'Bank' | 'Cash + Bank';
   cardFee: number;
   cardFeePaymentMode: 'Cash' | 'Bank';
+  cardFeeBankMode?: string;
   items: OrnamentItem[];
   totalGrossWeight: number;
   totalNetWeight: number;
