@@ -208,12 +208,6 @@ export const apiService = {
       body: JSON.stringify(loan),
     });
   },
-  async topUpLoan(loanNo: string, amount: number, date: string, notes: string) {
-    return fetchJson<any>(`/loans/${loanNo}/top-up`, {
-      method: 'POST',
-      body: JSON.stringify({ amount, date, notes }),
-    });
-  },
   async closeLoan(loanNo: string) {
     return fetchJson<any>(`/loans/${loanNo}/close`, {
       method: 'POST',

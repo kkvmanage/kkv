@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { googleDriveService } from './googleDriveService.js';
-import { Loan, LoanTopUpRecord, Receipt, DayBookEntry } from '../types/index.js';
+import { Loan, Receipt, DayBookEntry } from '../types/index.js';
 import { customerService } from './customer.service.js';
 import { receiptService } from './receipt.service.js';
 import { accountingService } from './accounting.service.js';
@@ -61,8 +61,7 @@ const initialLoans: Loan[] = [
     accruedInterest: 1500,
     renewalDate: '25/08/2027',
     lastInterestPaidDate: '25/08/2026',
-    nextDueDate: '25/09/2026',
-    topUps: []
+    nextDueDate: '25/09/2026'
   }
 ];
 
@@ -217,78 +216,6 @@ export class LoanService {
     });
 
     return newLoan;
-  }
-
-  public topUp(loanNo: string, amount: number, date: string, notes?: string): Loan | null {
-    const loan = this.getByLoanNo(loanNo);
-    if (!loan) return null;
-
-    const decAmount = new Decimal(amount);
-    const prevPrincipal = new Decimal(loan.principal);
-    const newPrincipal = prevPrincipal.plus(decAmount);
-    
-    const prevMonthly = loan.monthlyInterest;
-    const newMonthly = newPrincipal.times(loan.interestRate).dividedBy(100).toDecimalPlaces(2).toNumber();
-
-    const topUpRecord: LoanTopUpRecord = {
-      id: `topup-${Date.now()}`,
-      date,
-      topUpAmount: amount,
-      previousPrincipal: prevPrincipal.toNumber(),
-      newPrincipal: newPrincipal.toNumber(),
-      previousMonthlyInterest: prevMonthly,
-      newMonthlyInterest: newMonthly,
-      notes
-    };
-
-    const loans = this.getAll();
-    const index = loans.findIndex((l) => l.id === loan.id);
-    if (index === -1) return null;
-
-    loans[index] = {
-      ...loans[index],
-      principal: newPrincipal.toNumber(),
-      outstandingPrincipal: new Decimal(loans[index].outstandingPrincipal).plus(decAmount).toNumber(),
-      monthlyInterest: newMonthly,
-      topUps: [...(loans[index].topUps || []), topUpRecord]
-    };
-
-    googleDriveRepository.writeJson(FILE_NAME, loans);
-
-    // Create Top-up Receipt
-    receiptService.create({
-      receiptNo: 0,
-      loanId: loan.id,
-      loanNo: loan.loanNo,
-      customerId: loan.customerId,
-      customerName: loan.customerName,
-      kind: 'TOP-UP',
-      loanType: loan.loanType,
-      amount,
-      principalComponent: amount,
-      interestComponent: 0,
-      paymentMode: 'Cash',
-      date,
-      notes: notes || `Top-up principal addition of ₹${amount}`
-    });
-
-    // Create DayBook Entry
-    accountingService.addEntry({
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      billNo: loan.loanNo,
-      particulars: `Loan Top-Up Disbursement (${loan.loanNo}) - ${loan.customerName}`,
-      accountHead: 'Gold Loan Portfolio',
-      mode: 'Cash',
-      cashIn: 0,
-      cashOut: amount,
-      bankIn: 0,
-      bankOut: 0,
-      customerName: loan.customerName,
-      loanNo: loan.loanNo,
-      date
-    });
-
-    return loans[index];
   }
 
   public closeLoan(loanNo: string): Loan | null {

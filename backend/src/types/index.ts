@@ -54,17 +54,6 @@ export interface LocationDetails {
   locationMethod?: 'gps' | 'google_maps_url' | 'manual';
 }
 
-export interface LoanTopUpRecord {
-  id: string;
-  date: string;
-  topUpAmount: number;
-  previousPrincipal: number;
-  newPrincipal: number;
-  previousMonthlyInterest: number;
-  newMonthlyInterest: number;
-  notes?: string;
-}
-
 export interface Customer {
   id: string;
   name: string;
@@ -91,6 +80,11 @@ export interface Customer {
   profilePhotoDriveId?: string;
   kycDocumentDriveIds?: string[];
   driveFolderId?: string;
+  customerId?: string | number;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  phoneNormalized?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -146,7 +140,6 @@ export interface Loan {
   renewalDate: string;
   lastInterestPaidDate?: string;
   nextDueDate?: string;
-  topUps?: LoanTopUpRecord[];
   documentDriveIds?: string[];
   receiptDriveIds?: string[];
   driveFolderId?: string;
@@ -159,7 +152,7 @@ export interface Receipt {
   loanNo: string;
   customerId: string;
   customerName: string;
-  kind: 'REPAYMENT' | 'NEW LOAN' | 'INTEREST PAYMENT' | 'PART PAYMENT' | 'LOAN CLOSURE' | 'TOP-UP';
+  kind: 'REPAYMENT' | 'NEW LOAN' | 'INTEREST PAYMENT' | 'PART PAYMENT' | 'LOAN CLOSURE';
   loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
   amount: number;
   principalComponent: number;

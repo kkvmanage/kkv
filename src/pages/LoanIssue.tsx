@@ -6,23 +6,23 @@ import { OtherSelectField, RELATION_OPTIONS, resolveRelation } from '../componen
 import { FinancialTermsSection } from '../components/common/FinancialTermsSection';
 import { OrnamentItem, PurityOption, Customer } from '../types';
 import { formatIdProofDisplay } from '../utils/kycValidation';
+import { WebcamCapture } from '../components/common/WebcamCapture';
 import {
   Plus,
   Camera,
   Search,
-  ArrowRight,
   X,
   User,
   AlertTriangle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Upload,
+  Trash2,
+  MapPin
 } from 'lucide-react';
 
 export const LoanIssue: React.FC = () => {
-  const { customers, loans, receipts, addLoan, topUpLoan, setCurrentPage, showToast, masterControlSettings } = useApp();
-
-  // Active Top Tab: 'issue' | 'topup'
-  const [activeTab, setActiveTab] = useState<'issue' | 'topup'>('issue');
+  const { customers, loans, receipts, addLoan, setCurrentPage, showToast, masterControlSettings } = useApp();
 
   // File Upload Ref & Lightbox State
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -54,13 +54,20 @@ export const LoanIssue: React.FC = () => {
 
 
 
-  // Nominee Collapsible
+  // Nominee Collapsible State
   const [hasNominee, setHasNominee] = useState<boolean>(false);
+  const [nomineePhoto, setNomineePhoto] = useState<string | null>(null);
+  const [isNomineeWebcamOpen, setIsNomineeWebcamOpen] = useState<boolean>(false);
   const [nomineeName, setNomineeName] = useState<string>('');
-  const [nomineeRelation, setNomineeRelation] = useState<string>('-');
-  const [nomineeCustomRelation, setNomineeCustomRelation] = useState<string>('');
-  const [nomineeAge, setNomineeAge] = useState<string>('');
   const [nomineePhone, setNomineePhone] = useState<string>('');
+  const [nomineeGender, setNomineeGender] = useState<'Male' | 'Female' | 'Other'>('Male');
+  const [nomineeAgeMode, setNomineeAgeMode] = useState<'DOB' | 'AGE'>('DOB');
+  const [nomineeDob, setNomineeDob] = useState<string>('');
+  const [nomineeAge, setNomineeAge] = useState<string>('');
+  const [nomineeRelation, setNomineeRelation] = useState<string>('Spouse');
+  const [nomineeCustomRelation, setNomineeCustomRelation] = useState<string>('');
+  const [nomineeOccupation, setNomineeOccupation] = useState<string>('');
+  const [nomineeEmail, setNomineeEmail] = useState<string>('');
   const [nomineeIdProofType, setNomineeIdProofType] = useState<string>('Aadhaar');
   const [nomineeAadhaarNo, setNomineeAadhaarNo] = useState<string>('');
   const [nomineePanNo, setNomineePanNo] = useState<string>('');
@@ -68,7 +75,114 @@ export const LoanIssue: React.FC = () => {
   const [nomineeOtherIdNo, setNomineeOtherIdNo] = useState<string>('');
   const [nomineeIdNo, setNomineeIdNo] = useState<string>('');
   const [nomineeAddress, setNomineeAddress] = useState<string>('');
+  const [nomineePermanentAddress, setNomineePermanentAddress] = useState<string>('');
   const [nomineeSameAsCustomerAddress, setNomineeSameAsCustomerAddress] = useState<boolean>(false);
+  const [nomineeLocation, setNomineeLocation] = useState<any>(null);
+  const [isCapturingNomineeGps, setIsCapturingNomineeGps] = useState<boolean>(false);
+  const [nomineeGpsInputUrl, setNomineeGpsInputUrl] = useState<string>('');
+
+  const calculateAgeFromDob = (dobStr: string): number => {
+    if (!dobStr) return 0;
+    const parts = dobStr.includes('-') ? dobStr.split('-') : dobStr.split('/');
+    let birthDate: Date;
+    if (parts[0].length === 4) {
+      birthDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    } else {
+      birthDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+    }
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return Math.max(0, age);
+  };
+
+  const handleToggleSameAsCustomerAddress = (checked: boolean) => {
+    setNomineeSameAsCustomerAddress(checked);
+    if (checked && selectedCustomer) {
+      setNomineeAddress(selectedCustomer.currentAddress || '');
+      setNomineePermanentAddress(selectedCustomer.permanentAddress || selectedCustomer.currentAddress || '');
+    }
+  };
+
+  const handleNomineePhotoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Nominee photo size must be less than 5 MB.', 'error');
+      return;
+    }
+
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      showToast('Please select a valid image file (JPG, JPEG, PNG, WEBP).', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setNomineePhoto(event.target?.result as string);
+      showToast('Nominee photo uploaded successfully!', 'success');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCaptureNomineeGps = () => {
+    if (!navigator.geolocation) {
+      showToast('Geolocation is not supported by your browser.', 'error');
+      return;
+    }
+    setIsCapturingNomineeGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        const mapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+        setNomineeLocation({
+          latitude,
+          longitude,
+          accuracy,
+          capturedAt: new Date().toISOString(),
+          googleMapsUrl: mapsUrl
+        });
+        setIsCapturingNomineeGps(false);
+        showToast('Nominee GPS location captured successfully!', 'success');
+      },
+      (err) => {
+        setIsCapturingNomineeGps(false);
+        showToast(err.message || 'Unable to capture GPS location.', 'error');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleApplyNomineeGpsUrl = () => {
+    if (!nomineeGpsInputUrl.trim()) return;
+    const match = nomineeGpsInputUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || nomineeGpsInputUrl.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (match) {
+      const lat = parseFloat(match[1]);
+      const lng = parseFloat(match[2]);
+      setNomineeLocation({
+        latitude: lat,
+        longitude: lng,
+        accuracy: 10,
+        capturedAt: new Date().toISOString(),
+        googleMapsUrl: nomineeGpsInputUrl.trim()
+      });
+      showToast('Google Maps location saved for Nominee!', 'success');
+    } else {
+      setNomineeLocation({
+        latitude: 0,
+        longitude: 0,
+        accuracy: 0,
+        capturedAt: new Date().toISOString(),
+        googleMapsUrl: nomineeGpsInputUrl.trim()
+      });
+      showToast('Google Maps URL saved for Nominee!', 'success');
+    }
+  };
 
   // Guarantor Collapsible
   const [hasGuarantor, setHasGuarantor] = useState<boolean>(false);
@@ -151,13 +265,6 @@ export const LoanIssue: React.FC = () => {
   ]);
   const [additionalNotes, setAdditionalNotes] = useState<string>('');
   const [ornamentPhotos, setOrnamentPhotos] = useState<string[]>([]);
-
-  // TOP UP TAB STATE
-  const [topUpSearch, setTopUpSearch] = useState<string>('');
-  const [selectedTopUpLoan, setSelectedTopUpLoan] = useState<any | null>(null);
-  const [topUpAmount, setTopUpAmount] = useState<number | ''>(20000);
-  const [topUpDate, setTopUpDate] = useState<string>(new Date().toLocaleDateString('en-GB').replace(/\//g, '-'));
-  const [topUpNotes, setTopUpNotes] = useState<string>('');
 
   const goldRatePerGram22ct = 6400;
 
@@ -499,12 +606,20 @@ export const LoanIssue: React.FC = () => {
         nominee: hasNominee
           ? {
             hasNominee: true,
+            enabled: true,
             name: nomineeName.trim(),
+            fullName: nomineeName.trim(),
             relationship: resolveRelation(nomineeRelation, nomineeCustomRelation),
             relation: nomineeRelation,
             customRelation: nomineeRelation === 'Other' ? nomineeCustomRelation.trim() || null : null,
-            age: Number(nomineeAge) || undefined,
             phone: nomineePhone.trim(),
+            gender: nomineeGender,
+            ageMode: nomineeAgeMode,
+            dateOfBirth: nomineeDob,
+            age: Number(nomineeAge) || undefined,
+            occupation: nomineeOccupation.trim() || undefined,
+            email: nomineeEmail.trim() || undefined,
+            photo: nomineePhoto || null,
             idProofType: nomineeIdProofType,
             idProofNumber: nomineeIdProofType === 'Aadhaar'
               ? nomineeAadhaarNo.replace(/\D/g, '')
@@ -517,7 +632,21 @@ export const LoanIssue: React.FC = () => {
               : nomineeIdNo.trim(),
             aadhaarNumber: (nomineeIdProofType === 'Aadhaar' || nomineeIdProofType === 'Aadhaar + PAN') ? nomineeAadhaarNo.replace(/\D/g, '') : undefined,
             panNumber: (nomineeIdProofType === 'PAN' || nomineeIdProofType === 'Aadhaar + PAN') ? nomineePanNo.trim().toUpperCase() : undefined,
-            address: nomineeAddress.trim()
+            otherIdName: nomineeIdProofType === 'Other' ? nomineeOtherIdName.trim() : undefined,
+            otherIdNumber: nomineeIdProofType === 'Other' ? nomineeOtherIdNo.trim() : undefined,
+            idProof: {
+              type: nomineeIdProofType,
+              aadhaarNumber: (nomineeIdProofType === 'Aadhaar' || nomineeIdProofType === 'Aadhaar + PAN') ? nomineeAadhaarNo.replace(/\D/g, '') : undefined,
+              panNumber: (nomineeIdProofType === 'PAN' || nomineeIdProofType === 'Aadhaar + PAN') ? nomineePanNo.trim().toUpperCase() : undefined,
+              otherIdName: nomineeIdProofType === 'Other' ? nomineeOtherIdName.trim() : undefined,
+              otherIdNumber: nomineeIdProofType === 'Other' ? nomineeOtherIdNo.trim() : undefined,
+              idNumber: nomineeIdNo.trim()
+            },
+            address: nomineeAddress.trim(),
+            currentAddress: nomineeAddress.trim(),
+            permanentAddress: nomineePermanentAddress.trim() || undefined,
+            isSameAddress: nomineeSameAsCustomerAddress,
+            location: nomineeLocation
           }
           : undefined,
         guarantor: hasGuarantor
@@ -576,25 +705,6 @@ export const LoanIssue: React.FC = () => {
     }
   };
 
-  // Submit Top-Up
-  const handleTopUpSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTopUpLoan) {
-      showToast('Please search and select an active loan for top-up.', 'error');
-      return;
-    }
-    const numTopUp = typeof topUpAmount === 'number' ? topUpAmount : 0;
-    if (!numTopUp || numTopUp <= 0) {
-      showToast('Please enter a valid top-up amount.', 'error');
-      return;
-    }
-    const success = topUpLoan(selectedTopUpLoan.loanNo, numTopUp, topUpDate, topUpNotes);
-    if (success) {
-      showToast(`Top-up of ₹${numTopUp.toLocaleString('en-IN')} added to ${selectedTopUpLoan.loanNo}`, 'success');
-      setCurrentPage('all-receipts');
-    }
-  };
-
   return (
     <div className="page-content fi-page">
 
@@ -602,158 +712,12 @@ export const LoanIssue: React.FC = () => {
       <div className="fi-page-header">
         <div>
           <h1 className="fi-page-title">Loan Issue</h1>
-          <p className="fi-page-subtitle">Issue new loans and manage top-ups.</p>
+          <p className="fi-page-subtitle">Issue new loans and manage existing loan creation.</p>
         </div>
       </div>
 
-      {/* TAB BAR */}
-      <div className="fi-tab-bar">
-        <button
-          type="button"
-          className={`fi-tab${activeTab === 'issue' ? ' fi-tab--active' : ''}`}
-          onClick={() => setActiveTab('issue')}
-        >
-          Issue New Loan
-        </button>
-        <button
-          type="button"
-          className={`fi-tab${activeTab === 'topup' ? ' fi-tab--active' : ''}`}
-          onClick={() => setActiveTab('topup')}
-        >
-          Loan Top-up
-        </button>
-      </div>
-
-      {activeTab === 'topup' ? (
-        /* LOAN TOP-UP TAB */
-        <div className="card" style={{ padding: '24px' }}>
-          <div className="card-header" style={{ marginBottom: '20px' }}>
-            <div>
-              <h2 className="card-title" style={{ fontSize: '18px', fontWeight: 800 }}>Loan Top-up</h2>
-              <p className="card-description">Add extra money to a running loan — same loan number, same pledge, one due date</p>
-            </div>
-          </div>
-
-          <form onSubmit={handleTopUpSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div className="grid-2">
-              <div className="form-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label required">RECEIPT / BILL NO</label>
-                  <span className="badge badge-success" style={{ fontSize: '11px' }}>✓ Available</span>
-                </div>
-                <input type="text" className="input-control readonly" readOnly value={receiptBillNo} />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label required">TOP-UP DATE</label>
-                <input
-                  type="text"
-                  className="input-control"
-                  value={topUpDate}
-                  onChange={(e) => setTopUpDate(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label required">FIND THE LOAN</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type="text"
-                  className="input-control"
-                  placeholder="Type loan no (GL-000) or customer name..."
-                  value={topUpSearch}
-                  onChange={(e) => {
-                    setTopUpSearch(e.target.value);
-                    const found = loans.find(l => l.loanNo.toLowerCase() === e.target.value.toLowerCase() || l.customerName.toLowerCase().includes(e.target.value.toLowerCase()));
-                    if (found) setSelectedTopUpLoan(found);
-                  }}
-                />
-                <Search size={16} style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--text-muted)' }} />
-              </div>
-            </div>
-
-            {/* Quick Loan Select Pills */}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {loans.slice(0, 5).map(l => (
-                <button
-                  key={l.id}
-                  type="button"
-                  className={`badge ${selectedTopUpLoan?.id === l.id ? 'badge-success' : 'badge-info'}`}
-                  style={{ cursor: 'pointer', padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => {
-                    setSelectedTopUpLoan(l);
-                    setTopUpSearch(l.loanNo);
-                  }}
-                >
-                  {l.loanNo} - {l.customerName} (₹{l.outstandingPrincipal.toLocaleString('en-IN')})
-                </button>
-              ))}
-            </div>
-
-            {selectedTopUpLoan && (
-              <div style={{ backgroundColor: 'var(--bg-surface-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '12px', border: '1px solid var(--border-subtle)' }}>
-                <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-primary-dark)' }}>Selected Loan: {selectedTopUpLoan.loanNo} ({selectedTopUpLoan.customerName})</h4>
-                <div className="grid-3" style={{ fontSize: '13px' }}>
-                  <div>
-                    <span style={{ color: 'var(--text-muted)' }}>Current Principal: </span>
-                    <strong>₹{selectedTopUpLoan.principal.toLocaleString('en-IN')}</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-muted)' }}>Interest Rate: </span>
-                    <strong>{selectedTopUpLoan.interestRate}% / mo</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-muted)' }}>Current Monthly Interest: </span>
-                    <strong>₹{selectedTopUpLoan.monthlyInterest.toLocaleString('en-IN')}</strong>
-                  </div>
-                </div>
-
-                <div className="grid-2" style={{ marginTop: '8px' }}>
-                  <div className="form-group">
-                    <label className="form-label required">TOP-UP PRINCIPAL AMOUNT (₹)</label>
-                    <input
-                      type="number"
-                      className="input-control"
-                      value={topUpAmount}
-                      onChange={(e) => setTopUpAmount(Number(e.target.value) || '')}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">REMARKS / NOTES</label>
-                    <input
-                      type="text"
-                      className="input-control"
-                      placeholder="Optional top-up reason..."
-                      value={topUpNotes}
-                      onChange={(e) => setTopUpNotes(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ backgroundColor: 'var(--color-light-accent)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>New Total Principal: </span>
-                    <strong style={{ fontSize: '16px', color: 'var(--color-primary-dark)' }}>₹{(selectedTopUpLoan.principal + (Number(topUpAmount) || 0)).toLocaleString('en-IN')}</strong>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>New Monthly Interest: </span>
-                    <strong style={{ fontSize: '16px', color: 'var(--color-primary-dark)' }}>₹{Math.round(((selectedTopUpLoan.principal + (Number(topUpAmount) || 0)) * selectedTopUpLoan.interestRate) / 100).toLocaleString('en-IN')} / mo</strong>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <button type="submit" className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '14px', fontWeight: 700, alignSelf: 'flex-start', gap: '8px' }}>
-              <span>Process Top-Up &amp; Generate Receipt</span>
-              <ArrowRight size={16} />
-            </button>
-          </form>
-        </div>
-      ) : (
-        /* ISSUE NEW LOAN FORM */
-        <form onSubmit={handleSubmitIssue} className="fi-rows fi-rows--lg">
+      {/* ISSUE NEW LOAN FORM */}
+      <form onSubmit={handleSubmitIssue} className="fi-rows fi-rows--lg">
 
           {/* SECTION 1 — LOAN CONFIGURATION */}
           <div className="fi-card">
@@ -1104,251 +1068,413 @@ export const LoanIssue: React.FC = () => {
                   <span className="fi-checkbox-label"><span className="fi-checkbox-label-icon">👤</span> Do you have a Nominee?</span>
                 </label>
                 {hasNominee && (
-                  <div className="fi-sub-panel fi-rows" style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', border: '1px solid var(--border-light, #e2e8f0)', padding: '16px', borderRadius: '10px', marginTop: '10px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      🪪 NOMINEE &amp; IDENTITY DETAILS
+                  <div className="fi-sub-panel fi-rows" style={{ backgroundColor: '#ffffff', border: '1px solid var(--border-light, #e2e8f0)', padding: '20px', borderRadius: '12px', marginTop: '12px', boxShadow: 'var(--shadow-sm)' }}>
+                    <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <User size={16} /> 1. NOMINEE PHOTO &amp; PERSONAL INFORMATION
                     </div>
 
-                    {/* ROW 1: Nominee Full Name * & Relation * */}
+                    {/* ROW 1: NOMINEE PHOTO & BASIC DETAILS */}
+                    <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '16px' }}>
+                      {/* NOMINEE PHOTO UPLOAD & WEBCAM */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ position: 'relative', width: '100px', height: '100px', borderRadius: '50%', border: '2px dashed var(--border-light, #cbd5e1)', overflow: 'hidden', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {nomineePhoto ? (
+                            <img src={nomineePhoto} alt="Nominee Photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '11px', padding: '4px' }}>
+                              <Camera size={24} style={{ margin: '0 auto 4px auto', display: 'block', opacity: 0.5 }} />
+                              <span>Nominee Photo</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', height: '28px', padding: '0 8px', gap: '4px' }}
+                            onClick={() => setIsNomineeWebcamOpen(true)}
+                          >
+                            <Camera size={12} />
+                            <span>Webcam</span>
+                          </button>
+
+                          <label className="btn btn-secondary btn-sm" style={{ fontSize: '11px', height: '28px', padding: '0 8px', gap: '4px', cursor: 'pointer', margin: 0 }}>
+                            <Upload size={12} />
+                            <span>Upload</span>
+                            <input type="file" accept="image/jpeg,image/jpg,image/png,image/webp" style={{ display: 'none' }} onChange={handleNomineePhotoFileUpload} />
+                          </label>
+
+                          {nomineePhoto && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: '11px', height: '28px', padding: '0 6px', color: 'var(--color-danger, #ef4444)' }}
+                              onClick={() => setNomineePhoto(null)}
+                              title="Remove Photo"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* NAME & MOBILE NUMBER */}
+                      <div style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <div className="fi-grid-2">
+                          <div className="fi-field">
+                            <label className="fi-label">NOMINEE FULL NAME <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder="Enter nominee full name"
+                              value={nomineeName}
+                              onChange={(e) => setNomineeName(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="fi-field">
+                            <label className="fi-label">MOBILE NUMBER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <span className="input-control readonly" style={{ width: '50px', textAlign: 'center', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '12px', flexShrink: 0 }}>
+                                +91
+                              </span>
+                              <input
+                                type="text"
+                                className="input-control"
+                                placeholder="10-digit mobile number"
+                                maxLength={10}
+                                value={nomineePhone}
+                                onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* GENDER & AGE / DOB */}
+                        <div className="fi-grid-2">
+                          <div className="fi-field">
+                            <label className="fi-label">GENDER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <select
+                              className="select-control input-control"
+                              value={nomineeGender}
+                              onChange={(e) => setNomineeGender(e.target.value as any)}
+                            >
+                              <option value="Male">Male</option>
+                              <option value="Female">Female</option>
+                              <option value="Other">Other</option>
+                            </select>
+                          </div>
+
+                          <div className="fi-field">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <label className="fi-label" style={{ margin: 0 }}>AGE / DATE OF BIRTH</label>
+                              <div style={{ display: 'inline-flex', backgroundColor: 'var(--bg-surface-secondary, #f1f5f9)', borderRadius: '6px', padding: '2px' }}>
+                                <button
+                                  type="button"
+                                  style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', border: 'none', backgroundColor: nomineeAgeMode === 'DOB' ? 'var(--color-primary-dark, #047857)' : 'transparent', color: nomineeAgeMode === 'DOB' ? '#ffffff' : 'var(--text-muted)', cursor: 'pointer' }}
+                                  onClick={() => setNomineeAgeMode('DOB')}
+                                >
+                                  DOB
+                                </button>
+                                <button
+                                  type="button"
+                                  style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', border: 'none', backgroundColor: nomineeAgeMode === 'AGE' ? 'var(--color-primary-dark, #047857)' : 'transparent', color: nomineeAgeMode === 'AGE' ? '#ffffff' : 'var(--text-muted)', cursor: 'pointer' }}
+                                  onClick={() => setNomineeAgeMode('AGE')}
+                                >
+                                  AGE
+                                </button>
+                              </div>
+                            </div>
+
+                            {nomineeAgeMode === 'DOB' ? (
+                              <div>
+                                <input
+                                  type="date"
+                                  className="input-control"
+                                  value={nomineeDob}
+                                  onChange={(e) => {
+                                    const dobVal = e.target.value;
+                                    setNomineeDob(dobVal);
+                                    if (dobVal) {
+                                      const calculatedYears = calculateAgeFromDob(dobVal);
+                                      setNomineeAge(calculatedYears ? calculatedYears.toString() : '');
+                                    }
+                                  }}
+                                />
+                                {nomineeAge && (
+                                  <span style={{ fontSize: '11px', color: 'var(--color-primary-accent, #059669)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
+                                    Calculated Age: {nomineeAge} Years
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                className="input-control"
+                                placeholder="Enter age (1 - 120)"
+                                min={1}
+                                max={120}
+                                value={nomineeAge}
+                                onChange={(e) => setNomineeAge(e.target.value)}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ROW 2: RELATIONSHIP & OCCUPATION & EMAIL */}
                     <div className="fi-grid-2" style={{ marginBottom: '14px' }}>
                       <div className="fi-field">
-                        <label className="fi-label">Nominee Full Name <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                        <input
-                          type="text"
-                          className="input-control"
-                          placeholder="Enter nominee full name"
-                          value={nomineeName}
-                          onChange={(e) => setNomineeName(e.target.value)}
-                        />
-                      </div>
-                      <div className="fi-field">
                         <OtherSelectField
-                          label="Relation *"
+                          label="RELATIONSHIP WITH CUSTOMER *"
                           value={nomineeRelation}
                           customValue={nomineeCustomRelation}
                           options={RELATION_OPTIONS}
-                          customPlaceholder="e.g. Uncle, Aunt, Cousin, Guardian"
-                          customLabel="Specify Relation *"
+                          customPlaceholder="Specify relationship (e.g. Uncle, Aunt)"
+                          customLabel="OTHER RELATIONSHIP *"
                           onChange={(val, custom) => { setNomineeRelation(val); setNomineeCustomRelation(custom); }}
                         />
                       </div>
-                    </div>
 
-                    {/* ROW 2: Age & Phone Number * */}
-                    <div className="fi-grid-2" style={{ marginBottom: '14px' }}>
                       <div className="fi-field">
-                        <label className="fi-label">Age</label>
-                        <input
-                          type="number"
-                          className="input-control"
-                          placeholder="Enter age in years"
-                          value={nomineeAge}
-                          onChange={(e) => setNomineeAge(e.target.value)}
-                        />
-                      </div>
-                      <div className="fi-field">
-                        <label className="fi-label">Phone Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
+                        <label className="fi-label">OCCUPATION</label>
                         <input
                           type="text"
                           className="input-control"
-                          placeholder="10-digit mobile number"
-                          maxLength={10}
-                          value={nomineePhone}
-                          onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          placeholder="e.g. Farmer, Student, Business"
+                          value={nomineeOccupation}
+                          onChange={(e) => setNomineeOccupation(e.target.value)}
                         />
                       </div>
                     </div>
 
-                    {/* ROW 3: ID Proof Type * & Dynamic ID Number * */}
-                    <div className="fi-grid-2" style={{ marginBottom: '14px' }}>
-                      <div className="fi-field">
-                        <label className="fi-label">ID Proof Type <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                        <select
-                          className="select-control input-control"
-                          value={nomineeIdProofType}
-                          onChange={(e) => setNomineeIdProofType(e.target.value)}
-                        >
-                          <option value="Aadhaar">Aadhaar</option>
-                          <option value="PAN">PAN</option>
-                          <option value="Aadhaar + PAN">Aadhaar + PAN</option>
-                          <option value="Voter ID">Voter ID</option>
-                          <option value="Driving Licence">Driving Licence</option>
-                          <option value="Passport">Passport</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-
-                      {/* DYNAMIC ID FIELDS BASED ON SELECTION */}
-                      {nomineeIdProofType === 'Aadhaar' && (
-                        <div className="fi-field">
-                          <label className="fi-label">Aadhaar Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter 12-digit Aadhaar number"
-                            maxLength={12}
-                            value={nomineeAadhaarNo}
-                            onChange={(e) => setNomineeAadhaarNo(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                          />
-                        </div>
-                      )}
-
-                      {nomineeIdProofType === 'PAN' && (
-                        <div className="fi-field">
-                          <label className="fi-label">PAN Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter PAN number (e.g. ABCDE1234F)"
-                            maxLength={10}
-                            style={{ textTransform: 'uppercase' }}
-                            value={nomineePanNo}
-                            onChange={(e) => setNomineePanNo(e.target.value.toUpperCase().slice(0, 10))}
-                          />
-                        </div>
-                      )}
-
-                      {nomineeIdProofType === 'Voter ID' && (
-                        <div className="fi-field">
-                          <label className="fi-label">Voter ID Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter Voter ID number"
-                            value={nomineeIdNo}
-                            onChange={(e) => setNomineeIdNo(e.target.value)}
-                          />
-                        </div>
-                      )}
-
-                      {nomineeIdProofType === 'Driving Licence' && (
-                        <div className="fi-field">
-                          <label className="fi-label">Driving Licence Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter Driving Licence number"
-                            value={nomineeIdNo}
-                            onChange={(e) => setNomineeIdNo(e.target.value)}
-                          />
-                        </div>
-                      )}
-
-                      {nomineeIdProofType === 'Passport' && (
-                        <div className="fi-field">
-                          <label className="fi-label">Passport Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter Passport number"
-                            value={nomineeIdNo}
-                            onChange={(e) => setNomineeIdNo(e.target.value)}
-                          />
-                        </div>
-                      )}
+                    <div className="fi-field" style={{ marginBottom: '16px' }}>
+                      <label className="fi-label">EMAIL ADDRESS</label>
+                      <input
+                        type="email"
+                        className="input-control"
+                        placeholder="nominee@email.com"
+                        value={nomineeEmail}
+                        onChange={(e) => setNomineeEmail(e.target.value)}
+                      />
                     </div>
 
-                    {/* Aadhaar + PAN (2 Fields Grid) */}
-                    {nomineeIdProofType === 'Aadhaar + PAN' && (
+                    {/* SECTION 2: IDENTITY VERIFICATION */}
+                    <div style={{ borderTop: '1px solid var(--border-light, #e2e8f0)', paddingTop: '16px', marginTop: '16px' }}>
+                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '14px' }}>
+                        2. IDENTITY VERIFICATION / KYC
+                      </div>
+
                       <div className="fi-grid-2" style={{ marginBottom: '14px' }}>
                         <div className="fi-field">
-                          <label className="fi-label">Aadhaar Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter 12-digit Aadhaar number"
-                            maxLength={12}
-                            value={nomineeAadhaarNo}
-                            onChange={(e) => setNomineeAadhaarNo(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                          />
+                          <label className="fi-label">ID PROOF TYPE <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                          <select
+                            className="select-control input-control"
+                            value={nomineeIdProofType}
+                            onChange={(e) => setNomineeIdProofType(e.target.value)}
+                          >
+                            <option value="Aadhaar">Aadhaar</option>
+                            <option value="PAN">PAN</option>
+                            <option value="Aadhaar + PAN">Aadhaar + PAN</option>
+                            <option value="Voter ID">Voter ID</option>
+                            <option value="Driving Licence">Driving Licence</option>
+                            <option value="Passport">Passport</option>
+                            <option value="Other">Other</option>
+                          </select>
                         </div>
-                        <div className="fi-field">
-                          <label className="fi-label">PAN Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter PAN number (e.g. ABCDE1234F)"
-                            maxLength={10}
-                            style={{ textTransform: 'uppercase' }}
-                            value={nomineePanNo}
-                            onChange={(e) => setNomineePanNo(e.target.value.toUpperCase().slice(0, 10))}
-                          />
-                        </div>
-                      </div>
-                    )}
 
-                    {/* Other (2 Fields Grid: Name & Number) */}
-                    {nomineeIdProofType === 'Other' && (
-                      <div className="fi-grid-2" style={{ marginBottom: '14px' }}>
-                        <div className="fi-field">
-                          <label className="fi-label">Other ID Name <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="e.g. Ration Card, Government ID"
-                            value={nomineeOtherIdName}
-                            onChange={(e) => setNomineeOtherIdName(e.target.value)}
-                          />
-                        </div>
-                        <div className="fi-field">
-                          <label className="fi-label">Other ID Number <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="input-control"
-                            placeholder="Enter ID number"
-                            value={nomineeOtherIdNo}
-                            onChange={(e) => setNomineeOtherIdNo(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    )}
+                        {nomineeIdProofType === 'Aadhaar' && (
+                          <div className="fi-field">
+                            <label className="fi-label">AADHAAR NUMBER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder="Enter 12-digit Aadhaar number"
+                              maxLength={12}
+                              value={nomineeAadhaarNo}
+                              onChange={(e) => setNomineeAadhaarNo(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                            />
+                          </div>
+                        )}
 
-                    {/* ROW 4: Nominee Address & Same As Customer Checkbox */}
-                    <div className="fi-field" style={{ marginBottom: '10px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                        <label className="fi-label" style={{ margin: 0 }}>Nominee Address <span style={{ color: 'var(--color-danger, #ef4444)' }}>*</span></label>
-                        {nomineeSameAsCustomerAddress && (
-                          <span className="badge badge-success" style={{ fontSize: '11px' }}>
-                            ✓ Address copied from Customer
-                          </span>
+                        {nomineeIdProofType === 'PAN' && (
+                          <div className="fi-field">
+                            <label className="fi-label">PAN NUMBER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder="Enter PAN number (e.g. ABCDE1234F)"
+                              maxLength={10}
+                              style={{ textTransform: 'uppercase' }}
+                              value={nomineePanNo}
+                              onChange={(e) => setNomineePanNo(e.target.value.toUpperCase().slice(0, 10))}
+                            />
+                          </div>
+                        )}
+
+                        {(nomineeIdProofType === 'Voter ID' || nomineeIdProofType === 'Driving Licence' || nomineeIdProofType === 'Passport') && (
+                          <div className="fi-field">
+                            <label className="fi-label">{nomineeIdProofType.toUpperCase()} NUMBER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder={`Enter ${nomineeIdProofType} number`}
+                              value={nomineeIdNo}
+                              onChange={(e) => setNomineeIdNo(e.target.value)}
+                            />
+                          </div>
                         )}
                       </div>
-                      <textarea
-                        className="input-control"
-                        rows={2}
-                        placeholder="Enter nominee complete residential address"
-                        value={nomineeAddress}
-                        readOnly={nomineeSameAsCustomerAddress}
-                        onChange={(e) => setNomineeAddress(e.target.value)}
-                        style={{
-                          width: '100%',
-                          resize: 'vertical',
-                          backgroundColor: nomineeSameAsCustomerAddress ? 'var(--bg-surface-secondary, #f8fafc)' : 'var(--bg-surface, #ffffff)'
-                        }}
-                      />
+
+                      {nomineeIdProofType === 'Aadhaar + PAN' && (
+                        <div className="fi-grid-2" style={{ marginBottom: '14px' }}>
+                          <div className="fi-field">
+                            <label className="fi-label">AADHAAR NUMBER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder="Enter 12-digit Aadhaar number"
+                              maxLength={12}
+                              value={nomineeAadhaarNo}
+                              onChange={(e) => setNomineeAadhaarNo(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                            />
+                          </div>
+
+                          <div className="fi-field">
+                            <label className="fi-label">PAN NUMBER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder="Enter PAN number (e.g. ABCDE1234F)"
+                              maxLength={10}
+                              style={{ textTransform: 'uppercase' }}
+                              value={nomineePanNo}
+                              onChange={(e) => setNomineePanNo(e.target.value.toUpperCase().slice(0, 10))}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {nomineeIdProofType === 'Other' && (
+                        <div className="fi-grid-2" style={{ marginBottom: '14px' }}>
+                          <div className="fi-field">
+                            <label className="fi-label">OTHER ID NAME <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder="e.g. Ration Card, Govt ID"
+                              value={nomineeOtherIdName}
+                              onChange={(e) => setNomineeOtherIdName(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="fi-field">
+                            <label className="fi-label">OTHER ID NUMBER <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                            <input
+                              type="text"
+                              className="input-control"
+                              placeholder="Enter ID number"
+                              value={nomineeOtherIdNo}
+                              onChange={(e) => setNomineeOtherIdNo(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
 
-                    <label className="fi-checkbox-row" style={{ marginTop: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                      <input
-                        type="checkbox"
-                        checked={nomineeSameAsCustomerAddress}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setNomineeSameAsCustomerAddress(checked);
-                          if (checked) {
-                            if (selectedCustomer?.currentAddress) {
-                              setNomineeAddress(selectedCustomer.currentAddress);
-                              showToast('Copied Customer Current Address to Nominee Address.', 'info');
-                            } else {
-                              showToast('Please select a customer first to copy address.', 'warning');
-                            }
-                          }
-                        }}
-                      />
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-dark)' }}>
-                        Same as Customer Current Address
-                      </span>
-                    </label>
+                    {/* SECTION 3: ADDRESS DETAILS */}
+                    <div style={{ borderTop: '1px solid var(--border-light, #e2e8f0)', paddingTop: '16px', marginTop: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          3. RESIDENTIAL ADDRESS
+                        </div>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--color-primary-dark)', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={nomineeSameAsCustomerAddress}
+                            onChange={(e) => handleToggleSameAsCustomerAddress(e.target.checked)}
+                          />
+                          <span>Same as Customer Current Address</span>
+                        </label>
+                      </div>
+
+                      <div className="fi-field" style={{ marginBottom: '14px' }}>
+                        <label className="fi-label">CURRENT ADDRESS <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+                        <textarea
+                          className="input-control"
+                          rows={2}
+                          placeholder="Enter nominee complete current residential address"
+                          value={nomineeAddress}
+                          onChange={(e) => setNomineeAddress(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="fi-field" style={{ marginBottom: '14px' }}>
+                        <label className="fi-label">PERMANENT ADDRESS</label>
+                        <textarea
+                          className="input-control"
+                          rows={2}
+                          placeholder="Enter nominee permanent residential address"
+                          value={nomineePermanentAddress}
+                          onChange={(e) => setNomineePermanentAddress(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* SECTION 4: LOCATION / GPS */}
+                    <div style={{ borderTop: '1px solid var(--border-light, #e2e8f0)', paddingTop: '16px', marginTop: '16px' }}>
+                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
+                        4. NOMINEE LOCATION (OPTIONAL)
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={isCapturingNomineeGps}
+                          onClick={handleCaptureNomineeGps}
+                          style={{ gap: '6px', fontSize: '12px', height: '34px', fontWeight: 700 }}
+                        >
+                          <MapPin size={14} />
+                          <span>{isCapturingNomineeGps ? 'Capturing GPS...' : '📍 Capture GPS Location'}</span>
+                        </button>
+
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>OR</span>
+
+                        <div style={{ flex: 1, minWidth: '240px', display: 'flex', gap: '6px' }}>
+                          <input
+                            type="text"
+                            className="input-control"
+                            style={{ height: '34px', fontSize: '12px' }}
+                            placeholder="Paste Google Maps URL"
+                            value={nomineeGpsInputUrl}
+                            onChange={(e) => setNomineeGpsInputUrl(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ height: '34px', fontSize: '12px', flexShrink: 0 }}
+                            onClick={handleApplyNomineeGpsUrl}
+                          >
+                            Save Map URL
+                          </button>
+                        </div>
+                      </div>
+
+                      {nomineeLocation && (
+                        <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--color-primary-dark)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>✓ Nominee Location Saved (Lat: {nomineeLocation.latitude}, Lng: {nomineeLocation.longitude})</span>
+                          {nomineeLocation.googleMapsUrl && (
+                            <a href={nomineeLocation.googleMapsUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary-accent)', fontWeight: 700, textDecoration: 'underline' }}>
+                              Open Map 🗺️
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1869,8 +1995,17 @@ export const LoanIssue: React.FC = () => {
           </div>
 
         </form>
-      )}
 
+      {/* WEBCAM CAPTURE MODAL FOR NOMINEE */}
+      <WebcamCapture
+        isOpen={isNomineeWebcamOpen}
+        onClose={() => setIsNomineeWebcamOpen(false)}
+        onCapture={(_file, dataUrl) => {
+          setNomineePhoto(dataUrl);
+          setIsNomineeWebcamOpen(false);
+          showToast('Nominee photo captured via webcam!', 'success');
+        }}
+      />
     </div>
   );
 };

@@ -142,11 +142,15 @@ const pageTitles: Record<NavPage, PageMetadata> = {
   settings: {
     title: 'Settings',
     subtitle: 'Branch configuration, 22ct gold rate valuation, and printer setup'
+  },
+  notifications: {
+    title: 'Notification Center',
+    subtitle: 'Real-time due events, interest schedules, renewals, and collections'
   }
 };
 
 export const Topbar: React.FC = () => {
-  const { currentPage, setCurrentPage, showToast, toggleMobileMenu } = useApp();
+  const { currentPage, setCurrentPage, unreadNotificationCount, toggleNotificationOpen, toggleMobileMenu } = useApp();
 
   const meta = pageTitles[currentPage] || {
     title: 'KKV Gold Finance',
@@ -182,11 +186,18 @@ export const Topbar: React.FC = () => {
         {/* Notification Icon */}
         <button
           className="topbar-action-btn"
-          title="Notifications"
-          onClick={() => showToast('All daily alerts and reminder notifications up to date.', 'info')}
+          title={`Notifications (${unreadNotificationCount} unread)`}
+          onClick={toggleNotificationOpen}
+          style={{ position: 'relative' }}
         >
           <Bell size={17} />
-          <span className="notification-dot"></span>
+          {unreadNotificationCount > 0 ? (
+            <span className="notification-badge">
+              {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+            </span>
+          ) : (
+            <span className="notification-dot" style={{ opacity: 0.4 }}></span>
+          )}
         </button>
 
         {/* + New Loan Button */}

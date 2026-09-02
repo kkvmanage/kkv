@@ -233,27 +233,119 @@ export const ReceiptDisplay: React.FC = () => {
           </table>
         </div>
 
-        {/* Collateral Details if available */}
-        {associatedLoan && (
+        {/* Payment Reference Details */}
+        {(receipt.transactionReference || receipt.bankName || receipt.upiId) && (
           <div
             style={{
-              padding: '12px 16px',
+              padding: '10px 14px',
               backgroundColor: 'var(--bg-surface-secondary)',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--border-subtle)',
-              marginBottom: '28px',
-              fontSize: '12px'
+              marginBottom: '16px',
+              fontSize: '12px',
+              display: 'flex',
+              gap: '16px',
+              flexWrap: 'wrap'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {receipt.bankName && (
+              <span>
+                <strong>Bank:</strong> {receipt.bankName}
+              </span>
+            )}
+            {receipt.transactionReference && (
+              <span>
+                <strong>Ref / UTR:</strong> {receipt.transactionReference}
+              </span>
+            )}
+            {receipt.upiId && (
+              <span>
+                <strong>UPI ID:</strong> {receipt.upiId}
+              </span>
+            )}
+            {receipt.processedBy && (
+              <span>
+                <strong>Processed By:</strong> {receipt.processedBy}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Collateral & Balance Details if available */}
+        {associatedLoan && (
+          <div
+            style={{
+              padding: '14px 16px',
+              backgroundColor: 'var(--bg-surface-secondary)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+              marginBottom: '20px',
+              fontSize: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               <span>
                 <strong>Pledged Gold Collateral:</strong> {associatedLoan.items.map((i) => i.item).join(', ')}
               </span>
               <span>
-                <strong>Net Wt:</strong> {associatedLoan.totalNetWeight.toFixed(3)} g &nbsp;|&nbsp;{' '}
-                <strong>Remaining Balance:</strong> ₹{associatedLoan.outstandingPrincipal.toLocaleString('en-IN')}
+                <strong>Net Wt:</strong> {associatedLoan.totalNetWeight.toFixed(3)} g
               </span>
             </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                paddingTop: '8px',
+                borderTop: '1px dashed var(--border-subtle)',
+                flexWrap: 'wrap',
+                gap: '8px'
+              }}
+            >
+              {receipt.outstandingBefore !== undefined && (
+                <span>
+                  Balance Before: <strong>₹{receipt.outstandingBefore.toLocaleString('en-IN')}</strong>
+                </span>
+              )}
+              <span>
+                Amount Paid: <strong style={{ color: 'var(--color-primary-dark)' }}>₹{receipt.amount.toLocaleString('en-IN')}</strong>
+              </span>
+              <span>
+                Remaining Balance: <strong style={{ color: 'var(--color-primary-dark)' }}>₹{(receipt.outstandingAfter ?? associatedLoan.outstandingPrincipal).toLocaleString('en-IN')}</strong>
+              </span>
+            </div>
+
+            {/* Pledged Gold Photos Gallery on Voucher */}
+            {associatedLoan.photos && associatedLoan.photos.length > 0 && (
+              <div style={{ marginTop: '6px', paddingTop: '8px', borderTop: '1px dashed var(--border-subtle)' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>
+                  Pledged Collateral Photos ({associatedLoan.photos.length})
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {associatedLoan.photos.map((url, idx) => (
+                    <div
+                      key={`gold-photo-${idx}`}
+                      style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '6px',
+                        overflow: 'hidden',
+                        border: '1px solid var(--border-subtle)'
+                      }}
+                    >
+                      <img
+                        src={url}
+                        alt={`Pledged Gold ${idx + 1}`}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

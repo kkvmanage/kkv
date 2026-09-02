@@ -68,10 +68,206 @@ export const initialCustomers: Customer[] = [
     totalBorrowed: 0,
     status: 'VERIFIED',
     joinedDate: '20/04/2026'
+  },
+  {
+    id: 'CUST-0006',
+    customerId: 6,
+    name: 'Sanjai',
+    phone: '8637628773',
+    gender: 'Male',
+    age: 30,
+    occupation: 'Business Owner',
+    email: 'sanjai@example.com',
+    currentAddress: '42 Bazaar Road, Madurai - 625001',
+    permanentAddress: '42 Bazaar Road, Madurai - 625001',
+    idProof: 'Aadhaar Card',
+    idNumber: 'XXXX-XXXX-7721',
+    activeLoansCount: 1,
+    totalBorrowed: 100000,
+    status: 'VERIFIED',
+    joinedDate: '01/08/2026'
   }
 ];
 
 export const initialLoans: Loan[] = [
+  {
+    id: 'L-GL001',
+    receiptBillNo: 101,
+    loanNo: 'GL-001',
+    customerId: 'CUST-0006',
+    customerName: 'Sanjai',
+    customerPhone: '8637628773',
+    customerGender: 'Male',
+    customerAge: 30,
+    customerOccupation: 'Business Owner',
+    customerEmail: 'sanjai@example.com',
+    customerCurrentAddress: '42 Bazaar Road, Madurai - 625001',
+    customerPermanentAddress: '42 Bazaar Road, Madurai - 625001',
+    customerLocation: {
+      captured: true,
+      coordinates: '9.9252° N, 78.1198° E',
+      mapsUrl: 'https://maps.google.com/?q=9.9252,78.1198',
+      addressSummary: 'Madurai Main Branch Vicinity'
+    },
+    date: '02/08/2026',
+    loanType: 'GOLD LOAN',
+    repaymentSystem: 'Monthly interest only',
+    area: 'Madurai Central',
+    showroom: 'Main Branch - Counter 1',
+    principal: 100000,
+    interestRate: 1.5,
+    bankMode: 'Cash',
+    cashAmount: 100000,
+    bankAmount: 0,
+    deductAdvanceInterest: false,
+    advanceDays: 0,
+    advanceInterestAmount: 0,
+    cardFee: 10,
+    cardFeePaymentMode: 'Cash',
+    items: [
+      {
+        id: 'gl001-item-1',
+        item: 'Gold Ring',
+        qty: 1,
+        purity: '22ct',
+        grossWeight: 5.2,
+        netWeight: 4.8
+      },
+      {
+        id: 'gl001-item-2',
+        item: 'Gold Chain',
+        qty: 1,
+        purity: '22ct',
+        grossWeight: 27.3,
+        netWeight: 25.4
+      }
+    ],
+    totalGrossWeight: 32.5,
+    totalNetWeight: 30.2,
+    marketValue: 165000,
+    ltv: 60.6,
+    monthlyInterest: 1500,
+    notes: 'Pledged 22ct ornaments - vault box B-04',
+    photos: [
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><circle cx='200' cy='200' r='110' stroke='%23d97706' stroke-width='16' fill='none'/><circle cx='200' cy='200' r='75' stroke='%23fbbf24' stroke-width='8' fill='%231e293b'/><text x='200' y='205' fill='%23fbbf24' font-size='16' font-family='sans-serif' font-weight='bold' text-anchor='middle'>22K GOLD RING</text><text x='200' y='230' fill='%2394a3b8' font-size='12' font-family='sans-serif' text-anchor='middle'>Net: 4.800g</text></svg>",
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><path d='M100,120 Q200,280 300,120' stroke='%23d97706' stroke-width='14' fill='none'/><path d='M100,120 Q200,280 300,120' stroke='%23fbbf24' stroke-width='6' fill='none' stroke-dasharray='10,6'/><circle cx='200' cy='220' r='24' fill='%23b45309' stroke='%23fbbf24' stroke-width='4'/><text x='200' y='285' fill='%23fbbf24' font-size='16' font-family='sans-serif' font-weight='bold' text-anchor='middle'>22K GOLD CHAIN</text><text x='200' y='310' fill='%2394a3b8' font-size='12' font-family='sans-serif' text-anchor='middle'>Net: 25.400g</text></svg>",
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><rect x='80' y='80' width='240' height='240' rx='16' fill='%231e293b' stroke='%23d97706' stroke-width='6'/><text x='200' y='180' fill='%23fbbf24' font-size='18' font-family='sans-serif' font-weight='bold' text-anchor='middle'>VAULT SEAL B-04</text><text x='200' y='210' fill='%23e2e8f0' font-size='14' font-family='sans-serif' text-anchor='middle'>Pledged Collateral Vault</text><text x='200' y='240' fill='%2394a3b8' font-size='12' font-family='sans-serif' text-anchor='middle'>Verified by Appraiser</text></svg>"
+    ],
+    status: 'ACTIVE',
+    disbursedAmount: 100000,
+    outstandingPrincipal: 100000,
+    accruedInterest: 0,
+    nextDueDate: '02-10-2026',
+    renewalDate: '02/08/2027'
+  },
+  {
+    id: 'L-GL002',
+    receiptBillNo: 102,
+    loanNo: 'GL-002',
+    customerId: 'CUST-0006',
+    customerName: 'Sanjai',
+    customerPhone: '8637628773',
+    customerGender: 'Male',
+    customerAge: 30,
+    customerOccupation: 'Business Owner',
+    customerEmail: 'sanjai@example.com',
+    customerCurrentAddress: '42 Bazaar Road, Madurai - 625001',
+    customerPermanentAddress: '42 Bazaar Road, Madurai - 625001',
+    date: '05/08/2026',
+    loanType: 'GOLD LOAN',
+    repaymentSystem: 'Monthly interest only',
+    area: 'Madurai Central',
+    showroom: 'Main Branch - Counter 1',
+    principal: 50000,
+    interestRate: 1.5,
+    bankMode: 'Cash',
+    cashAmount: 50000,
+    bankAmount: 0,
+    deductAdvanceInterest: false,
+    advanceDays: 0,
+    advanceInterestAmount: 0,
+    cardFee: 10,
+    cardFeePaymentMode: 'Cash',
+    items: [
+      {
+        id: 'gl2-item-1',
+        item: 'Gold Studs Pair',
+        qty: 2,
+        purity: '22ct',
+        grossWeight: 6.5,
+        netWeight: 6.0
+      }
+    ],
+    totalGrossWeight: 6.5,
+    totalNetWeight: 6.0,
+    marketValue: 35000,
+    ltv: 71.4,
+    monthlyInterest: 450,
+    notes: 'Pledged 22ct studs - vault box B-05',
+    photos: [
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><circle cx='150' cy='200' r='40' stroke='%23d97706' stroke-width='10' fill='%231e293b'/><circle cx='250' cy='200' r='40' stroke='%23d97706' stroke-width='10' fill='%231e293b'/><text x='200' y='280' fill='%23fbbf24' font-size='16' font-family='sans-serif' font-weight='bold' text-anchor='middle'>22K GOLD STUDS</text><text x='200' y='305' fill='%2394a3b8' font-size='12' font-family='sans-serif' text-anchor='middle'>Net: 6.000g</text></svg>"
+    ],
+    status: 'ACTIVE',
+    disbursedAmount: 50000,
+    outstandingPrincipal: 30000,
+    accruedInterest: 0,
+    nextDueDate: '05-10-2026',
+    renewalDate: '05/08/2027'
+  },
+  {
+    id: 'L-GL003',
+    receiptBillNo: 103,
+    loanNo: 'GL-003',
+    customerId: 'CUST-0006',
+    customerName: 'Sanjai',
+    customerPhone: '8637628773',
+    customerGender: 'Male',
+    customerAge: 30,
+    customerOccupation: 'Business Owner',
+    customerEmail: 'sanjai@example.com',
+    customerCurrentAddress: '42 Bazaar Road, Madurai - 625001',
+    customerPermanentAddress: '42 Bazaar Road, Madurai - 625001',
+    date: '10/08/2026',
+    loanType: 'GOLD LOAN',
+    repaymentSystem: 'Monthly interest only',
+    area: 'Madurai Central',
+    showroom: 'Main Branch - Counter 1',
+    principal: 75000,
+    interestRate: 1.5,
+    bankMode: 'Cash',
+    cashAmount: 75000,
+    bankAmount: 0,
+    deductAdvanceInterest: false,
+    advanceDays: 0,
+    advanceInterestAmount: 0,
+    cardFee: 10,
+    cardFeePaymentMode: 'Cash',
+    items: [
+      {
+        id: 'gl3-item-1',
+        item: 'Gold Bangle 22K',
+        qty: 1,
+        purity: '22ct',
+        grossWeight: 14.5,
+        netWeight: 13.8
+      }
+    ],
+    totalGrossWeight: 14.5,
+    totalNetWeight: 13.8,
+    marketValue: 80000,
+    ltv: 93.7,
+    monthlyInterest: 1125,
+    notes: 'Pledged 22ct bangle - vault box B-06',
+    photos: [
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><circle cx='200' cy='200' r='90' stroke='%23d97706' stroke-width='14' fill='none'/><circle cx='200' cy='200' r='70' stroke='%23fbbf24' stroke-width='6' fill='%231e293b'/><text x='200' y='205' fill='%23fbbf24' font-size='16' font-family='sans-serif' font-weight='bold' text-anchor='middle'>22K GOLD BANGLE</text><text x='200' y='230' fill='%2394a3b8' font-size='12' font-family='sans-serif' text-anchor='middle'>Net: 13.800g</text></svg>"
+    ],
+    status: 'ACTIVE',
+    disbursedAmount: 75000,
+    outstandingPrincipal: 75000,
+    accruedInterest: 0,
+    nextDueDate: '10-10-2026',
+    renewalDate: '10/08/2027'
+  },
   {
     id: 'L-01',
     receiptBillNo: 1,
@@ -307,6 +503,48 @@ export const initialReceipts: Receipt[] = [
 ];
 
 export const initialFixedDeposits: FixedDeposit[] = [
+  {
+    id: 'FD-SANJAI-001',
+    fdNo: 'FD-001',
+    customerId: 'CUST-0006',
+    depositorName: 'Sanjai',
+    phone: '8637628773',
+    idProofType: 'Aadhaar Card',
+    idProofNumber: 'XXXX-XXXX-7721',
+    address: '42 Bazaar Road, Madurai - 625001',
+    depositDate: '02-09-2026',
+    maturityDate: '02-09-2027',
+    principal: 200000,
+    remainingPrincipal: 200000,
+    totalWithdrawnPrincipal: 0,
+    tenureMonths: 12,
+    interestRatePA: 12.0,
+    receivingMethod: 'UPI',
+    monthlyPayout: 2000,
+    status: 'ACTIVE',
+    items: [
+      {
+        id: 'fd-item-1',
+        item: 'Gold Ring',
+        qty: 1,
+        purity: '22ct',
+        grossWeight: 5.2,
+        netWeight: 4.8
+      },
+      {
+        id: 'fd-item-2',
+        item: 'Gold Chain',
+        qty: 1,
+        purity: '22ct',
+        grossWeight: 10.0,
+        netWeight: 9.5
+      }
+    ],
+    photos: [
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><circle cx='200' cy='200' r='110' stroke='%23d97706' stroke-width='16' fill='none'/><circle cx='200' cy='200' r='75' stroke='%23fbbf24' stroke-width='8' fill='%231e293b'/><text x='200' y='205' fill='%23fbbf24' font-size='16' font-family='sans-serif' font-weight='bold' text-anchor='middle'>22K GOLD RING</text><text x='200' y='230' fill='%2394a3b8' font-size='12' font-family='sans-serif' text-anchor='middle'>Net: 4.800g</text></svg>",
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%230f172a'/><path d='M100,120 Q200,280 300,120' stroke='%23d97706' stroke-width='14' fill='none'/><path d='M100,120 Q200,280 300,120' stroke='%23fbbf24' stroke-width='6' fill='none' stroke-dasharray='10,6'/><circle cx='200' cy='220' r='24' fill='%23b45309' stroke='%23fbbf24' stroke-width='4'/><text x='200' y='285' fill='%23fbbf24' font-size='16' font-family='sans-serif' font-weight='bold' text-anchor='middle'>22K GOLD CHAIN</text><text x='200' y='310' fill='%2394a3b8' font-size='12' font-family='sans-serif' text-anchor='middle'>Net: 9.500g</text></svg>"
+    ]
+  },
   {
     id: 'FD-001',
     fdNo: 'FD-01',

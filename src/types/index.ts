@@ -29,6 +29,7 @@ export type NavPage =
   | 'balance-sheet'
   | 'accounts'
   | 'daily-reminders'
+  | 'notifications'
   | 'backup-restore'
   | 'admin-panel'
   | 'settings';
@@ -46,17 +47,39 @@ export interface OrnamentItem {
 
 export interface NomineeDetails {
   hasNominee: boolean;
+  enabled?: boolean;
   name: string;
+  fullName?: string;
   relationship: string;
   relation?: string;
   customRelation?: string | null;
-  age?: number;
   phone: string;
+  gender?: 'Male' | 'Female' | 'Other';
+  ageMode?: 'DOB' | 'AGE';
+  dateOfBirth?: string;
+  age?: number;
+  occupation?: string;
+  email?: string;
+  photo?: string | null;
   idProofType?: string;
   idProofNumber?: string;
   aadhaarNumber?: string;
   panNumber?: string;
+  otherIdName?: string;
+  otherIdNumber?: string;
+  idProof?: {
+    type: string;
+    aadhaarNumber?: string;
+    panNumber?: string;
+    otherIdName?: string;
+    otherIdNumber?: string;
+    idNumber?: string;
+  };
   address: string;
+  currentAddress?: string;
+  permanentAddress?: string;
+  isSameAddress?: boolean;
+  location?: CustomerLocationData | LocationDetails | null;
 }
 
 export interface GuarantorDetails {
@@ -106,17 +129,6 @@ export interface CustomerLocationData {
   locationMethod?: 'gps' | 'google_maps_url' | 'manual';
   googleMapsUrl: string;
   capturedAt: string | null;
-}
-
-export interface LoanTopUpRecord {
-  id: string;
-  date: string;
-  topUpAmount: number;
-  previousPrincipal: number;
-  newPrincipal: number;
-  previousMonthlyInterest: number;
-  newMonthlyInterest: number;
-  notes?: string;
 }
 
 export interface Loan {
@@ -170,7 +182,6 @@ export interface Loan {
   renewalDate: string;
   lastInterestPaidDate?: string;
   nextDueDate?: string;
-  topUps?: LoanTopUpRecord[];
   vehicleNumber?: string;
   vehicleModel?: string;
   rcNumber?: string;
@@ -188,11 +199,21 @@ export interface Receipt {
   loanNo: string;
   customerId: string;
   customerName: string;
-  kind: 'REPAYMENT' | 'NEW LOAN' | 'INTEREST PAYMENT' | 'PART PAYMENT' | 'LOAN CLOSURE' | 'TOP-UP';
+  customerPhone?: string;
+  kind:
+    | 'REPAYMENT'
+    | 'NEW LOAN'
+    | 'INTEREST PAYMENT'
+    | 'PART PAYMENT'
+    | 'LOAN CLOSURE'
+    | 'EMI PAYMENT'
+    | 'INTEREST + PRINCIPAL'
+    | 'OTHER';
   loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
   amount: number;
   principalComponent: number;
   interestComponent: number;
+  penaltyComponent?: number;
   odCharges?: number;
   otherCharges?: number;
   discount?: number;
@@ -203,6 +224,13 @@ export interface Receipt {
   nextDueDate?: string;
   daysLate?: number;
   notes?: string;
+  bankName?: string;
+  transactionReference?: string;
+  upiId?: string;
+  outstandingBefore?: number;
+  outstandingAfter?: number;
+  processedBy?: string;
+  createdAt?: string;
 }
 
 export interface DayBookEntry {
@@ -224,6 +252,24 @@ export interface DayBookEntry {
   date: string;
 }
 
+export interface FDPaymentBreakdownItem {
+  id: string;
+  method: 'Cash' | 'Bank Transfer' | 'UPI';
+  amount: number;
+  bankName?: string;
+  transactionReference?: string;
+  upiId?: string;
+  paymentDate: string;
+  notes?: string;
+}
+
+export interface FDPaymentDetails {
+  totalReceived: number;
+  balanceToReceive: number;
+  paymentStatus: 'FULLY_RECEIVED' | 'PARTIALLY_RECEIVED' | 'NOT_RECEIVED';
+  payments: FDPaymentBreakdownItem[];
+}
+
 export interface FixedDeposit {
   id: string;
   fdNo: string;
@@ -241,13 +287,18 @@ export interface FixedDeposit {
   totalWithdrawnPrincipal?: number;
   tenureMonths?: number;
   interestRatePA: number;
-  receivingMethod: 'Cash' | 'Bank' | 'UPI';
+  receivingMethod: 'Cash' | 'Bank' | 'UPI' | 'Bank Transfer' | 'Split' | string;
+  paymentDetails?: FDPaymentDetails;
+  payoutFrequency?: string;
   monthlyPayout: number;
   status: 'ACTIVE' | 'MATURED' | 'WITHDRAWN';
   parentCustomerName?: string;
   nomineeName?: string;
   nomineeRelation?: string;
+  nominee?: NomineeDetails;
   remarks?: string;
+  items?: OrnamentItem[];
+  photos?: string[];
 }
 
 export interface FDInterestPayout {
@@ -257,25 +308,58 @@ export interface FDInterestPayout {
   customerId?: string;
   depositorName: string;
   amount: number;
+  dueDate?: string;
   date: string;
   periodKey?: string;
-  mode: 'Cash' | 'Bank' | 'UPI';
+  payoutFrequency?: string;
+  mode: 'Cash' | 'Bank' | 'UPI' | string;
   status: 'PAID' | 'PENDING';
 }
 
 export interface FDWithdrawal {
   id: string;
+  withdrawalId?: string;        // Sequential "WD-001" display ID
+  receiptNo?: string;           // Sequential "FDR-001" display ID
+  receiptId?: string;           // Linked receipt ID
+  withdrawalType?: 'PARTIAL' | 'FULL';
   fdId?: string;
   fdNo: string;
   customerId?: string;
+  customerPhone?: string;
   depositorName: string;
+  originalPrincipal?: number;
+  balanceBefore?: number;
   principalAmount: number;
   remainingBalance?: number;
   interestPaid: number;
   totalAmount: number;
   withdrawalDate: string;
   mode: 'Cash' | 'Bank' | 'UPI';
+  transactionReference?: string; // UTR / UPI ref
+  bankName?: string;
+  upiId?: string;
   notes?: string;
+  status?: 'COMPLETED' | 'PENDING' | 'CANCELLED';
+  processedBy?: string;
+  createdAt?: string;
+  items?: OrnamentItem[];
+  photos?: string[];
+}
+
+export interface FDRenewal {
+  id: string;                   // Internal unique ID
+  renewalId: string;            // Sequential "RN-001" display ID
+  fdId?: string;
+  fdNo: string;
+  customerId: string;
+  depositorName: string;
+  previousMaturityDate: string;
+  newMaturityDate: string;
+  renewalPeriodMonths: number;
+  renewalDate: string;
+  interestRateAtRenewal: number;
+  notes?: string;
+  status: 'COMPLETED';
 }
 
 export interface FDCustomer {
@@ -409,5 +493,42 @@ export interface DeviceInfo {
   lastActive: string;
   isCurrent: boolean;
 }
+
+// ── Notification Center Models ────────────────────────────────────────────────
+
+export type NotificationCategory = 'LOAN' | 'FIXED_DEPOSIT';
+
+export type NotificationEventType =
+  | 'UPCOMING'
+  | 'DUE'
+  | 'OVERDUE'
+  | 'PAID'
+  | 'MATURITY'
+  | 'RENEWAL';
+
+export type NotificationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface AppNotification {
+  id: string; // e.g. "loan_GL-001_due_2026-10", "fd_FD-001_interest_2026-10"
+  category: NotificationCategory;
+  type: NotificationEventType;
+  priority: NotificationPriority;
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  entityId: string; // Loan No (e.g. "GL-001") or FD No (e.g. "FD-001")
+  entityDbId?: string;
+  title: string;
+  message: string;
+  amount?: number;
+  dueDate?: string; // DD-MM-YYYY
+  periodKey?: string; // e.g. "2026-10"
+  daysOverdue?: number;
+  daysRemaining?: number;
+  read: boolean;
+  actionLabel: string;
+  createdAt: string;
+}
+
 
 

@@ -24,6 +24,7 @@ import { DailyReminders } from './pages/DailyReminders';
 import { BackupRestore } from './pages/BackupRestore';
 import { AdminPanel } from './pages/AdminPanel';
 import { Settings } from './pages/Settings';
+import { NotificationCenter } from './components/notifications/NotificationCenter';
 
 import { KKVLogo } from './components/common/KKVLogo';
 
@@ -37,7 +38,9 @@ export const App: React.FC = () => {
     userRole,
     setUserRole,
     masterControlSettings,
-    showToast
+    showToast,
+    isNotificationOpen,
+    setIsNotificationOpen
   } = useApp();
 
   const renderPage = () => {
@@ -88,6 +91,8 @@ export const App: React.FC = () => {
         return <Accounts />;
       case 'daily-reminders':
         return <DailyReminders />;
+      case 'notifications':
+        return <NotificationCenter isFullPage={true} />;
       case 'backup-restore':
         return <BackupRestore />;
       case 'admin-panel':
@@ -288,6 +293,11 @@ export const App: React.FC = () => {
             <Topbar />
             <main style={{ minHeight: 'calc(100vh - var(--topbar-height))', display: 'flex', flexDirection: 'column' }}>{renderPage()}</main>
           </div>
+
+          {/* Centralized Notification Center Modal / Flyout */}
+          {isNotificationOpen && (
+            <NotificationCenter isFullPage={false} onClose={() => setIsNotificationOpen(false)} />
+          )}
         </>
       )}
     </div>

@@ -64,22 +64,6 @@ export const deleteLoan = (req: Request, res: Response) => {
   });
 };
 
-export const topUpLoan = (req: Request, res: Response) => {
-  const { amount, date, notes } = req.body;
-  const updatedLoan = loanService.topUp(req.params.loanNo, Number(amount), date, notes);
-  if (!updatedLoan) {
-    return res.status(404).json({
-      success: false,
-      message: `Loan ${req.params.loanNo} not found`
-    });
-  }
-  return res.json({
-    success: true,
-    message: 'Loan topped up successfully',
-    data: updatedLoan
-  });
-};
-
 export const closeLoan = (req: Request, res: Response) => {
   const closedLoan = loanService.closeLoan(req.params.loanNo);
   if (!closedLoan) {

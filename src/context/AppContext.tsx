@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import {
   Customer,
   FixedDeposit,
@@ -11,7 +11,9 @@ import {
   TelegramConfig,
   FDCustomer,
   FDInterestPayout,
-  FDWithdrawal
+  FDWithdrawal,
+  FDRenewal,
+  AppNotification
 } from '../types';
 import {
   initialCustomers,
@@ -20,6 +22,8 @@ import {
   initialReceipts
 } from '../mockData/initialData';
 import { apiService } from '../services/api';
+import { calculateFDInterestSchedule, normalizeDateString, calculateInterestPeriodKey, addCalendarMonths, formatFDDate } from '../utils/fdInterestUtils';
+import { generateAllNotifications } from '../utils/notificationUtils';
 
 interface Toast {
   id: string;
@@ -234,7 +238,6 @@ interface AppContextType {
 
   getCustomerById: (id: string) => Customer | undefined;
   addLoan: (loan: Omit<Loan, 'id' | 'loanNo'> & { loanNo?: string }) => Loan;
-  topUpLoan: (loanNo: string, amount: number, date: string, notes?: string) => boolean;
   addReceipt: (receipt: Omit<Receipt, 'id' | 'receiptNo'>) => Receipt;
   addFixedDeposit: (fd: Omit<FixedDeposit, 'id' | 'fdNo'>) => FixedDeposit;
   addFDCustomer: (cust: Omit<FDCustomer, 'id' | 'createdAt'>) => FDCustomer;
@@ -244,8 +247,10 @@ interface AppContextType {
   restoreCustomer: (id: string) => boolean;
   deleteCustomerPermanently: (id: string) => Promise<boolean>;
   addDayBookEntry: (entry: Omit<DayBookEntry, 'id' | 'time' | 'cashBal' | 'bankBal'>) => DayBookEntry;
-  payFDInterest: (fdNo: string, amount: number, mode: 'Cash' | 'Bank' | 'UPI') => void;
-  withdrawFD: (fdNo: string, mode: 'Cash' | 'Bank' | 'UPI', notes?: string, withdrawalAmount?: number) => void;
+  payFDInterest: (fdNo: string, mode: 'Cash' | 'Bank' | 'UPI' | string, amount?: number, targetDueDate?: string, targetPeriodKey?: string) => boolean;
+  withdrawFD: (fdNo: string, mode: 'Cash' | 'Bank' | 'UPI', notes?: string, withdrawalAmount?: number, transactionReference?: string, bankName?: string) => FDWithdrawal | null;
+  renewFD: (fdNo: string, periodMonths: number, notes?: string) => boolean;
+  fdRenewals: FDRenewal[];
   deleteFixedDeposit: (fdNo: string) => boolean;
   bulkUpdateFixedDepositDates: (fdNos: string[], newDepositDate?: string, offsetDays?: number) => Promise<boolean>;
   cashInHand: number;
@@ -261,6 +266,15 @@ interface AppContextType {
   setSelectedProfileCustomerId: (id: string | null) => void;
   resetAllData: () => void;
   restoreDataFromJSON: (jsonStr: string) => boolean;
+
+  // Centralized Notifications
+  notifications: AppNotification[];
+  unreadNotificationCount: number;
+  isNotificationOpen: boolean;
+  setIsNotificationOpen: (open: boolean) => void;
+  toggleNotificationOpen: () => void;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -333,10 +347,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [darkMode, setDarkMode] = useState<boolean>(() => getStored('darkMode', false));
-  const [loans, setLoans] = useState<Loan[]>(() => getStored('loans', initialLoans));
-  const [customers, setCustomers] = useState<Customer[]>(() => getStored('customers', initialCustomers));
+  const [loans, setLoans] = useState<Loan[]>(() => {
+    const stored = getStored<Loan[]>('loans', initialLoans);
+    for (const initL of initialLoans) {
+      if (!stored.some((l) => l.loanNo === initL.loanNo || l.id === initL.id)) {
+        stored.push(initL);
+      }
+    }
+    return stored;
+  });
+
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    const stored = getStored<Customer[]>('customers', initialCustomers);
+    for (const initC of initialCustomers) {
+      if (!stored.some((c) => c.id === initC.id || (initC.customerId && c.customerId === initC.customerId))) {
+        stored.push(initC);
+      }
+    }
+    return stored;
+  });
   const [receipts, setReceipts] = useState<Receipt[]>(() => getStored('receipts', initialReceipts));
-  const [fixedDeposits, setFixedDeposits] = useState<FixedDeposit[]>(() => getStored('fixedDeposits', initialFixedDeposits));
+  const [fixedDeposits, setFixedDeposits] = useState<FixedDeposit[]>(() => {
+    const stored = getStored<FixedDeposit[]>('fixedDeposits', initialFixedDeposits);
+    for (const initFd of initialFixedDeposits) {
+      if (!stored.some((f) => f.fdNo === initFd.fdNo || f.id === initFd.id)) {
+        stored.push(initFd);
+      }
+    }
+    return stored;
+  });
   const [dayBookEntries, setDayBookEntries] = useState<DayBookEntry[]>(() => getStored('dayBookEntries', initialDayBook));
   const [isWorkspaceSelected, setIsWorkspaceSelected] = useState<boolean>(() => getStored('isWorkspaceSelected', false));
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>(() => getStored('selectedWorkspace', 'KKV GOLD FINANCE'));
@@ -355,6 +394,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ]));
   const [fdInterestPayouts, setFdInterestPayouts] = useState<FDInterestPayout[]>(() => getStored('fdInterestPayouts', []));
   const [fdWithdrawals, setFdWithdrawals] = useState<FDWithdrawal[]>(() => getStored('fdWithdrawals', []));
+  const [fdRenewals, setFdRenewals] = useState<FDRenewal[]>(() => getStored('fdRenewals', []));
 
   const [masterControlOpen, setMasterControlOpen] = useState<boolean>(false);
   const [masterControlUnlocked, setMasterControlUnlocked] = useState<boolean>(false);
@@ -367,6 +407,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedProfileCustomerId, setSelectedProfileCustomerId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  // ── Centralized Notifications State ──────────────────────────────────────────
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() =>
+    getStored('read_notification_ids', [])
+  );
+  const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
+  const toggleNotificationOpen = () => setIsNotificationOpen((prev) => !prev);
+
   // Persist states safely to localStorage
   useEffect(() => { safeSetStored('darkMode', darkMode); }, [darkMode]);
   useEffect(() => { safeSetStored('loans', loans); }, [loans]);
@@ -377,6 +424,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { safeSetStored('fdCustomers', fdCustomers); }, [fdCustomers]);
   useEffect(() => { safeSetStored('fdInterestPayouts', fdInterestPayouts); }, [fdInterestPayouts]);
   useEffect(() => { safeSetStored('fdWithdrawals', fdWithdrawals); }, [fdWithdrawals]);
+  useEffect(() => { safeSetStored('fdRenewals', fdRenewals); }, [fdRenewals]);
+  useEffect(() => { safeSetStored('read_notification_ids', readNotificationIds); }, [readNotificationIds]);
   useEffect(() => { safeSetStored('masterSettings', masterControlSettings); }, [masterControlSettings]);
   useEffect(() => { safeSetStored('waTemplates', whatsAppTemplates); }, [whatsAppTemplates]);
   useEffect(() => { safeSetStored('tgConfig', telegramConfig); }, [telegramConfig]);
@@ -572,106 +621,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newLoan;
   };
 
-  const topUpLoan = (loanNo: string, amount: number, date: string, notes?: string): boolean => {
-    const targetLoan = loans.find(l => l.loanNo.toLowerCase() === loanNo.toLowerCase() || l.id === loanNo);
-    if (!targetLoan) {
-      showToast(`Loan ${loanNo} not found!`, 'error');
-      return false;
-    }
-
-    const prevPrincipal = targetLoan.principal;
-    const newPrincipal = prevPrincipal + amount;
-    const prevMonthly = targetLoan.monthlyInterest;
-    const newMonthly = Math.round((newPrincipal * targetLoan.interestRate) / 100);
-
-    const topUpRec = {
-      id: `topup-${Date.now()}`,
-      date,
-      topUpAmount: amount,
-      previousPrincipal: prevPrincipal,
-      newPrincipal,
-      previousMonthlyInterest: prevMonthly,
-      newMonthlyInterest: newMonthly,
-      notes
-    };
-
-    setLoans(prev => prev.map(l => {
-      if (l.id === targetLoan.id) {
-        return {
-          ...l,
-          principal: newPrincipal,
-          outstandingPrincipal: l.outstandingPrincipal + amount,
-          monthlyInterest: newMonthly,
-          topUps: [...(l.topUps || []), topUpRec]
-        };
-      }
-      return l;
-    }));
-
-    const receiptNo = receipts.length > 0 ? Math.max(...receipts.map(r => r.receiptNo)) + 1 : 1;
-    const topUpReceipt: Receipt = {
-      id: `RCPT-${Date.now()}`,
-      receiptNo,
-      loanId: targetLoan.id,
-      loanNo: targetLoan.loanNo,
-      customerId: targetLoan.customerId,
-      customerName: targetLoan.customerName,
-      kind: 'TOP-UP',
-      loanType: targetLoan.loanType,
-      amount,
-      principalComponent: amount,
-      interestComponent: 0,
-      paymentMode: 'Cash',
-      date,
-      notes: notes || `Top-up principal addition of ₹${amount}`
-    };
-
-    setReceipts(prev => [topUpReceipt, ...prev]);
-
-    const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const dbEntry: DayBookEntry = {
-      id: `db-${Date.now()}`,
-      time: timeStr,
-      billNo: receiptNo.toString(),
-      particulars: `Loan Top-Up Disbursement (${targetLoan.loanNo}) - ${targetLoan.customerName}`,
-      accountHead: 'Gold Loan Portfolio',
-      mode: 'Cash',
-      cashIn: 0,
-      cashOut: amount,
-      bankIn: 0,
-      bankOut: 0,
-      cashBal: cashInHand - amount,
-      bankBal: cashAtBank,
-      customerName: targetLoan.customerName,
-      loanNo: targetLoan.loanNo,
-      date
-    };
-
-    setDayBookEntries(prev => [dbEntry, ...prev]);
-    showToast(`Loan ${targetLoan.loanNo} topped up by ₹${amount.toLocaleString('en-IN')}!`, 'success');
-    return true;
-  };
-
   const addReceipt = (receiptData: Omit<Receipt, 'id' | 'receiptNo'>): Receipt => {
-    const receiptNo = receipts.length > 0 ? Math.max(...receipts.map(r => r.receiptNo)) + 1 : 1;
+    const maxExisting = receipts.length > 0 ? Math.max(...receipts.map((r) => r.receiptNo || 0)) : 0;
+    const storedSeq = getStored('last_receipt_sequence', 0);
+    const receiptNo = Math.max(maxExisting, storedSeq) + 1;
+    safeSetStored('last_receipt_sequence', receiptNo);
+
+    const targetLoan = loans.find((l) => l.loanNo === receiptData.loanNo || l.id === receiptData.loanId);
+    const prevOutstanding = targetLoan ? targetLoan.outstandingPrincipal : 0;
+    const newPrincipal = Math.max(0, prevOutstanding - (receiptData.principalComponent || 0));
+
     const newReceipt: Receipt = {
       ...receiptData,
       id: `RCPT-${Date.now()}`,
-      receiptNo
+      receiptNo,
+      outstandingBefore: receiptData.outstandingBefore ?? prevOutstanding,
+      outstandingAfter: receiptData.outstandingAfter ?? newPrincipal,
+      processedBy: receiptData.processedBy ?? 'Admin',
+      createdAt: receiptData.createdAt ?? new Date().toISOString()
     };
 
     setReceipts((prev) => [newReceipt, ...prev]);
 
     setLoans((prev) =>
       prev.map((l) => {
-        if (l.loanNo === newReceipt.loanNo) {
-          const newPrincipal = Math.max(0, l.outstandingPrincipal - newReceipt.principalComponent);
+        if (l.loanNo === newReceipt.loanNo || l.id === newReceipt.loanId) {
+          const isFullClosure = newReceipt.kind === 'LOAN CLOSURE' || newPrincipal === 0;
+          let calculatedNextDue = newReceipt.nextDueDate || l.nextDueDate;
+          if (newReceipt.interestComponent > 0 && !newReceipt.nextDueDate && l.nextDueDate) {
+            try {
+              calculatedNextDue = addCalendarMonths(l.nextDueDate, 1);
+            } catch {
+              calculatedNextDue = l.nextDueDate;
+            }
+          }
+
           return {
             ...l,
             outstandingPrincipal: newPrincipal,
-            status: newPrincipal === 0 ? 'CLOSED' : l.status,
+            status: isFullClosure ? 'CLOSED' : l.status,
             lastInterestPaidDate: newReceipt.date,
-            nextDueDate: newReceipt.nextDueDate || l.nextDueDate
+            nextDueDate: calculatedNextDue
           };
         }
         return l;
@@ -735,7 +725,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       billNo: fdNo,
       particulars: `Fixed Deposit Inflow (${fdNo}) - ${newFd.depositorName}`,
       accountHead: 'Fixed Deposits',
-      mode: newFd.receivingMethod,
+      mode: isCash ? 'Cash' : (newFd.receivingMethod === 'UPI' ? 'UPI' : 'Bank'),
       cashIn: isCash ? newFd.principal : 0,
       cashOut: 0,
       bankIn: isBank ? newFd.principal : 0,
@@ -978,23 +968,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newEntry;
   };
 
-  const payFDInterest = (fdNo: string, amount: number, mode: 'Cash' | 'Bank' | 'UPI') => {
-    const targetFD = fixedDeposits.find(f => f.fdNo === fdNo);
-    if (!targetFD) return;
+  const payFDInterest = (
+    fdNo: string,
+    mode: 'Cash' | 'Bank' | 'UPI' | string,
+    amount?: number,
+    targetDueDate?: string,
+    targetPeriodKey?: string
+  ): boolean => {
+    const targetFD = fixedDeposits.find((f) => f.fdNo === fdNo || f.id === fdNo);
+    if (!targetFD) {
+      showToast('Fixed Deposit record not found.', 'error');
+      return false;
+    }
+
+    if (targetFD.status === 'WITHDRAWN') {
+      showToast('This Fixed Deposit is closed and cannot receive interest payouts.', 'error');
+      return false;
+    }
+
+    const schedule = calculateFDInterestSchedule(targetFD, fdInterestPayouts);
+
+    const dueDateToPay = targetDueDate ? normalizeDateString(targetDueDate) : schedule.nextPayoutDate;
+    const periodKeyToPay = targetPeriodKey || calculateInterestPeriodKey(targetFD.fdNo, dueDateToPay);
+
+    // Check duplicate period key
+    const duplicate = fdInterestPayouts.some(
+      (p) =>
+        p.status === 'PAID' &&
+        ((p as any).periodKey === periodKeyToPay ||
+          (p.fdNo === targetFD.fdNo && (p.dueDate === dueDateToPay || (p as any).periodKey === periodKeyToPay)))
+    );
+
+    if (duplicate) {
+      showToast('This interest period has already been paid.', 'error');
+      return false;
+    }
+
+    const todayStr = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+    const payoutAmount = amount && amount > 0 ? amount : schedule.payoutAmount;
 
     const payout: FDInterestPayout = {
       id: `fd-payout-${Date.now()}`,
       fdId: targetFD.id,
-      fdNo,
+      fdNo: targetFD.fdNo,
       customerId: targetFD.customerId,
       depositorName: targetFD.depositorName,
-      amount,
-      date: new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
-      mode,
+      amount: payoutAmount,
+      date: todayStr,
+      dueDate: dueDateToPay,
+      periodKey: periodKeyToPay,
+      mode: mode as any,
       status: 'PAID'
     };
 
-    setFdInterestPayouts(prev => [payout, ...prev]);
+    setFdInterestPayouts((prev) => [payout, ...prev]);
 
     // Daybook entry
     const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -1002,33 +1029,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dbEntry: DayBookEntry = {
       id: `db-${Date.now()}`,
       time: timeStr,
-      billNo: `INT-${fdNo}`,
-      particulars: `FD Interest Payout (${fdNo}) - ${targetFD.depositorName}`,
+      billNo: `INT-${targetFD.fdNo}`,
+      particulars: `FD Interest Payout (${targetFD.fdNo}) - ${targetFD.depositorName} (${dueDateToPay})`,
       accountHead: 'Interest Expense',
-      mode,
+      mode: mode as any,
       cashIn: 0,
-      cashOut: isCash ? amount : 0,
+      cashOut: isCash ? payoutAmount : 0,
       bankIn: 0,
-      bankOut: isCash ? 0 : amount,
-      cashBal: isCash ? cashInHand - amount : cashInHand,
-      bankBal: isCash ? cashAtBank : cashAtBank - amount,
+      bankOut: isCash ? 0 : payoutAmount,
+      cashBal: isCash ? cashInHand - payoutAmount : cashInHand,
+      bankBal: isCash ? cashAtBank : cashAtBank - payoutAmount,
       customerName: targetFD.depositorName,
-      date: payout.date
+      date: todayStr
     };
 
-    setDayBookEntries(prev => [dbEntry, ...prev]);
-    showToast(`Interest payout of ₹${amount.toLocaleString('en-IN')} recorded for ${fdNo}`, 'success');
+    setDayBookEntries((prev) => [dbEntry, ...prev]);
+    showToast(`Interest payout of ₹${payoutAmount.toLocaleString('en-IN')} recorded for ${targetFD.fdNo} (${dueDateToPay})`, 'success');
+    return true;
   };
 
-  const withdrawFD = (fdNo: string, mode: 'Cash' | 'Bank' | 'UPI', notes?: string, withdrawalAmount?: number) => {
+  const withdrawFD = (
+    fdNo: string,
+    mode: 'Cash' | 'Bank' | 'UPI',
+    notes?: string,
+    withdrawalAmount?: number,
+    transactionReference?: string,
+    bankName?: string
+  ): FDWithdrawal | null => {
     const targetFD = fixedDeposits.find(f => f.fdNo === fdNo);
     if (!targetFD) {
       showToast('Fixed Deposit record not found.', 'error');
-      return;
+      return null;
     }
     if (targetFD.status === 'WITHDRAWN') {
       showToast('This Fixed Deposit is already closed and fully withdrawn.', 'error');
-      return;
+      return null;
     }
 
     const currentRemaining = targetFD.remainingPrincipal ?? targetFD.principal;
@@ -1036,26 +1071,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (amountToWithdraw <= 0) {
       showToast('Invalid withdrawal amount.', 'error');
-      return;
+      return null;
     }
 
     const newRemaining = Math.max(0, currentRemaining - amountToWithdraw);
     const newTotalWithdrawn = (targetFD.totalWithdrawnPrincipal ?? 0) + amountToWithdraw;
     const isFullyWithdrawn = newRemaining <= 0;
 
+    // Safe Monotonic Withdrawal ID (WD-XXX)
+    const storedWdSeq = getStored<number>('last_fd_withdrawal_sequence', 0);
+    const maxWdSeq = fdWithdrawals.reduce((max, w) => {
+      const match = w.withdrawalId?.match(/(\d+)$/);
+      const num = match ? parseInt(match[1], 10) : 0;
+      return num > max ? num : max;
+    }, 0);
+    const nextWdNum = Math.max(storedWdSeq, maxWdSeq) + 1;
+    safeSetStored('last_fd_withdrawal_sequence', nextWdNum);
+    const newWithdrawalId = `WD-${String(nextWdNum).padStart(3, '0')}`;
+
+    // Safe Monotonic Receipt Number (FDR-XXX)
+    const storedRcptSeq = getStored<number>('last_fd_receipt_sequence', 0);
+    const maxRcptSeq = fdWithdrawals.reduce((max, w) => {
+      const match = (w.receiptNo || w.receiptId)?.match(/(\d+)$/);
+      const num = match ? parseInt(match[1], 10) : 0;
+      return num > max ? num : max;
+    }, 0);
+    const nextRcptNum = Math.max(storedRcptSeq, maxRcptSeq) + 1;
+    safeSetStored('last_fd_receipt_sequence', nextRcptNum);
+    const newReceiptNo = `FDR-${String(nextRcptNum).padStart(3, '0')}`;
+
+    const todayStr = formatFDDate(new Date());
     const withdrawal: FDWithdrawal = {
       id: `fd-wth-${Date.now()}`,
+      withdrawalId: newWithdrawalId,
+      receiptNo: newReceiptNo,
+      receiptId: newReceiptNo,
+      withdrawalType: isFullyWithdrawn ? 'FULL' : 'PARTIAL',
       fdId: targetFD.id,
       fdNo,
       customerId: targetFD.customerId,
+      customerPhone: targetFD.phone,
       depositorName: targetFD.depositorName,
+      originalPrincipal: targetFD.principal,
+      balanceBefore: currentRemaining,
       principalAmount: amountToWithdraw,
       remainingBalance: newRemaining,
       interestPaid: 0,
       totalAmount: amountToWithdraw,
-      withdrawalDate: new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
+      withdrawalDate: todayStr,
       mode,
-      notes: notes || (isFullyWithdrawn ? 'Full FD settlement' : 'Partial principal withdrawal')
+      transactionReference: transactionReference || undefined,
+      bankName: bankName || undefined,
+      notes: notes || (isFullyWithdrawn ? 'Full FD settlement' : 'Partial principal withdrawal'),
+      status: 'COMPLETED',
+      processedBy: 'Admin',
+      createdAt: new Date().toISOString(),
+      items: (targetFD as any).items || [],
+      photos: (targetFD as any).photos || []
     };
 
     setFdWithdrawals(prev => [withdrawal, ...prev]);
@@ -1072,8 +1144,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dbEntry: DayBookEntry = {
       id: `db-${Date.now()}`,
       time: timeStr,
-      billNo: `WTH-${fdNo}`,
-      particulars: `Fixed Deposit Refund (${fdNo}) - ${targetFD.depositorName} (${isFullyWithdrawn ? 'Full' : 'Partial'})`,
+      billNo: newWithdrawalId,
+      particulars: `FD ${isFullyWithdrawn ? 'Full Closure' : 'Partial Withdrawal'} (${fdNo}) - ${targetFD.depositorName}`,
       accountHead: 'Fixed Deposits',
       mode,
       cashIn: 0,
@@ -1083,16 +1155,91 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cashBal: isCash ? cashInHand - amountToWithdraw : cashInHand,
       bankBal: isCash ? cashAtBank : cashAtBank - amountToWithdraw,
       customerName: targetFD.depositorName,
-      date: withdrawal.withdrawalDate
+      date: todayStr
     };
 
     setDayBookEntries(prev => [dbEntry, ...prev]);
     showToast(
       isFullyWithdrawn
         ? `Fixed Deposit ${fdNo} closed and fully refunded (₹${amountToWithdraw.toLocaleString('en-IN')})`
-        : `Partial withdrawal of ₹${amountToWithdraw.toLocaleString('en-IN')} processed for ${fdNo}. Remaining balance: ₹${newRemaining.toLocaleString('en-IN')}`,
+        : `Partial withdrawal of ₹${amountToWithdraw.toLocaleString('en-IN')} processed for ${fdNo}. Remaining: ₹${newRemaining.toLocaleString('en-IN')}`,
       'success'
     );
+    return withdrawal;
+  };
+
+  const renewFD = (fdNo: string, periodMonths: number, notes?: string): boolean => {
+    if (userRole !== 'ADMIN') {
+      showToast('Only Admin users can renew Fixed Deposits.', 'error');
+      return false;
+    }
+    const targetFD = fixedDeposits.find(f => f.fdNo === fdNo);
+    if (!targetFD) {
+      showToast('Fixed Deposit record not found.', 'error');
+      return false;
+    }
+    if (targetFD.status === 'WITHDRAWN') {
+      showToast('Cannot renew a fully withdrawn Fixed Deposit.', 'error');
+      return false;
+    }
+    if (periodMonths <= 0) {
+      showToast('Invalid renewal period.', 'error');
+      return false;
+    }
+
+    const previousMaturityDate = targetFD.maturityDate;
+    const newMaturityDate = addCalendarMonths(previousMaturityDate, periodMonths);
+    const todayStr = formatFDDate(new Date());
+
+    // Sequential RN-XXX ID
+    const maxRnSeq = fdRenewals.reduce((max, r) => {
+      const match = r.renewalId?.match(/(\d+)$/);
+      const num = match ? parseInt(match[1], 10) : 0;
+      return num > max ? num : max;
+    }, 0);
+    const newRenewalId = `RN-${String(maxRnSeq + 1).padStart(3, '0')}`;
+
+    const renewal: FDRenewal = {
+      id: `fd-rnw-${Date.now()}`,
+      renewalId: newRenewalId,
+      fdId: targetFD.id,
+      fdNo,
+      customerId: targetFD.customerId,
+      depositorName: targetFD.depositorName,
+      previousMaturityDate,
+      newMaturityDate,
+      renewalPeriodMonths: periodMonths,
+      renewalDate: todayStr,
+      interestRateAtRenewal: targetFD.interestRatePA,
+      notes: notes || `FD renewed for ${periodMonths} months`,
+      status: 'COMPLETED'
+    };
+
+    setFdRenewals(prev => [renewal, ...prev]);
+    setFixedDeposits(prev => prev.map(f => f.fdNo === fdNo ? {
+      ...f,
+      maturityDate: newMaturityDate,
+      status: 'ACTIVE' as const
+    } : f));
+
+    // Daybook audit entry
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const dbEntry: DayBookEntry = {
+      id: `db-${Date.now()}-rnw`,
+      time: timeStr,
+      billNo: newRenewalId,
+      particulars: `FD Renewal (${fdNo}) - ${targetFD.depositorName} — Extended ${periodMonths}m to ${newMaturityDate}`,
+      accountHead: 'Fixed Deposits',
+      mode: 'Cash',
+      cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0,
+      cashBal: cashInHand, bankBal: cashAtBank,
+      customerName: targetFD.depositorName,
+      date: todayStr
+    };
+    setDayBookEntries(prev => [dbEntry, ...prev]);
+
+    showToast(`Fixed Deposit ${fdNo} renewed for ${periodMonths} months. New maturity: ${newMaturityDate}`, 'success');
+    return true;
   };
 
   const deleteFixedDeposit = (fdNo: string): boolean => {
@@ -1174,6 +1321,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // ── Centralized Notifications Derivation & Handlers ────────────────────────
+  const notifications = useMemo(() => {
+    return generateAllNotifications({
+      loans,
+      receipts,
+      fixedDeposits,
+      fdInterestPayouts,
+      customers,
+      fdCustomers,
+      readNotificationIds
+    });
+  }, [loans, receipts, fixedDeposits, fdInterestPayouts, customers, fdCustomers, readNotificationIds]);
+
+  const unreadNotificationCount = useMemo(() => {
+    return notifications.filter((n) => !n.read && n.type !== 'PAID').length;
+  }, [notifications]);
+
+  const markNotificationAsRead = (id: string) => {
+    setReadNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  };
+
+  const markAllNotificationsAsRead = () => {
+    const allIds = notifications.map((n) => n.id);
+    setReadNotificationIds((prev) => Array.from(new Set([...prev, ...allIds])));
+    showToast('All notifications marked as read.', 'info');
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -1198,6 +1372,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fdCustomers,
         fdInterestPayouts,
         fdWithdrawals,
+        fdRenewals,
         selectedLoan,
         setSelectedLoan,
         selectedReceipt,
@@ -1214,7 +1389,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateTelegramConfig,
         getCustomerById,
         addLoan,
-        topUpLoan,
         addReceipt,
         addFixedDeposit,
         addFDCustomer,
@@ -1226,6 +1400,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addDayBookEntry,
         payFDInterest,
         withdrawFD,
+        renewFD,
         deleteFixedDeposit,
         bulkUpdateFixedDepositDates,
         cashInHand,
@@ -1240,7 +1415,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         selectedProfileCustomerId,
         setSelectedProfileCustomerId,
         resetAllData,
-        restoreDataFromJSON
+        restoreDataFromJSON,
+
+        // Centralized Notifications
+        notifications,
+        unreadNotificationCount,
+        isNotificationOpen,
+        setIsNotificationOpen,
+        toggleNotificationOpen,
+        markNotificationAsRead,
+        markAllNotificationsAsRead
       }}
     >
       {children}

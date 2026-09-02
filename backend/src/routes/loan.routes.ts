@@ -5,7 +5,6 @@ import {
   createLoan,
   updateLoan,
   deleteLoan,
-  topUpLoan,
   closeLoan,
   getLoanPayments,
   addLoanPayment
@@ -18,7 +17,6 @@ router.get('/:loanNo', getLoanByNo);
 router.post('/', createLoan);
 router.put('/:id', updateLoan);
 router.delete('/:id', deleteLoan);
-router.post('/:loanNo/top-up', topUpLoan);
 router.post('/:loanNo/close', closeLoan);
 router.get('/:id/payments', getLoanPayments);
 router.post('/:id/payments', addLoanPayment);

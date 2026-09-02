@@ -525,6 +525,159 @@ export const LoanDisplay: React.FC = () => {
           )}
         </div>
 
+        {/* NOMINEE DETAILS CARD */}
+        {inspectingLoan.nominee && (inspectingLoan.nominee.hasNominee !== false && (inspectingLoan.nominee.name || (inspectingLoan.nominee as any).fullName)) && (
+          <div className="card" style={{ padding: '20px', marginTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <User size={18} color="var(--color-primary-accent, #059669)" />
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-dark)' }}>NOMINEE DETAILS</h3>
+              </div>
+              <span className="badge badge-success" style={{ fontSize: '11px' }}>
+                Registered Nominee
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              {inspectingLoan.nominee.photo ? (
+                <img
+                  src={inspectingLoan.nominee.photo}
+                  alt={inspectingLoan.nominee.name || (inspectingLoan.nominee as any).fullName}
+                  style={{ width: '72px', height: '72px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--border-light)', flexShrink: 0 }}
+                />
+              ) : (
+                <div style={{ width: '72px', height: '72px', borderRadius: '50%', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', color: 'var(--color-primary-dark, #047857)', fontSize: '24px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--border-light)', flexShrink: 0 }}>
+                  {(inspectingLoan.nominee.name || (inspectingLoan.nominee as any).fullName || 'N').charAt(0).toUpperCase()}
+                </div>
+              )}
+
+              <div style={{ flex: 1, minWidth: '280px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', fontSize: '13px' }}>
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>FULL NAME</span>
+                  <div style={{ fontWeight: 800, color: 'var(--text-dark)', fontSize: '14px' }}>
+                    {inspectingLoan.nominee.name || (inspectingLoan.nominee as any).fullName}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>RELATIONSHIP</span>
+                  <div style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>
+                    {inspectingLoan.nominee.relationship || inspectingLoan.nominee.relation || 'Nominee'}
+                    {inspectingLoan.nominee.customRelation ? ` (${inspectingLoan.nominee.customRelation})` : ''}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>MOBILE NUMBER</span>
+                  <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>
+                    +91 {inspectingLoan.nominee.phone || 'N/A'}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>GENDER</span>
+                  <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>
+                    {inspectingLoan.nominee.gender || 'Not specified'}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>AGE / DOB</span>
+                  <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>
+                    {inspectingLoan.nominee.dateOfBirth ? `${inspectingLoan.nominee.dateOfBirth} (${inspectingLoan.nominee.age || '-'} Yrs)` : inspectingLoan.nominee.age ? `${inspectingLoan.nominee.age} Years` : 'Not specified'}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>OCCUPATION</span>
+                  <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>
+                    {inspectingLoan.nominee.occupation || 'N/A'}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>EMAIL</span>
+                  <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>
+                    {inspectingLoan.nominee.email || 'N/A'}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>ID PROOF TYPE</span>
+                  <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>
+                    {inspectingLoan.nominee.idProofType || inspectingLoan.nominee.idProof?.type || 'Aadhaar'}
+                  </div>
+                </div>
+
+                {(inspectingLoan.nominee.aadhaarNumber || inspectingLoan.nominee.idProof?.aadhaarNumber) && (
+                  <div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>AADHAAR NUMBER</span>
+                    <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>
+                      XXXX XXXX {(inspectingLoan.nominee.aadhaarNumber || inspectingLoan.nominee.idProof?.aadhaarNumber || '').slice(-4)}
+                    </div>
+                  </div>
+                )}
+
+                {(inspectingLoan.nominee.panNumber || inspectingLoan.nominee.idProof?.panNumber) && (
+                  <div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>PAN NUMBER</span>
+                    <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>
+                      {inspectingLoan.nominee.panNumber || inspectingLoan.nominee.idProof?.panNumber}
+                    </div>
+                  </div>
+                )}
+
+                {(inspectingLoan.nominee.otherIdName || inspectingLoan.nominee.idProof?.otherIdName) && (
+                  <div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{inspectingLoan.nominee.otherIdName || inspectingLoan.nominee.idProof?.otherIdName}</span>
+                    <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>
+                      {inspectingLoan.nominee.otherIdNumber || inspectingLoan.nominee.idProof?.otherIdNumber || inspectingLoan.nominee.idProofNumber}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ gridColumn: '1 / -1', marginTop: '4px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>CURRENT RESIDENTIAL ADDRESS</span>
+                  <div style={{ fontWeight: 600, color: 'var(--text-dark)', marginTop: '2px' }}>
+                    {inspectingLoan.nominee.address || 'N/A'}
+                  </div>
+                </div>
+
+                {inspectingLoan.nominee.permanentAddress && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>PERMANENT ADDRESS</span>
+                    <div style={{ fontWeight: 600, color: 'var(--text-dark)', marginTop: '2px' }}>
+                      {inspectingLoan.nominee.permanentAddress}
+                    </div>
+                  </div>
+                )}
+
+                {inspectingLoan.nominee.location && (
+                  <div style={{ gridColumn: '1 / -1', marginTop: '4px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>GPS LOCATION</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-dark)' }}>
+                        📍 Lat: {inspectingLoan.nominee.location.latitude}, Lng: {inspectingLoan.nominee.location.longitude}
+                      </span>
+                      {inspectingLoan.nominee.location.googleMapsUrl && (
+                        <a
+                          href={inspectingLoan.nominee.location.googleMapsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '10.5px', height: '24px', padding: '0 8px' }}
+                        >
+                          Open Google Maps 🗺️
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* LIGHTBOX PREVIEW MODAL */}
         {lightboxIndex !== null && inspectingLoan && (
           <div
