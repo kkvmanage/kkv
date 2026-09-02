@@ -6,6 +6,9 @@ import { Topbar } from './components/layout/Topbar';
 // Pages
 import { Dashboard } from './pages/Dashboard';
 import { Customers } from './pages/Customers';
+import { AddCustomer } from './pages/AddCustomer';
+import { SearchCustomer } from './pages/SearchCustomer';
+import { CustomerProfile } from './pages/CustomerProfile';
 import { LoanIssue } from './pages/LoanIssue';
 import { LoanDisplay } from './pages/LoanDisplay';
 import { LoanReceipts } from './pages/LoanReceipts';
@@ -21,7 +24,6 @@ import { DailyReminders } from './pages/DailyReminders';
 import { BackupRestore } from './pages/BackupRestore';
 import { AdminPanel } from './pages/AdminPanel';
 import { Settings } from './pages/Settings';
-import { Lockers } from './pages/Lockers';
 
 import { KKVLogo } from './components/common/KKVLogo';
 
@@ -43,7 +45,14 @@ export const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard />;
       case 'customers':
+      case 'customers-add':
         return <Customers />;
+      case 'add-customer-form':
+        return <AddCustomer />;
+      case 'search-customer':
+        return <SearchCustomer />;
+      case 'customer-profile':
+        return <CustomerProfile />;
       case 'loan-issue':
         return <LoanIssue />;
       case 'loan-display':
@@ -62,7 +71,6 @@ export const App: React.FC = () => {
         return <RCRenewalReminders />;
       case 'bill-balance':
         return <BillBalance />;
-      case 'fd-customers':
       case 'new-deposit':
       case 'deposit-display':
       case 'deposit-interest':
@@ -86,8 +94,6 @@ export const App: React.FC = () => {
         return <AdminPanel />;
       case 'settings':
         return <Settings />;
-      case 'lockers':
-        return <Lockers />;
       default:
         return <Dashboard />;
     }

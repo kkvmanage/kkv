@@ -554,6 +554,7 @@ html, body {
   min-height: 100vh;
   min-height: 100dvh;
   background-color: var(--bg-app);
+  overflow-x: hidden;
 }
 
 main {
@@ -562,6 +563,8 @@ main {
   flex-direction: column;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .page-content {
@@ -573,6 +576,7 @@ main {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* ============================================================
@@ -661,6 +665,34 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
+}
+
+/* Dedicated responsive grid for 6 Loan Summary Cards */
+.loan-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1279px) {
+  .loan-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .loan-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .loan-summary-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
 }
 
 .stat-card {
@@ -2083,4 +2115,33 @@ input:checked + .toggle-track::before {
     background: transparent !important;
   }
 }
+
+/* ============================================================
+   MODAL SCROLLBAR & OVERFLOW ARCHITECTURE STYLES
+   ============================================================ */
+.modal-body-scroll {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light, #cbd5e1) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-body-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-body-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-light, #cbd5e1);
+  border-radius: 4px;
+}
+
+.modal-body-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted, #94a3b8);
+}
+
 

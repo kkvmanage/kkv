@@ -495,13 +495,6 @@
 }
 .fi-btn-icon:hover { color: #ef4444; }
 
-/* ── Voice Fill row ── */
-.fi-voice-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--fi-space-2);
-}
-
 /* ── Divider inside card ── */
 .fi-divider {
   height: 1px;

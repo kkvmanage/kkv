@@ -164,8 +164,8 @@ export const apiService = {
   },
 
   // Customers
-  async getCustomers() {
-    return fetchJson<any[]>('/customers');
+  async getCustomers(includeDeleted: boolean = false) {
+    return fetchJson<any[]>(`/customers${includeDeleted ? '?includeDeleted=true' : ''}`);
   },
   async createCustomer(customer: any) {
     return fetchJson<any>('/customers', {
@@ -179,9 +179,22 @@ export const apiService = {
       body: JSON.stringify(customer),
     });
   },
-  async deleteCustomer(id: string) {
+  async deleteCustomer(id: string, userRole: string = 'ADMIN') {
     return fetchJson<{ success: boolean; message: string }>(`/customers/${id}`, {
       method: 'DELETE',
+      headers: { 'user-role': userRole }
+    });
+  },
+  async restoreCustomer(id: string, userRole: string = 'ADMIN') {
+    return fetchJson<{ success: boolean; message: string }>(`/customers/${id}/restore`, {
+      method: 'POST',
+      headers: { 'user-role': userRole }
+    });
+  },
+  async deleteCustomerPermanently(id: string, userRole: string = 'ADMIN') {
+    return fetchJson<{ success: boolean; message: string }>(`/customers/${id}/permanent`, {
+      method: 'DELETE',
+      headers: { 'user-role': userRole }
     });
   },
 

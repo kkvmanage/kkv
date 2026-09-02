@@ -3,6 +3,8 @@ import { useApp } from '../../context/AppContext';
 import {
   LayoutDashboard,
   Users,
+  UserPlus,
+  Search,
   CreditCard,
   Landmark,
   BookOpen,
@@ -16,16 +18,16 @@ import {
   Moon,
   Sun,
   LogOut,
-  X,
-  Key
+  X
 } from 'lucide-react';
 
 import { KKVLogo } from '../common/KKVLogo';
 import { BackupCloseModal } from '../common/BackupCloseModal';
 
 export const Sidebar: React.FC = () => {
-  const { currentPage, setCurrentPage, showToast, darkMode, toggleDarkMode, isMobileMenuOpen, closeMobileMenu, masterControlSettings, userRole, setUserRole, setIsWorkspaceSelected } = useApp();
+  const { currentPage, setCurrentPage, showToast, darkMode, toggleDarkMode, isMobileMenuOpen, closeMobileMenu, userRole, setUserRole, setIsWorkspaceSelected } = useApp();
 
+  const [customersOpen, setCustomersOpen] = useState(true);
   const [loanDetailsOpen, setLoanDetailsOpen] = useState(true);
   const [fixedDepositsOpen, setFixedDepositsOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -42,6 +44,9 @@ export const Sidebar: React.FC = () => {
   }, [isMobileMenuOpen, closeMobileMenu]);
 
   useEffect(() => {
+    if (['customers', 'customers-add', 'add-customer-form', 'search-customer'].includes(currentPage)) {
+      setCustomersOpen(true);
+    }
     if (
       [
         'loan-issue',
@@ -136,13 +141,39 @@ export const Sidebar: React.FC = () => {
 
           {/* OPERATIONS */}
           <div className="sidebar-section-label">OPERATIONS</div>
-          <button
-            className={`sidebar-link ${currentPage === 'customers' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('customers')}
-          >
-            <Users size={17} />
-            <span>Customers</span>
-          </button>
+
+          {/* Customers Section */}
+          <div>
+            <button
+              className={`sidebar-link ${['customers', 'customers-add', 'add-customer-form', 'search-customer'].includes(currentPage) ? 'active' : ''}`}
+              onClick={() => {
+                setCustomersOpen(!customersOpen);
+              }}
+            >
+              <Users size={17} />
+              <span style={{ flex: 1, textAlign: 'left' }}>Customers</span>
+              {customersOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+
+            {customersOpen && (
+              <div className="sidebar-submenu">
+                <button
+                  className={`sidebar-sublink ${['customers', 'customers-add', 'add-customer-form'].includes(currentPage) ? 'active' : ''}`}
+                  onClick={() => setCurrentPage('customers-add')}
+                >
+                  <UserPlus size={14} style={{ marginRight: '6px' }} />
+                  Add Customer
+                </button>
+                <button
+                  className={`sidebar-sublink ${currentPage === 'search-customer' ? 'active' : ''}`}
+                  onClick={() => setCurrentPage('search-customer')}
+                >
+                  <Search size={14} style={{ marginRight: '6px' }} />
+                  Search Customer
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Loan Details */}
           <div>
@@ -232,7 +263,6 @@ export const Sidebar: React.FC = () => {
           <div>
             <button
               className={`sidebar-link ${[
-                'fd-customers',
                 'new-deposit',
                 'deposit-display',
                 'deposit-interest',
@@ -254,12 +284,6 @@ export const Sidebar: React.FC = () => {
 
             {fixedDepositsOpen && (
               <div className="sidebar-submenu">
-                <button
-                  className={`sidebar-sublink ${currentPage === 'fd-customers' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('fd-customers')}
-                >
-                  Add FD Customers
-                </button>
                 <button
                   className={`sidebar-sublink ${currentPage === 'new-deposit' ? 'active' : ''}`}
                   onClick={() => setCurrentPage('new-deposit')}
@@ -363,17 +387,6 @@ export const Sidebar: React.FC = () => {
             <Bell size={17} />
             <span>Daily Reminders</span>
           </button>
-
-          {/* Lockers - conditionally shown */}
-          {masterControlSettings.lockersEnabled && (
-            <button
-              className={`sidebar-link ${currentPage === 'lockers' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('lockers')}
-            >
-              <Key size={17} />
-              <span>Lockers Custody</span>
-            </button>
-          )}
 
           {/* DATA - hidden if Operator */}
           {userRole !== 'OPERATOR' && (

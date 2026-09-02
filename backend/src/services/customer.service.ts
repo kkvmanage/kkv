@@ -1,17 +1,29 @@
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { googleDriveService } from './googleDriveService.js';
+import { counterService } from './counter.service.js';
 import { Customer } from '../types/index.js';
 
 const FILE_NAME = 'customers.json';
 
+export function normalizePhone(phone: string): string {
+  if (!phone) return '';
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length >= 10) {
+    return digits.slice(-10);
+  }
+  return digits;
+}
+
 const initialCustomers: Customer[] = [
   {
-    id: 'CUST-001',
+    id: 'CUST-0001',
+    customerId: 1,
     name: 'thayba',
-    phone: '9876543210',
+    phone: '9840123456',
+    phoneNormalized: '9840123456',
     gender: 'Female',
     age: 28,
-    occupation: 'Business',
+    occupation: 'Textile Business',
     email: 'thayba@example.com',
     currentAddress: '123 Market Street, Main Town',
     permanentAddress: '123 Market Street, Main Town',
@@ -20,12 +32,15 @@ const initialCustomers: Customer[] = [
     activeLoansCount: 1,
     totalBorrowed: 100000,
     status: 'VERIFIED',
-    joinedDate: '25/08/2026'
+    joinedDate: '25/08/2026',
+    isDeleted: false
   },
   {
-    id: 'CUST-002',
+    id: 'CUST-0002',
+    customerId: 2,
     name: 'Thayba Begum',
     phone: '9123456789',
+    phoneNormalized: '9123456789',
     gender: 'Female',
     age: 32,
     occupation: 'Housewife',
@@ -37,37 +52,104 @@ const initialCustomers: Customer[] = [
     activeLoansCount: 0,
     totalBorrowed: 0,
     status: 'VERIFIED',
-    joinedDate: '25/08/2026'
+    joinedDate: '25/08/2026',
+    isDeleted: false
+  },
+  {
+    id: 'CUST-0003',
+    customerId: 3,
+    name: 'Rajan Sundaram',
+    phone: '9884098765',
+    phoneNormalized: '9884098765',
+    gender: 'Male',
+    age: 45,
+    occupation: 'Civil Contractor',
+    email: 'rajan.s@example.com',
+    currentAddress: '88 North Mada Street, Mylapore, Chennai',
+    permanentAddress: '88 North Mada Street, Mylapore, Chennai',
+    idProof: 'PAN Card',
+    idNumber: 'XYZDE5678K',
+    activeLoansCount: 1,
+    totalBorrowed: 150000,
+    status: 'VERIFIED',
+    joinedDate: '02/02/2026',
+    isDeleted: false
+  },
+  {
+    id: 'CUST-0004',
+    customerId: 4,
+    name: 'Kavitha Murugan',
+    phone: '9791054321',
+    phoneNormalized: '9791054321',
+    gender: 'Female',
+    age: 38,
+    occupation: 'School Teacher',
+    email: 'kavitha.m@example.com',
+    currentAddress: '22 Ring Road, Anna Nagar, Chennai',
+    permanentAddress: '22 Ring Road, Anna Nagar, Chennai',
+    idProof: 'Aadhaar Card',
+    idNumber: '9988-7766-5544',
+    activeLoansCount: 1,
+    totalBorrowed: 85000,
+    status: 'VERIFIED',
+    joinedDate: '10/03/2026',
+    isDeleted: false
   }
 ];
 
 export class CustomerService {
-  public getAll(): Customer[] {
-    return googleDriveRepository.readJson<Customer[]>(FILE_NAME, initialCustomers);
+  public getAll(includeDeleted: boolean = false): Customer[] {
+    const list = googleDriveRepository.readJson<Customer[]>(FILE_NAME, initialCustomers);
+    if (includeDeleted) return list;
+    return list.filter((c) => !c.isDeleted);
   }
 
   public getById(id: string): Customer | null {
-    const customers = this.getAll();
-    return customers.find((c) => c.id === id || c.name.toLowerCase() === id.toLowerCase()) || null;
-  }
-
-  public search(query: string): Customer[] {
-    const q = query.toLowerCase().trim();
-    if (!q) return this.getAll();
-    return this.getAll().filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.phone.includes(q) ||
-        c.id.toLowerCase().includes(q) ||
-        c.idNumber.toLowerCase().includes(q)
+    const customers = this.getAll(true);
+    const q = id.toLowerCase().trim();
+    return (
+      customers.find(
+        (c) =>
+          c.id.toLowerCase() === q ||
+          (c.customerId && c.customerId.toString() === q) ||
+          c.name.toLowerCase() === q
+      ) || null
     );
   }
 
-  public async create(data: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>): Promise<Customer> {
-    const customers = this.getAll();
-    const id = `CUST-${Date.now().toString().slice(-4)}`;
-    let driveFolderId: string | undefined;
+  public search(query: string, includeDeleted: boolean = false): Customer[] {
+    const q = query.toLowerCase().trim();
+    const customers = this.getAll(includeDeleted);
+    if (!q) return customers;
 
+    const normQ = normalizePhone(q);
+    return customers.filter((c) => {
+      const idMatch = c.id.toLowerCase().includes(q) || (c.customerId && c.customerId.toString() === q);
+      const nameMatch = c.name.toLowerCase().includes(q);
+      const phoneMatch = c.phone.includes(q) || (normQ && normalizePhone(c.phone).includes(normQ));
+      const idNumMatch = c.idNumber && c.idNumber.toLowerCase().includes(q);
+      return idMatch || nameMatch || phoneMatch || idNumMatch;
+    });
+  }
+
+  public async create(data: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>): Promise<Customer> {
+    const customers = this.getAll(true);
+    const normPhone = normalizePhone(data.phone);
+
+    // Check unique mobile number constraint among active (non-deleted) customers
+    const existing = customers.find((c) => !c.isDeleted && normalizePhone(c.phone) === normPhone);
+    if (existing) {
+      const err: any = new Error('This mobile number is already registered to an existing customer.');
+      err.statusCode = 409;
+      err.code = 'DUPLICATE_PHONE_NUMBER';
+      throw err;
+    }
+
+    // Atomic Customer ID sequence generation
+    const seq = counterService.getNextSequence('customerId');
+    const id = `CUST-${String(seq).padStart(4, '0')}`;
+
+    let driveFolderId: string | undefined;
     try {
       const folders = await googleDriveService.ensureCustomerFolders(id);
       driveFolderId = folders.customerFolderId;
@@ -78,32 +160,170 @@ export class CustomerService {
     const newCustomer: Customer = {
       ...data,
       id,
+      customerId: seq,
+      phone: data.phone,
+      phoneNormalized: normPhone,
       activeLoansCount: 0,
       totalBorrowed: 0,
-      status: 'VERIFIED',
+      status: data.status || 'VERIFIED',
       joinedDate: new Date().toLocaleDateString('en-GB'),
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: null,
       driveFolderId,
-      kycDocumentDriveIds: []
+      kycDocumentDriveIds: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
+
     customers.unshift(newCustomer);
     googleDriveRepository.writeJson(FILE_NAME, customers);
     return newCustomer;
   }
 
   public update(id: string, data: Partial<Customer>): Customer | null {
-    const customers = this.getAll();
-    const index = customers.findIndex((c) => c.id === id);
+    const customers = this.getAll(true);
+    const index = customers.findIndex((c) => c.id === id || (c.customerId && c.customerId.toString() === id));
     if (index === -1) return null;
-    customers[index] = { ...customers[index], ...data };
+
+    if (data.phone) {
+      const normPhone = normalizePhone(data.phone);
+      const duplicate = customers.find(
+        (c) => c.id !== customers[index].id && !c.isDeleted && normalizePhone(c.phone) === normPhone
+      );
+      if (duplicate) {
+        const err: any = new Error('This mobile number is already registered to another customer.');
+        err.statusCode = 409;
+        err.code = 'DUPLICATE_PHONE_NUMBER';
+        throw err;
+      }
+      data.phoneNormalized = normPhone;
+    }
+
+    customers[index] = {
+      ...customers[index],
+      ...data,
+      id: customers[index].id, // Protect original ID
+      customerId: customers[index].customerId,
+      updatedAt: new Date().toISOString()
+    };
+
     googleDriveRepository.writeJson(FILE_NAME, customers);
     return customers[index];
   }
 
-  public delete(id: string): boolean {
-    const customers = this.getAll();
-    const filtered = customers.filter((c) => c.id !== id);
-    if (filtered.length === customers.length) return false;
-    return googleDriveRepository.writeJson(FILE_NAME, filtered);
+  public delete(id: string, userRole?: string): { success: boolean; statusCode?: number; message?: string } {
+    if (userRole !== 'ADMIN') {
+      return {
+        success: false,
+        statusCode: 403,
+        message: 'You do not have permission to delete customer records.'
+      };
+    }
+
+    const customers = this.getAll(true);
+    const index = customers.findIndex((c) => c.id === id || (c.customerId && c.customerId.toString() === id));
+    if (index === -1) {
+      return { success: false, statusCode: 404, message: 'Customer not found' };
+    }
+
+    // Perform Soft Delete
+    customers[index].isDeleted = true;
+    customers[index].deletedAt = new Date().toISOString();
+    customers[index].deletedBy = 'ADMIN';
+
+    googleDriveRepository.writeJson(FILE_NAME, customers);
+    return { success: true, message: 'Customer soft-deleted successfully' };
+  }
+
+  public restore(id: string, userRole?: string): { success: boolean; statusCode?: number; message?: string } {
+    if (userRole !== 'ADMIN') {
+      return {
+        success: false,
+        statusCode: 403,
+        message: 'You do not have permission to restore customer records.'
+      };
+    }
+
+    const customers = this.getAll(true);
+    const index = customers.findIndex((c) => c.id === id || (c.customerId && c.customerId.toString() === id));
+    if (index === -1) {
+      return { success: false, statusCode: 404, message: 'Customer not found' };
+    }
+
+    customers[index].isDeleted = false;
+    customers[index].deletedAt = null;
+    customers[index].deletedBy = null;
+
+    googleDriveRepository.writeJson(FILE_NAME, customers);
+    return { success: true, message: 'Customer restored successfully' };
+  }
+
+  public deletePermanently(id: string, userRole?: string): { success: boolean; statusCode?: number; message?: string } {
+    if (userRole !== 'ADMIN') {
+      return {
+        success: false,
+        statusCode: 403,
+        message: 'Only Admin users have permission to permanently delete customer records.'
+      };
+    }
+
+    const customers = this.getAll(true);
+    const targetCust = customers.find((c) => c.id === id || (c.customerId && c.customerId.toString() === id));
+    if (!targetCust) {
+      return { success: false, statusCode: 404, message: 'Customer not found.' };
+    }
+
+    const custId = targetCust.id;
+    const numericCustIdStr = targetCust.customerId ? targetCust.customerId.toString() : '';
+
+    // 1. Remove Customer from customers.json
+    const updatedCustomers = customers.filter(
+      (c) => c.id !== custId && (numericCustIdStr ? c.customerId?.toString() !== numericCustIdStr : true)
+    );
+    googleDriveRepository.writeJson(FILE_NAME, updatedCustomers);
+
+    // 2. Cascade delete all loans connected to customerId from loans.json
+    const loans = googleDriveRepository.readJson<any[]>('loans.json', []);
+    const deletedLoanNos = new Set<string>();
+    const deletedLoanIds = new Set<string>();
+
+    loans.forEach((l) => {
+      if (l.customerId === custId || (numericCustIdStr && l.customerId === numericCustIdStr)) {
+        deletedLoanNos.add(l.loanNo);
+        deletedLoanIds.add(l.id);
+      }
+    });
+
+    const updatedLoans = loans.filter(
+      (l) => l.customerId !== custId && (numericCustIdStr ? l.customerId !== numericCustIdStr : true)
+    );
+    googleDriveRepository.writeJson('loans.json', updatedLoans);
+
+    // 3. Cascade delete all receipts connected to customerId or deleted loans from receipts.json
+    const receipts = googleDriveRepository.readJson<any[]>('receipts.json', []);
+    const updatedReceipts = receipts.filter(
+      (r) =>
+        r.customerId !== custId &&
+        (numericCustIdStr ? r.customerId !== numericCustIdStr : true) &&
+        !deletedLoanNos.has(r.loanNo) &&
+        !deletedLoanIds.has(r.loanId)
+    );
+    googleDriveRepository.writeJson('receipts.json', updatedReceipts);
+
+    // 4. Cascade delete daybook entries for customer or deleted loans from daybook.json
+    const daybook = googleDriveRepository.readJson<any[]>('daybook.json', []);
+    const updatedDaybook = daybook.filter(
+      (d) =>
+        d.customerName !== targetCust.name &&
+        !deletedLoanNos.has(d.loanNo)
+    );
+    googleDriveRepository.writeJson('daybook.json', updatedDaybook);
+
+    return {
+      success: true,
+      message: `Customer ${targetCust.name} (${targetCust.id}) and all associated records permanently deleted successfully.`
+    };
   }
 }
 

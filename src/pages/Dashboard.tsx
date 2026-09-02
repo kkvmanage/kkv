@@ -247,8 +247,8 @@ export const Dashboard: React.FC = () => {
               </thead>
               <tbody>
                 {receipts.length > 0 ? (
-                  receipts.slice(0, 5).map((r) => (
-                    <tr key={r.id}>
+                  receipts.slice(0, 5).map((r, i) => (
+                    <tr key={`dash-rcpt-${r.id}-${i}`}>
                       <td style={{ fontWeight: 700, color: 'var(--color-soft-green)' }}>#{r.receiptNo}</td>
                       <td>
                         <span className={`badge ${r.kind === 'NEW LOAN' ? 'badge-info' : 'badge-success'}`}>

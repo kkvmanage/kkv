@@ -1,6 +1,10 @@
 export type NavPage =
   | 'dashboard'
   | 'customers'
+  | 'customers-add'
+  | 'add-customer-form'
+  | 'search-customer'
+  | 'customer-profile'
   | 'loan-issue'
   | 'loan-display'
   | 'loan-receipts'
@@ -27,8 +31,7 @@ export type NavPage =
   | 'daily-reminders'
   | 'backup-restore'
   | 'admin-panel'
-  | 'settings'
-  | 'lockers';
+  | 'settings';
 
 export type PurityOption = '24ct' | '22ct' | '20ct' | '18ct' | '14ct' | 'Silver 925' | 'Silver 999';
 
@@ -49,7 +52,10 @@ export interface NomineeDetails {
   customRelation?: string | null;
   age?: number;
   phone: string;
+  idProofType?: string;
   idProofNumber?: string;
+  aadhaarNumber?: string;
+  panNumber?: string;
   address: string;
 }
 
@@ -72,13 +78,34 @@ export interface CustomerLocation {
   addressSummary: string;
 }
 
-export interface CustomerLocationData {
-  latitude: number;
-  longitude: number;
+export interface StructuredAddress {
+  houseNumber: string;
+  street: string;
+  locality: string;
+  city: string;
+  district: string;
+  state: string;
+  country: string;
+  pincode: string;
+}
+
+export interface LocationDetails {
+  latitude: number | null;
+  longitude: number | null;
   accuracy: number | null;
-  source: 'gps' | 'google_maps_link' | 'manual';
+  capturedAt: string | null;
   googleMapsUrl: string;
-  capturedAt: string;
+  locationMethod: 'gps' | 'google_maps_url' | 'manual';
+}
+
+export interface CustomerLocationData {
+  latitude: number | null;
+  longitude: number | null;
+  accuracy: number | null;
+  source?: 'gps' | 'google_maps_link' | 'google_maps_url' | 'manual';
+  locationMethod?: 'gps' | 'google_maps_url' | 'manual';
+  googleMapsUrl: string;
+  capturedAt: string | null;
 }
 
 export interface LoanTopUpRecord {
@@ -144,6 +171,14 @@ export interface Loan {
   lastInterestPaidDate?: string;
   nextDueDate?: string;
   topUps?: LoanTopUpRecord[];
+  vehicleNumber?: string;
+  vehicleModel?: string;
+  rcNumber?: string;
+  rcExpiryDate?: string;
+  insuranceExpiryDate?: string;
+  roadTaxExpiryDate?: string;
+  permitExpiryDate?: string;
+  fcExpiryDate?: string;
 }
 
 export interface Receipt {
@@ -202,28 +237,40 @@ export interface FixedDeposit {
   depositDate: string;
   maturityDate: string;
   principal: number;
+  remainingPrincipal?: number;
+  totalWithdrawnPrincipal?: number;
+  tenureMonths?: number;
   interestRatePA: number;
   receivingMethod: 'Cash' | 'Bank' | 'UPI';
   monthlyPayout: number;
   status: 'ACTIVE' | 'MATURED' | 'WITHDRAWN';
   parentCustomerName?: string;
+  nomineeName?: string;
+  nomineeRelation?: string;
+  remarks?: string;
 }
 
 export interface FDInterestPayout {
   id: string;
+  fdId?: string;
   fdNo: string;
+  customerId?: string;
   depositorName: string;
   amount: number;
   date: string;
+  periodKey?: string;
   mode: 'Cash' | 'Bank' | 'UPI';
   status: 'PAID' | 'PENDING';
 }
 
 export interface FDWithdrawal {
   id: string;
+  fdId?: string;
   fdNo: string;
+  customerId?: string;
   depositorName: string;
   principalAmount: number;
+  remainingBalance?: number;
   interestPaid: number;
   totalAmount: number;
   withdrawalDate: string;
@@ -248,8 +295,10 @@ export interface FDCustomer {
 
 export interface Customer {
   id: string;
+  customerId?: number;
   name: string;
   phone: string;
+  phoneNormalized?: string;
   gender: 'Male' | 'Female' | 'Other';
   age?: number;
   dateOfBirth?: string;
@@ -257,8 +306,19 @@ export interface Customer {
   email?: string;
   currentAddress: string;
   permanentAddress: string;
+  currentAddressDetails?: StructuredAddress;
+  permanentAddressDetails?: StructuredAddress;
+  customerPhoto?: string | null;
+  photoSource?: 'upload' | 'webcam' | null;
+  currentLocation?: LocationDetails | CustomerLocationData | null;
+  permanentLocation?: LocationDetails | CustomerLocationData | null;
   idProof: string;
   idNumber: string;
+  aadhaarNumber?: string;
+  panNumber?: string;
+  extraPan?: string;
+  otherIdName?: string;
+  docName?: string;
   activeLoansCount: number;
   totalBorrowed: number;
   status: 'VERIFIED' | 'PENDING';
@@ -268,6 +328,9 @@ export interface Customer {
   kycDocumentDriveIds?: string[];
   nominee?: NomineeDetails | null;
   guarantor?: GuarantorDetails | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

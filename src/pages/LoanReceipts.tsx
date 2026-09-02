@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Mic, Printer, Eye, Plus, Calculator, FileText } from 'lucide-react';
+import { Printer, Eye, Plus, Calculator, FileText } from 'lucide-react';
 import { Receipt } from '../types';
 
 export const LoanReceipts: React.FC = () => {
-  const { loans, receipts, selectedLoan, setSelectedLoan, setSelectedReceipt, addReceipt, setCurrentPage, showToast } = useApp();
+  const { loans, receipts, selectedLoan, setSelectedReceipt, addReceipt, setCurrentPage, showToast } = useApp();
 
   const [loanId, setLoanId] = useState<string>(selectedLoan?.id || loans[0]?.id || '');
   const [receiptType, setReceiptType] = useState<'INTEREST PAYMENT' | 'REPAYMENT' | 'PART PAYMENT' | 'LOAN CLOSURE'>('INTEREST PAYMENT');
@@ -48,14 +48,14 @@ export const LoanReceipts: React.FC = () => {
     setLoanId(id);
     const l = loans.find((item) => item.id === id);
     if (l) {
-      setSelectedLoan(l);
-      if (l.nextDueDate) setCurrentDueDate(l.nextDueDate);
+      const monthlyInt = l.monthlyInterest || Math.round((l.principal * l.interestRate) / 100);
+      setAmount(monthlyInt);
     }
   };
 
   const handleUseDueAmount = () => {
     if (currentLoan) {
-      const due = currentLoan.monthlyInterest || 1500;
+      const due = currentLoan.monthlyInterest || Math.round((currentLoan.principal * currentLoan.interestRate) / 100);
       setAmount(due);
       showToast(`Set amount to monthly interest due: ₹${due.toLocaleString('en-IN')}`, 'info');
     }
@@ -63,38 +63,30 @@ export const LoanReceipts: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!amount || amount <= 0) {
-      showToast('Please enter a valid receipt amount.', 'error');
+    if (!currentLoan) {
+      showToast('Please select a valid loan.', 'error');
       return;
     }
 
-    const principalComp = receiptType === 'INTEREST PAYMENT' ? 0 : receiptType === 'LOAN CLOSURE' ? currentLoan.outstandingPrincipal : amount;
-    const interestComp = receiptType === 'INTEREST PAYMENT' ? amount : receiptType === 'LOAN CLOSURE' ? currentLoan.monthlyInterest : 0;
-
-    const newReceipt = addReceipt({
-      loanId: currentLoan.id,
+    addReceipt({
       loanNo: currentLoan.loanNo,
+      loanId: currentLoan.id,
       customerId: currentLoan.customerId,
       customerName: currentLoan.customerName,
       kind: receiptType,
-      loanType: 'GOLD LOAN',
+      loanType: currentLoan.loanType || 'GOLD LOAN',
       amount: netAmount,
-      principalComponent: principalComp,
-      interestComponent: interestComp,
-      odCharges: odCharge,
-      otherCharges,
-      discount,
-      tdsAmount,
+      principalComponent: receiptType === 'LOAN CLOSURE' ? currentLoan.outstandingPrincipal : (receiptType === 'REPAYMENT' ? amount : 0),
+      interestComponent: receiptType === 'INTEREST PAYMENT' ? amount : 0,
       paymentMode: paymentMethod,
-      date: new Date().toLocaleDateString('en-GB'),
+      date,
       currentDueDate,
       nextDueDate,
       daysLate,
       notes
     });
 
-    setSelectedReceipt(newReceipt);
+    showToast(`Payment Receipt #${nextReceiptNo} generated for ${currentLoan.loanNo}`, 'success');
     setCurrentPage('receipt-display');
   };
 
@@ -105,26 +97,6 @@ export const LoanReceipts: React.FC = () => {
 
   return (
     <div className="page-content">
-      {/* Voice Fill Banner */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: 'var(--color-light-accent)',
-          padding: '10px 18px',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--border-subtle)',
-          marginBottom: '18px'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--color-primary-dark)' }}>
-          <Mic size={16} color="var(--color-primary-accent)" />
-          <span>Voice Fill (Alt+V) &mdash; Speak: "GL-01 received 1500 cash for interest"</span>
-        </div>
-        <span className="badge badge-success">Live Smart Assistant Active</span>
-      </div>
-
       <div className="grid-3" style={{ alignItems: 'start' }}>
         {/* Record Loan Receipt Form */}
         <div className="card" style={{ gridColumn: 'span 2' }}>

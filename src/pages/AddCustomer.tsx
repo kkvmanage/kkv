@@ -1,0 +1,919 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useApp } from '../context/AppContext';
+import {
+  ArrowLeft,
+  User,
+  Camera,
+  Upload,
+  MapPin,
+  CheckCircle2,
+  BookmarkCheck,
+  ShieldCheck,
+  X,
+  RefreshCw
+} from 'lucide-react';
+import { StructuredAddress, LocationDetails } from '../types';
+import {
+  validatePhone,
+  validateIDProof,
+  formatPhoneInput
+} from '../utils/kycValidation';
+import { IDProofInputFields } from '../components/common/IDProofInputFields';
+import { ViewCustomerModal } from '../components/common/ViewCustomerModal';
+import { emptyStructuredAddress } from '../utils/addressUtils';
+import { AgeDobInput, calculateAgeFromDob } from '../components/common/AgeDobInput';
+import { Customer } from '../types';
+
+export const AddCustomer: React.FC = () => {
+  const { customers, setCurrentPage, addCustomer, showToast } = useApp();
+  const [duplicateCustomerMatch, setDuplicateCustomerMatch] = useState<Customer | null>(null);
+  const [viewingDuplicateCustomer, setViewingDuplicateCustomer] = useState<Customer | null>(null);
+
+  // Personal Info State
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [phoneTouched, setPhoneTouched] = useState(false);
+
+  const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
+  const [age, setAge] = useState<number>(30);
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [occupation, setOccupation] = useState('');
+  const [email, setEmail] = useState('');
+
+  // Customer Photo State
+  const [customerPhoto, setCustomerPhoto] = useState<string | null>(null);
+  const [photoSource, setPhotoSource] = useState<'upload' | 'webcam' | null>(null);
+
+  // Webcam Capture Modal State
+  const [isWebcamOpen, setIsWebcamOpen] = useState(false);
+  const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
+  const [tempPhoto, setTempPhoto] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Identity Proof State
+  const [idProof, setIdProof] = useState('Aadhaar');
+  const [idNumber, setIdNumber] = useState('');
+  const [extraPan, setExtraPan] = useState('');
+  const [docName, setDocName] = useState('');
+
+  // Address State
+  const [currentAddressText, setCurrentAddressText] = useState('');
+  const [permanentAddressText, setPermanentAddressText] = useState('');
+  const [sameAddress, setSameAddress] = useState(true);
+
+  // Location State
+  const [currentLoc, setCurrentLoc] = useState<LocationDetails | null>(null);
+  const [locationStatus, setLocationStatus] = useState<string | null>(null);
+  const [mapsUrlInput, setMapsUrlInput] = useState('');
+
+  // Load draft from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedDraft = localStorage.getItem('kkv_kyc_draft');
+      if (savedDraft) {
+        const draft = JSON.parse(savedDraft);
+        if (draft.name) setName(draft.name);
+        if (draft.phone) setPhone(draft.phone);
+        if (draft.gender) setGender(draft.gender);
+        if (draft.age) setAge(draft.age);
+        if (draft.dateOfBirth) setDateOfBirth(draft.dateOfBirth);
+        if (draft.occupation) setOccupation(draft.occupation);
+        if (draft.email) setEmail(draft.email);
+        if (draft.customerPhoto) setCustomerPhoto(draft.customerPhoto);
+        if (draft.photoSource) setPhotoSource(draft.photoSource);
+        if (draft.idProof) setIdProof(draft.idProof);
+        if (draft.idNumber) setIdNumber(draft.idNumber);
+        if (draft.currentAddressText) setCurrentAddressText(draft.currentAddressText);
+        if (draft.permanentAddressText) setPermanentAddressText(draft.permanentAddressText);
+        if (draft.sameAddress !== undefined) setSameAddress(draft.sameAddress);
+      }
+    } catch {
+      // ignore draft parse error
+    }
+  }, []);
+
+  // Handlers
+  const handlePhoneChange = (val: string) => {
+    const formatted = formatPhoneInput(val);
+    setPhone(formatted);
+    setPhoneTouched(true);
+    const res = validatePhone(formatted);
+
+    const norm = formatted.replace(/\D/g, '').slice(-10);
+    if (norm.length === 10) {
+      const match = customers.find(
+        (c) => !c.isDeleted && (c.phoneNormalized === norm || (c.phone && c.phone.replace(/\D/g, '').slice(-10) === norm))
+      );
+      if (match) {
+        setDuplicateCustomerMatch(match);
+        setPhoneError('This mobile number is already registered.');
+        return;
+      }
+    }
+
+    setDuplicateCustomerMatch(null);
+    setPhoneError(res.isValid ? '' : (res.error || ''));
+  };
+
+  const handleIdProofChange = (payload: {
+    idProof: string;
+    idNumber: string;
+    extraPan?: string;
+    docName?: string;
+    isValid: boolean;
+    error?: string;
+  }) => {
+    setIdProof(payload.idProof);
+    setIdNumber(payload.idNumber);
+    setExtraPan(payload.extraPan || '');
+    setDocName(payload.docName || '');
+  };
+
+  const handleAgeDobChange = (val: { mode: 'dob' | 'age'; dateOfBirth: string; age: number }) => {
+    setDateOfBirth(val.dateOfBirth);
+    setAge(val.age);
+  };
+
+  // Image Upload Handler
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
+      showToast('Please upload a valid JPG, JPEG, or PNG image file.', 'error');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image file size must be less than 5 MB.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCustomerPhoto(reader.result as string);
+      setPhotoSource('upload');
+      showToast('Customer photo uploaded successfully', 'success');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Webcam Capture Controls
+  const startWebcam = async () => {
+    try {
+      setTempPhoto(null);
+      setIsWebcamOpen(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      setWebcamStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      showToast('Unable to access webcam. Please check browser permissions.', 'error');
+      setIsWebcamOpen(false);
+    }
+  };
+
+  const stopWebcam = () => {
+    if (webcamStream) {
+      webcamStream.getTracks().forEach((t) => t.stop());
+      setWebcamStream(null);
+    }
+    setIsWebcamOpen(false);
+    setTempPhoto(null);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+      setTempPhoto(dataUrl);
+    }
+  };
+
+  const confirmWebcamPhoto = () => {
+    if (tempPhoto) {
+      setCustomerPhoto(tempPhoto);
+      setPhotoSource('webcam');
+      stopWebcam();
+      showToast('Webcam photo captured successfully', 'success');
+    }
+  };
+
+  // GPS Location Capture
+  const handleCaptureGps = () => {
+    if (!navigator.geolocation) {
+      showToast('Geolocation is not supported by your browser.', 'error');
+      return;
+    }
+
+    setLocationStatus('Capturing GPS location...');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = Math.round(pos.coords.accuracy);
+
+        setCurrentLoc({
+          latitude: lat,
+          longitude: lng,
+          accuracy: accuracy,
+          capturedAt: new Date().toISOString(),
+          googleMapsUrl: `https://www.google.com/maps?q=${lat},${lng}`,
+          locationMethod: 'gps'
+        });
+
+        setLocationStatus(`✓ Location Captured: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)} (±${accuracy}m)`);
+        showToast('GPS location captured successfully', 'success');
+      },
+      (err) => {
+        setLocationStatus(null);
+        showToast(`Location capture failed: ${err.message}`, 'error');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Google Maps URL Parsing
+  const handleUseMapsLink = () => {
+    if (!mapsUrlInput.trim()) {
+      showToast('Please enter or paste a valid Google Maps URL.', 'error');
+      return;
+    }
+
+    const trimmed = mapsUrlInput.trim();
+    setCurrentLoc({
+      latitude: null,
+      longitude: null,
+      accuracy: null,
+      googleMapsUrl: trimmed,
+      locationMethod: 'google_maps_url',
+      capturedAt: new Date().toISOString()
+    });
+
+    setLocationStatus('✓ Google Maps URL saved successfully');
+    showToast('Google Maps location link validated', 'success');
+  };
+
+  // Save Draft
+  const handleSaveDraft = () => {
+    const draft = {
+      name,
+      phone,
+      gender,
+      age,
+      dateOfBirth,
+      occupation,
+      email,
+      customerPhoto,
+      photoSource,
+      idProof,
+      idNumber,
+      currentAddressText,
+      permanentAddressText,
+      sameAddress,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('kkv_kyc_draft', JSON.stringify(draft));
+    showToast('KYC Profile Draft Saved Successfully', 'info');
+  };
+
+  // Form Submit
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setPhoneTouched(true);
+    const phoneRes = validatePhone(phone);
+    const idRes = validateIDProof(idProof, idNumber, extraPan, docName);
+
+    setPhoneError(phoneRes.isValid ? '' : (phoneRes.error || ''));
+
+    if (!name.trim()) {
+      showToast('Customer Full Name is required.', 'error');
+      return;
+    }
+
+    if (!phoneRes.isValid) {
+      showToast(phoneRes.error || 'Please enter a valid 10-digit mobile number.', 'error');
+      return;
+    }
+
+    if (!idRes.isValid) {
+      showToast(idRes.error || 'Please enter a valid ID proof number.', 'error');
+      return;
+    }
+
+    if (!currentAddressText.trim()) {
+      showToast('Current Address is required.', 'error');
+      return;
+    }
+
+    const calculatedAgeFromDobVal = dateOfBirth ? calculateAgeFromDob(dateOfBirth) : null;
+    const finalAge = calculatedAgeFromDobVal !== null ? calculatedAgeFromDobVal : Number(age) || 30;
+    const finalPermAddress = sameAddress || !permanentAddressText.trim() ? currentAddressText : permanentAddressText;
+
+    const currentStructured: StructuredAddress = {
+      ...emptyStructuredAddress,
+      street: currentAddressText.trim()
+    };
+    const permanentStructured: StructuredAddress = {
+      ...emptyStructuredAddress,
+      street: finalPermAddress.trim()
+    };
+
+    const newCustomerObj = {
+      name: name.trim(),
+      phone: phoneRes.normalizedValue || phone.trim(),
+      gender,
+      age: finalAge,
+      dateOfBirth: dateOfBirth || undefined,
+      occupation: occupation.trim() || 'Self Employed',
+      email: email.trim() || undefined,
+      customerPhoto: customerPhoto || undefined,
+      photoSource: photoSource || undefined,
+      idProof,
+      idNumber: idRes.formattedValue || idNumber.trim(),
+      currentAddressDetails: currentStructured,
+      permanentAddressDetails: permanentStructured,
+      currentAddress: currentAddressText.trim(),
+      permanentAddress: finalPermAddress.trim(),
+      currentLocation: currentLoc || undefined,
+      permanentLocation: (sameAddress ? currentLoc : undefined) || undefined,
+      status: 'VERIFIED' as const,
+      joinedDate: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    };
+
+    addCustomer(newCustomerObj);
+    localStorage.removeItem('kkv_kyc_draft');
+    showToast('Customer KYC Profile Created Successfully', 'success');
+    setCurrentPage('customers-add');
+  };
+
+  return (
+    <div className="page-content" style={{ paddingBottom: '80px', maxWidth: '960px', margin: '0 auto' }}>
+      {/* PAGE HEADER NAVIGATION */}
+      <div style={{ marginBottom: '16px' }}>
+        <button
+          className="btn btn-secondary"
+          onClick={() => setCurrentPage('customers-add')}
+          style={{ gap: '6px', fontSize: '13px', padding: '6px 14px' }}
+        >
+          <ArrowLeft size={16} />
+          <span>Back to Customers</span>
+        </button>
+      </div>
+
+      {/* MAIN COMPACT FORM CARD */}
+      <div
+        className="card"
+        style={{
+          backgroundColor: '#fff',
+          border: '1px solid var(--border-light, #e2e8f0)',
+          borderRadius: 'var(--radius-lg, 12px)',
+          padding: '24px 28px',
+          boxShadow: 'var(--shadow-sm)'
+        }}
+      >
+        {/* CARD TITLE & SUBTITLE HEADER */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <div
+            style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(5, 150, 105, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--color-primary-dark, #059669)',
+              flexShrink: 0
+            }}
+          >
+            <User size={22} />
+          </div>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-dark, #0f172a)' }}>
+              👤 Customer / KYC Details
+            </h2>
+            <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: 'var(--text-muted, #64748b)' }}>
+              Personal information, identity proof, and addresses
+            </p>
+          </div>
+        </div>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--border-subtle, #e2e8f0)', margin: '0 0 24px 0' }} />
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          
+          {/* SECTION 1: CUSTOMER PHOTO + PERSONAL DETAILS GRID */}
+          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '28px', alignItems: 'start' }}>
+            
+            {/* LEFT SIDE: CUSTOMER PHOTO */}
+            <div>
+              <label style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'block', marginBottom: '8px' }}>
+                CUSTOMER PHOTO
+              </label>
+
+              <div
+                style={{
+                  width: '150px',
+                  height: '160px',
+                  borderRadius: '10px',
+                  border: '2px dashed var(--border-light, #cbd5e1)',
+                  backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  marginBottom: '10px'
+                }}
+              >
+                {customerPhoto ? (
+                  <img
+                    src={customerPhoto}
+                    alt="Customer"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <Camera size={32} style={{ opacity: 0.5, marginBottom: '6px' }} />
+                    <span style={{ fontSize: '12px', fontWeight: 600, display: 'block' }}>No photo</span>
+                  </div>
+                )}
+              </div>
+
+              {/* WEBCAM & UPLOAD BUTTONS */}
+              <div style={{ display: 'flex', gap: '6px', width: '150px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ flex: 1, fontSize: '11.5px', padding: '6px 4px', justifyContent: 'center', gap: '4px' }}
+                  onClick={startWebcam}
+                >
+                  <Camera size={13} />
+                  <span>Webcam</span>
+                </button>
+
+                <label
+                  className="btn btn-secondary btn-sm"
+                  style={{ flex: 1, fontSize: '11.5px', padding: '6px 4px', justifyContent: 'center', gap: '4px', cursor: 'pointer', margin: 0 }}
+                >
+                  <Upload size={13} />
+                  <span>Upload</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png"
+                    style={{ display: 'none' }}
+                    onChange={handleFileUpload}
+                  />
+                </label>
+              </div>
+
+              {customerPhoto && (
+                <button
+                  type="button"
+                  style={{
+                    marginTop: '6px',
+                    width: '150px',
+                    fontSize: '11px',
+                    color: 'var(--color-danger, #ef4444)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    fontWeight: 600
+                  }}
+                  onClick={() => {
+                    setCustomerPhoto(null);
+                    setPhotoSource(null);
+                  }}
+                >
+                  Remove photo
+                </button>
+              )}
+            </div>
+
+            {/* RIGHT SIDE: PERSONAL DETAILS */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* ROW 1: FULL NAME * | PHONE * */}
+              <div className="grid-2" style={{ gap: '16px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 800 }}>FULL NAME</label>
+                  <input
+                    type="text"
+                    className="input-control"
+                    required
+                    placeholder="Enter customer full name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 800 }}>PHONE</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span
+                      style={{
+                        padding: '0 10px',
+                        height: '38px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        background: 'var(--bg-surface-secondary, #f1f5f9)',
+                        border: '1px solid var(--border-light, #cbd5e1)',
+                        borderRadius: 'var(--radius-md, 6px)',
+                        fontSize: '12.5px',
+                        fontWeight: 700,
+                        color: 'var(--text-secondary)'
+                      }}
+                    >
+                      +91
+                    </span>
+                    <input
+                      type="text"
+                      className="input-control"
+                      style={{
+                        flex: 1,
+                        borderColor: phoneTouched && phoneError ? 'var(--color-danger, #ef4444)' : undefined
+                      }}
+                      required
+                      maxLength={10}
+                      placeholder="Enter 10-digit mobile number"
+                      value={phone}
+                      onChange={(e) => handlePhoneChange(e.target.value)}
+                      onBlur={() => {
+                        setPhoneTouched(true);
+                        const res = validatePhone(phone);
+                        setPhoneError(res.isValid ? '' : (res.error || ''));
+                      }}
+                    />
+                  </div>
+                  {phoneTouched && phoneError && (
+                    <small style={{ color: 'var(--color-danger, #ef4444)', fontSize: '11px', marginTop: '3px', display: 'block', fontWeight: 600 }}>
+                      {phoneError}
+                    </small>
+                  )}
+
+                  {duplicateCustomerMatch && (
+                    <div style={{ padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', marginTop: '6px', color: '#991b1b', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                      <span>⚠ Mobile registered to <strong>{duplicateCustomerMatch.name}</strong> ({duplicateCustomerMatch.id})</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '11px', padding: '2px 8px', height: '26px', flexShrink: 0 }}
+                        onClick={() => setViewingDuplicateCustomer(duplicateCustomerMatch)}
+                      >
+                        View Existing Customer
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ROW 2: GENDER * | AGE / DATE OF BIRTH */}
+              <div className="grid-2" style={{ gap: '16px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 800 }}>GENDER</label>
+                  <select
+                    className="select-control"
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value as any)}
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <AgeDobInput
+                  dateOfBirth={dateOfBirth}
+                  age={age}
+                  initialMode="age"
+                  onChange={handleAgeDobChange}
+                />
+              </div>
+
+              {/* ROW 3: OCCUPATION / WORK | EMAIL */}
+              <div className="grid-2" style={{ gap: '16px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 800 }}>OCCUPATION / WORK</label>
+                  <input
+                    type="text"
+                    className="input-control"
+                    placeholder="e.g. Farmer, Trader"
+                    value={occupation}
+                    onChange={(e) => setOccupation(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 800 }}>EMAIL</label>
+                  <input
+                    type="email"
+                    className="input-control"
+                    placeholder="customer@domain.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border-subtle, #e2e8f0)', margin: '4px 0' }} />
+
+          {/* SECTION 2: IDENTITY PROOF */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <IDProofInputFields
+              idProof={idProof}
+              idNumber={idNumber}
+              extraPan={extraPan}
+              docName={docName}
+              onChange={handleIdProofChange}
+            />
+          </div>
+
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border-subtle, #e2e8f0)', margin: '4px 0' }} />
+
+          {/* SECTION 3: ADDRESS DETAILS */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                ADDRESS DETAILS
+              </span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, color: 'var(--color-primary-dark)' }}>
+                <input
+                  type="checkbox"
+                  checked={sameAddress}
+                  onChange={(e) => setSameAddress(e.target.checked)}
+                  style={{ accentColor: 'var(--color-primary-accent)', width: '15px', height: '15px' }}
+                />
+                <span>Same as Current Address</span>
+              </label>
+            </div>
+
+            <div className="grid-2" style={{ gap: '18px' }}>
+              {/* CURRENT ADDRESS */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label required" style={{ fontSize: '12px', fontWeight: 800 }}>CURRENT ADDRESS</label>
+                <textarea
+                  className="input-control"
+                  rows={3}
+                  style={{ height: '88px', resize: 'vertical', fontSize: '13px' }}
+                  placeholder="Enter current residential address"
+                  value={currentAddressText}
+                  onChange={(e) => {
+                    setCurrentAddressText(e.target.value);
+                    if (sameAddress) {
+                      setPermanentAddressText(e.target.value);
+                    }
+                  }}
+                />
+              </div>
+
+              {/* PERMANENT ADDRESS */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '12px', fontWeight: 800 }}>PERMANENT ADDRESS</label>
+                <textarea
+                  className="input-control"
+                  rows={3}
+                  disabled={sameAddress}
+                  style={{
+                    height: '88px',
+                    resize: 'vertical',
+                    fontSize: '13px',
+                    backgroundColor: sameAddress ? 'var(--bg-surface-secondary, #f8fafc)' : '#fff'
+                  }}
+                  placeholder="Leave blank if same as current address"
+                  value={sameAddress ? currentAddressText : permanentAddressText}
+                  onChange={(e) => setPermanentAddressText(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border-subtle, #e2e8f0)', margin: '4px 0' }} />
+
+          {/* SECTION 4: CUSTOMER LOCATION */}
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+              border: '1px solid var(--border-light, #e2e8f0)',
+              borderRadius: 'var(--radius-md, 10px)',
+              padding: '18px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px'
+            }}
+          >
+            <label style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.6px', margin: 0 }}>
+              CUSTOMER LOCATION (FOR VISITS &amp; COLLECTION)
+            </label>
+
+            {/* GPS BUTTON */}
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleCaptureGps}
+              style={{ width: '100%', height: '42px', justifyContent: 'center', gap: '8px', fontSize: '13.5px', fontWeight: 700 }}
+            >
+              <MapPin size={17} />
+              <span>📍 Capture Current Location (GPS)</span>
+            </button>
+
+            {locationStatus && (
+              <div style={{ fontSize: '12px', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CheckCircle2 size={15} />
+                <span>{locationStatus}</span>
+              </div>
+            )}
+
+            {/* CENTERED OR DIVIDER */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '2px 0' }}>
+              <div style={{ flex: 1, borderTop: '1px solid var(--border-light, #cbd5e1)' }} />
+              <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>OR</span>
+              <div style={{ flex: 1, borderTop: '1px solid var(--border-light, #cbd5e1)' }} />
+            </div>
+
+            {/* GOOGLE MAPS URL INPUT + USE LINK BUTTON */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                type="text"
+                className="input-control"
+                style={{ flex: 1, height: '40px', fontSize: '13px' }}
+                placeholder="Paste Google Maps link (e.g. https://maps.app.goo.gl/...)"
+                value={mapsUrlInput}
+                onChange={(e) => setMapsUrlInput(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleUseMapsLink}
+                style={{ height: '40px', padding: '0 18px', fontSize: '13px', fontWeight: 700, gap: '6px' }}
+              >
+                <span>🔗 Use link</span>
+              </button>
+            </div>
+
+            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              Capture the customer's location while visiting their premises, or paste a Google Maps share link. Location access requires browser/device permission.
+            </span>
+          </div>
+
+          {/* BOTTOM ACTION BUTTONS */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px', gap: '14px' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setCurrentPage('customers')}
+              style={{ height: '42px', padding: '0 20px', fontWeight: 600 }}
+            >
+              Cancel
+            </button>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleSaveDraft}
+                style={{ gap: '8px', height: '42px', padding: '0 20px', fontWeight: 600 }}
+              >
+                <BookmarkCheck size={16} />
+                <span>Save Draft</span>
+              </button>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ height: '42px', gap: '8px', padding: '0 24px', fontWeight: 700, fontSize: '14px' }}
+              >
+                <ShieldCheck size={18} />
+                <span>✓ Create &amp; Verify Customer</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      {/* WEBCAM CAPTURE MODAL */}
+      {isWebcamOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 3000,
+            padding: '20px'
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: '520px',
+              padding: '24px',
+              borderRadius: '12px',
+              boxShadow: 'var(--shadow-xl)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
+                📷 Capture Customer Photo
+              </h3>
+              <button
+                type="button"
+                onClick={stopWebcam}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                width: '100%',
+                height: '320px',
+                backgroundColor: '#000',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              {tempPhoto ? (
+                <img src={tempPhoto} alt="Captured preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '18px', gap: '12px' }}>
+              <button type="button" className="btn btn-secondary" onClick={stopWebcam}>
+                Cancel
+              </button>
+
+              {tempPhoto ? (
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setTempPhoto(null)}
+                    style={{ gap: '6px' }}
+                  >
+                    <RefreshCw size={14} />
+                    <span>Retake</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={confirmWebcamPhoto}
+                    style={{ gap: '6px' }}
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>Confirm Photo</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={capturePhoto}
+                  style={{ gap: '6px' }}
+                >
+                  <Camera size={16} />
+                  <span>Capture Photo</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW DUPLICATE CUSTOMER MODAL */}
+      <ViewCustomerModal
+        isOpen={!!viewingDuplicateCustomer}
+        customer={viewingDuplicateCustomer}
+        onClose={() => setViewingDuplicateCustomer(null)}
+      />
+    </div>
+  );
+};

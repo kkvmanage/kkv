@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, X, RefreshCw, VideoOff } from 'lucide-react';
+import { Camera, X, RefreshCw, VideoOff, Check } from 'lucide-react';
 
 export interface WebcamCaptureProps {
   isOpen: boolean;
@@ -21,6 +21,10 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+
+  // Captured state preview before confirming
+  const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
+  const [capturedFile, setCapturedFile] = useState<File | null>(null);
 
   // Helper to stop all active video tracks
   const stopTracks = useCallback((mediaStream: MediaStream | null) => {
@@ -56,6 +60,8 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
 
     setLoading(true);
     setError('');
+    setCapturedDataUrl(null);
+    setCapturedFile(null);
 
     // Stop current stream before starting new one
     if (stream) {
@@ -82,7 +88,7 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
     } catch (err: any) {
       console.error('[WebcamCapture] Camera access error:', err);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError('Camera permission denied. Please allow camera access in your browser settings.');
+        setError('Camera permission was denied. You can upload a photo instead.');
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         setError('No camera device found on your computer or mobile device.');
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
@@ -103,6 +109,8 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
         stopTracks(stream);
         setStream(null);
       }
+      setCapturedDataUrl(null);
+      setCapturedFile(null);
       setError('');
     }
 
@@ -124,8 +132,8 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
     }
   };
 
-  // Capture Photo Frame
-  const handleCapture = () => {
+  // Capture Photo Frame & show preview for user confirmation
+  const handleCaptureFrame = () => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
@@ -153,15 +161,31 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
     canvas.toBlob((blob) => {
       if (blob) {
         const file = new File([blob], `customer-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
-        // Stop stream
-        if (stream) {
-          stopTracks(stream);
-          setStream(null);
-        }
-        onCapture(file, dataUrl);
-        onClose();
+        setCapturedDataUrl(dataUrl);
+        setCapturedFile(file);
       }
     }, 'image/jpeg', 0.92);
+  };
+
+  // Confirm and Save Captured Photo
+  const handleUsePhoto = () => {
+    if (capturedFile && capturedDataUrl) {
+      if (stream) {
+        stopTracks(stream);
+        setStream(null);
+      }
+      onCapture(capturedFile, capturedDataUrl);
+      onClose();
+    }
+  };
+
+  // Retake Photo
+  const handleRetake = () => {
+    setCapturedDataUrl(null);
+    setCapturedFile(null);
+    if (!stream) {
+      startCamera();
+    }
   };
 
   const handleClose = () => {
@@ -169,6 +193,8 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
       stopTracks(stream);
       setStream(null);
     }
+    setCapturedDataUrl(null);
+    setCapturedFile(null);
     onClose();
   };
 
@@ -182,9 +208,9 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        backgroundColor: 'rgba(15, 23, 42, 0.75)',
         backdropFilter: 'blur(4px)',
-        zIndex: 2000,
+        zIndex: 3000,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -195,31 +221,36 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
         style={{
           width: '100%',
           maxWidth: '560px',
-          backgroundColor: 'var(--bg-card)',
+          backgroundColor: 'var(--bg-card, #ffffff)',
           borderRadius: 'var(--radius-lg, 12px)',
-          boxShadow: 'var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.3))',
+          boxShadow: 'var(--shadow-xl, 0 20px 40px rgba(0,0,0,0.3))',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          border: '1px solid var(--border-light)'
+          border: '1px solid var(--border-light, #e2e8f0)'
         }}
       >
         {/* Header */}
         <div
           style={{
             padding: '16px 20px',
-            borderBottom: '1px solid var(--border-light)',
+            borderBottom: '1px solid var(--border-light, #e2e8f0)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            backgroundColor: 'var(--bg-surface-secondary)'
+            backgroundColor: 'var(--bg-surface-secondary, #f8fafc)'
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Camera size={20} color="var(--color-primary-dark)" />
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-dark)' }}>
-              Webcam Photo Capture
-            </h3>
+            <Camera size={20} color="var(--color-primary-dark, #163f35)" />
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-dark, #0f172a)' }}>
+                📷 Capture from Webcam
+              </h3>
+              <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                {capturedDataUrl ? 'Preview captured KYC profile photo' : 'Align customer face clearly inside viewfinder'}
+              </p>
+            </div>
           </div>
 
           <button
@@ -238,7 +269,7 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
           </button>
         </div>
 
-        {/* Video Viewfinder */}
+        {/* Viewfinder or Captured Preview */}
         <div
           style={{
             position: 'relative',
@@ -251,24 +282,36 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
             overflow: 'hidden'
           }}
         >
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              transform: facingMode === 'user' && !selectedDeviceId ? 'scaleX(-1)' : 'none'
-            }}
-          />
+          {capturedDataUrl ? (
+            <img
+              src={capturedDataUrl}
+              alt="Captured Customer Photo"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover'
+              }}
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                transform: facingMode === 'user' && !selectedDeviceId ? 'scaleX(-1)' : 'none'
+              }}
+            />
+          )}
 
           {/* Hidden Canvas for Frame Capture */}
           <canvas ref={canvasRef} style={{ display: 'none' }} />
 
           {/* Loading Overlay */}
-          {loading && (
+          {loading && !capturedDataUrl && (
             <div
               style={{
                 position: 'absolute',
@@ -280,12 +323,12 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
               }}
             >
               <RefreshCw className="animate-spin" size={32} />
-              <span style={{ fontSize: '13px', fontWeight: 600 }}>Starting Camera...</span>
+              <span style={{ fontSize: '13px', fontWeight: 600 }}>Requesting Camera Access...</span>
             </div>
           )}
 
           {/* Error Message Display */}
-          {error && (
+          {error && !capturedDataUrl && (
             <div
               style={{
                 position: 'absolute',
@@ -305,7 +348,7 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
               }}
             >
               <VideoOff size={44} color="#ef4444" />
-              <div style={{ fontSize: '14px', fontWeight: 600 }}>{error}</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, maxWidth: '400px' }}>{error}</div>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
@@ -327,55 +370,104 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '12px',
-            backgroundColor: 'var(--bg-card)'
+            backgroundColor: 'var(--bg-card, #ffffff)',
+            borderTop: '1px solid var(--border-light, #e2e8f0)'
           }}
         >
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {(devices.length > 1 || true) && (
+          {capturedDataUrl ? (
+            /* After Capturing Controls */
+            <>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={handleSwitchCamera}
-                disabled={loading || !!error}
-                style={{ gap: '6px', fontSize: '12px' }}
-                title="Switch camera"
+                className="btn btn-secondary"
+                onClick={handleRetake}
+                style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 <RefreshCw size={14} />
-                <span>Switch Camera</span>
+                <span>Retake</span>
               </button>
-            )}
-          </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={handleClose}
-              style={{ padding: '8px 16px', fontSize: '13px' }}
-            >
-              Cancel
-            </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleClose}
+                  style={{ padding: '8px 16px', fontSize: '13px' }}
+                >
+                  Cancel
+                </button>
 
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleCapture}
-              disabled={loading || !!error || !stream}
-              style={{
-                padding: '8px 20px',
-                fontSize: '13px',
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                backgroundColor: 'var(--color-primary-accent)',
-                color: '#fff'
-              }}
-            >
-              <Camera size={16} />
-              <span>Capture Photo</span>
-            </button>
-          </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleUsePhoto}
+                  style={{
+                    padding: '8px 20px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    backgroundColor: 'var(--color-primary-accent, #059669)',
+                    color: '#fff'
+                  }}
+                >
+                  <Check size={16} />
+                  <span>Use Photo</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            /* Live Camera Controls */
+            <>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {devices.length > 1 && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleSwitchCamera}
+                    disabled={loading || !!error}
+                    style={{ gap: '6px', fontSize: '12px' }}
+                    title="Switch camera"
+                  >
+                    <RefreshCw size={14} />
+                    <span>Switch Camera</span>
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleClose}
+                  style={{ padding: '8px 16px', fontSize: '13px' }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleCaptureFrame}
+                  disabled={loading || !!error || !stream}
+                  style={{
+                    padding: '8px 20px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    backgroundColor: 'var(--color-primary-accent, #059669)',
+                    color: '#fff'
+                  }}
+                >
+                  <Camera size={16} />
+                  <span>Capture Photo</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

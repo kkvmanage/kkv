@@ -168,19 +168,31 @@ export const IDProofInputFields: React.FC<IDProofInputFieldsProps> = ({
 
   const currentValidation = evaluateValidation(currentType, idNumber, extraPan, docName);
 
-  // Handle Type Change & CLEAR values to avoid stale invalid data
+  // Handle Type Change & preserve existing values for dynamic fields
   const handleTypeChange = (newType: string) => {
     setTouchedMain(false);
     setTouchedPan(false);
     setTouchedDocName(false);
 
-    const newValidation = evaluateValidation(newType, '', '', '');
+    let nextIdNumber = idNumber;
+    let nextExtraPan = extraPan;
+    let nextDocName = docName;
+
+    const newTypeLower = newType.toLowerCase();
+
+    if (newTypeLower.includes('aadhaar')) {
+      if (nextIdNumber && nextIdNumber.replace(/\D/g, '').length === 12) {
+        nextIdNumber = formatAadhaarInput(nextIdNumber);
+      }
+    }
+
+    const newValidation = evaluateValidation(newType, nextIdNumber, nextExtraPan, nextDocName);
 
     onChange({
       idProof: newType,
-      idNumber: '',
-      extraPan: '',
-      docName: '',
+      idNumber: nextIdNumber,
+      extraPan: nextExtraPan,
+      docName: nextDocName,
       isValid: newValidation.isValid,
       error: newValidation.mainError || newValidation.panError || newValidation.nameError,
       structured: newValidation.structured

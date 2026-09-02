@@ -144,14 +144,14 @@ export const CustomerLocation: React.FC<CustomerLocationProps> = ({
                 <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>
                   Latitude
                 </span>
-                <strong style={{ color: 'var(--text-dark)', fontFamily: 'monospace' }}>{location.latitude.toFixed(6)}</strong>
+                <strong style={{ color: 'var(--text-dark)', fontFamily: 'monospace' }}>{location.latitude !== null && location.latitude !== undefined ? location.latitude.toFixed(6) : 'N/A'}</strong>
               </div>
 
               <div>
                 <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>
                   Longitude
                 </span>
-                <strong style={{ color: 'var(--text-dark)', fontFamily: 'monospace' }}>{location.longitude.toFixed(6)}</strong>
+                <strong style={{ color: 'var(--text-dark)', fontFamily: 'monospace' }}>{location.longitude !== null && location.longitude !== undefined ? location.longitude.toFixed(6) : 'N/A'}</strong>
               </div>
 
               {location.accuracy && (
@@ -168,7 +168,7 @@ export const CustomerLocation: React.FC<CustomerLocationProps> = ({
                   Source
                 </span>
                 <span style={{ textTransform: 'capitalize', fontWeight: 600, color: 'var(--text-dark)' }}>
-                  {location.source.replace(/_/g, ' ')}
+                  {(location.source || location.locationMethod || 'gps').replace(/_/g, ' ')}
                 </span>
               </div>
             </div>

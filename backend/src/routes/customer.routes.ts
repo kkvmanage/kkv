@@ -5,7 +5,9 @@ import {
   searchCustomers,
   createCustomer,
   updateCustomer,
-  deleteCustomer
+  deleteCustomer,
+  restoreCustomer,
+  deletePermanentlyCustomer
 } from '../controllers/customer.controller.js';
 
 const router = Router();
@@ -16,5 +18,7 @@ router.get('/:id', getCustomerById);
 router.post('/', createCustomer);
 router.put('/:id', updateCustomer);
 router.delete('/:id', deleteCustomer);
+router.post('/:id/restore', restoreCustomer);
+router.delete('/:id/permanent', deletePermanentlyCustomer);
 
 export default router;

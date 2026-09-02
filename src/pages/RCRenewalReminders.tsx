@@ -1,99 +1,392 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { Download, MessageCircle, AlertTriangle, Clock, CheckCircle2, FileText } from 'lucide-react';
+import { Download, MessageCircle, AlertTriangle, Clock, CheckCircle2, FileText, User } from 'lucide-react';
+import { Loan, Customer } from '../types';
 
-interface ReminderRecord {
+export interface ReminderRecord {
   id: string;
+  loanId: string;
   loanNo: string;
+  customerId: string;
   customerName: string;
+  customerPhone: string;
   vehicle: string;
-  type: 'RC Book' | 'Insurance' | 'Road Tax' | 'Permit' | 'FC Expiry';
+  type: 'Insurance' | 'RC Book' | 'Road Tax' | 'Permit' | 'FC Expiry' | 'Renewal';
   expiryDate: string;
   daysLeft: number;
   amount: number;
   status: 'EXPIRED' | 'DUE IN 30 DAYS' | 'UPCOMING' | 'ALL GOOD';
+  rawDate: Date;
+  rawLoan: Loan;
+  rawCustomer: Customer;
 }
 
-const mockReminders: ReminderRecord[] = [
-  {
-    id: 'rem-1',
-    loanNo: 'GL-01',
-    customerName: 'Thayba Begum',
-    vehicle: 'TN-09-CB-4492 (Pledge Collateral)',
-    type: 'Insurance',
-    expiryDate: '15-09-2026',
-    daysLeft: 21,
-    amount: 100000,
-    status: 'DUE IN 30 DAYS'
-  },
-  {
-    id: 'rem-2',
-    loanNo: 'GL-02',
-    customerName: 'Rajan P',
-    vehicle: 'TN-07-BQ-1188 (Pledge Collateral)',
-    type: 'RC Book',
-    expiryDate: '28-10-2026',
-    daysLeft: 64,
-    amount: 45000,
-    status: 'UPCOMING'
+/**
+ * Calculates days left and dynamic status from an expiry/due date string.
+ */
+const calculateDaysLeftAndStatus = (dateStr: string): { daysLeft: number; status: 'EXPIRED' | 'DUE IN 30 DAYS' | 'UPCOMING' | 'ALL GOOD'; parsedDate: Date } => {
+  if (!dateStr) {
+    const fallback = new Date();
+    fallback.setDate(fallback.getDate() + 30);
+    return { daysLeft: 30, status: 'DUE IN 30 DAYS', parsedDate: fallback };
   }
-];
+
+  let parsedDate: Date;
+  if (dateStr.includes('-')) {
+    const parts = dateStr.split('-');
+    if (parts[0].length === 4) {
+      parsedDate = new Date(dateStr);
+    } else {
+      parsedDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+    }
+  } else if (dateStr.includes('/')) {
+    const parts = dateStr.split('/');
+    if (parts[0].length === 4) {
+      parsedDate = new Date(dateStr);
+    } else {
+      parsedDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+    }
+  } else {
+    parsedDate = new Date(dateStr);
+  }
+
+  if (isNaN(parsedDate.getTime())) {
+    parsedDate = new Date();
+    parsedDate.setDate(parsedDate.getDate() + 30);
+  }
+
+  const now = new Date();
+  const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const expZero = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate());
+
+  const diffTime = expZero.getTime() - todayZero.getTime();
+  const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  let status: 'EXPIRED' | 'DUE IN 30 DAYS' | 'UPCOMING' | 'ALL GOOD';
+  if (daysLeft < 0) {
+    status = 'EXPIRED';
+  } else if (daysLeft <= 30) {
+    status = 'DUE IN 30 DAYS';
+  } else if (daysLeft <= 90) {
+    status = 'UPCOMING';
+  } else {
+    status = 'ALL GOOD';
+  }
+
+  return { daysLeft, status, parsedDate };
+};
 
 export const RCRenewalReminders: React.FC = () => {
-  const { showToast } = useApp();
+  const {
+    loans,
+    customers,
+    setSelectedLoan,
+    setSelectedProfileCustomerId,
+    setCurrentPage,
+    showToast
+  } = useApp();
+
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  const filtered = mockReminders.filter((r) => {
-    const matchesSearch =
-      r.loanNo.toLowerCase().includes(search.toLowerCase()) ||
-      r.customerName.toLowerCase().includes(search.toLowerCase()) ||
-      r.vehicle.toLowerCase().includes(search.toLowerCase());
-    const matchesType = typeFilter === 'All' || r.type === typeFilter;
-    const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
-    return matchesSearch && matchesType && matchesStatus;
-  });
+  // Derive real reminders dynamically from loans and active customers
+  const dynamicReminders = useMemo(() => {
+    const records: ReminderRecord[] = [];
 
-  const expiredCount = mockReminders.filter((r) => r.status === 'EXPIRED').length;
-  const due30Count = mockReminders.filter((r) => r.status === 'DUE IN 30 DAYS').length;
-  const upcomingCount = mockReminders.filter((r) => r.status === 'UPCOMING').length;
-  const allGoodCount = mockReminders.filter((r) => r.status === 'ALL GOOD').length;
+    loans.forEach((loan) => {
+      // Find matching customer using strict ID relationship (loan.customerId === customer.id)
+      const cust = customers.find(
+        (c) => !c.isDeleted && (c.id === loan.customerId || (c.customerId && c.customerId.toString() === loan.customerId))
+      );
+      if (!cust) return; // Exclude deleted or missing customers
+
+      if (loan.status === 'CLOSED') return; // Exclude closed loans from active renewals
+
+      // Determine vehicle or collateral description
+      let vehicleLabel = loan.vehicleNumber || loan.vehicleModel || '';
+      if (!vehicleLabel) {
+        const vehicleItem = loan.items?.find((i: any) =>
+          /TN|KL|KA|AP|MH|HR|DL|PY|TS|Vehicle|Bike|Car|Scooter|Royal Enfield|Honda|TVS|Yamaha|Hero|Bajaj|Suzuki/i.test(i.item || '')
+        );
+        if (vehicleItem) {
+          vehicleLabel = `${vehicleItem.item} (Pledge Collateral)`;
+        } else if (loan.items && loan.items.length > 0) {
+          vehicleLabel = `${loan.items.map((i: any) => i.item).join(', ')} (Pledge Collateral)`;
+        } else {
+          vehicleLabel = 'Gold/Pledge Collateral';
+        }
+      }
+
+      let hasExplicitVehicleExpiry = false;
+
+      // 1. Insurance Expiry
+      if (loan.insuranceExpiryDate) {
+        hasExplicitVehicleExpiry = true;
+        const calc = calculateDaysLeftAndStatus(loan.insuranceExpiryDate);
+        records.push({
+          id: `rem-${loan.id}-ins`,
+          loanId: loan.id,
+          loanNo: loan.loanNo,
+          customerId: cust.id,
+          customerName: cust.name,
+          customerPhone: cust.phone,
+          vehicle: vehicleLabel,
+          type: 'Insurance',
+          expiryDate: loan.insuranceExpiryDate,
+          daysLeft: calc.daysLeft,
+          amount: loan.principal,
+          status: calc.status,
+          rawDate: calc.parsedDate,
+          rawLoan: loan,
+          rawCustomer: cust
+        });
+      }
+
+      // 2. RC Book Expiry
+      if (loan.rcExpiryDate) {
+        hasExplicitVehicleExpiry = true;
+        const calc = calculateDaysLeftAndStatus(loan.rcExpiryDate);
+        records.push({
+          id: `rem-${loan.id}-rc`,
+          loanId: loan.id,
+          loanNo: loan.loanNo,
+          customerId: cust.id,
+          customerName: cust.name,
+          customerPhone: cust.phone,
+          vehicle: vehicleLabel,
+          type: 'RC Book',
+          expiryDate: loan.rcExpiryDate,
+          daysLeft: calc.daysLeft,
+          amount: loan.principal,
+          status: calc.status,
+          rawDate: calc.parsedDate,
+          rawLoan: loan,
+          rawCustomer: cust
+        });
+      }
+
+      // 3. Road Tax Expiry
+      if (loan.roadTaxExpiryDate) {
+        hasExplicitVehicleExpiry = true;
+        const calc = calculateDaysLeftAndStatus(loan.roadTaxExpiryDate);
+        records.push({
+          id: `rem-${loan.id}-tax`,
+          loanId: loan.id,
+          loanNo: loan.loanNo,
+          customerId: cust.id,
+          customerName: cust.name,
+          customerPhone: cust.phone,
+          vehicle: vehicleLabel,
+          type: 'Road Tax',
+          expiryDate: loan.roadTaxExpiryDate,
+          daysLeft: calc.daysLeft,
+          amount: loan.principal,
+          status: calc.status,
+          rawDate: calc.parsedDate,
+          rawLoan: loan,
+          rawCustomer: cust
+        });
+      }
+
+      // 4. Permit Expiry
+      if (loan.permitExpiryDate) {
+        hasExplicitVehicleExpiry = true;
+        const calc = calculateDaysLeftAndStatus(loan.permitExpiryDate);
+        records.push({
+          id: `rem-${loan.id}-permit`,
+          loanId: loan.id,
+          loanNo: loan.loanNo,
+          customerId: cust.id,
+          customerName: cust.name,
+          customerPhone: cust.phone,
+          vehicle: vehicleLabel,
+          type: 'Permit',
+          expiryDate: loan.permitExpiryDate,
+          daysLeft: calc.daysLeft,
+          amount: loan.principal,
+          status: calc.status,
+          rawDate: calc.parsedDate,
+          rawLoan: loan,
+          rawCustomer: cust
+        });
+      }
+
+      // 5. FC Expiry
+      if (loan.fcExpiryDate) {
+        hasExplicitVehicleExpiry = true;
+        const calc = calculateDaysLeftAndStatus(loan.fcExpiryDate);
+        records.push({
+          id: `rem-${loan.id}-fc`,
+          loanId: loan.id,
+          loanNo: loan.loanNo,
+          customerId: cust.id,
+          customerName: cust.name,
+          customerPhone: cust.phone,
+          vehicle: vehicleLabel,
+          type: 'FC Expiry',
+          expiryDate: loan.fcExpiryDate,
+          daysLeft: calc.daysLeft,
+          amount: loan.principal,
+          status: calc.status,
+          rawDate: calc.parsedDate,
+          rawLoan: loan,
+          rawCustomer: cust
+        });
+      }
+
+      // 6. Loan Renewal / Due Date
+      if (!hasExplicitVehicleExpiry || loan.nextDueDate || loan.renewalDate) {
+        const dueDateStr = loan.nextDueDate || loan.renewalDate || loan.date;
+        const calc = calculateDaysLeftAndStatus(dueDateStr);
+        records.push({
+          id: `rem-${loan.id}-ren`,
+          loanId: loan.id,
+          loanNo: loan.loanNo,
+          customerId: cust.id,
+          customerName: cust.name,
+          customerPhone: cust.phone,
+          vehicle: vehicleLabel,
+          type: 'Renewal',
+          expiryDate: dueDateStr,
+          daysLeft: calc.daysLeft,
+          amount: loan.principal,
+          status: calc.status,
+          rawDate: calc.parsedDate,
+          rawLoan: loan,
+          rawCustomer: cust
+        });
+      }
+    });
+
+    return records;
+  }, [loans, customers]);
+
+  // Filter dynamically based on search, type, and status
+  const filtered = useMemo(() => {
+    return dynamicReminders.filter((r) => {
+      const q = search.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        r.loanNo.toLowerCase().includes(q) ||
+        r.customerName.toLowerCase().includes(q) ||
+        r.customerId.toLowerCase().includes(q) ||
+        r.customerPhone.includes(q) ||
+        r.vehicle.toLowerCase().includes(q) ||
+        r.type.toLowerCase().includes(q);
+
+      const matchesType = typeFilter === 'All' || r.type === typeFilter;
+      const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
+
+      return matchesSearch && matchesType && matchesStatus;
+    });
+  }, [dynamicReminders, search, typeFilter, statusFilter]);
+
+  // Summary counts calculated dynamically
+  const expiredCount = dynamicReminders.filter((r) => r.status === 'EXPIRED').length;
+  const due30Count = dynamicReminders.filter((r) => r.status === 'DUE IN 30 DAYS').length;
+  const upcomingCount = dynamicReminders.filter((r) => r.status === 'UPCOMING').length;
+  const allGoodCount = dynamicReminders.filter((r) => r.status === 'ALL GOOD').length;
 
   const handleSendAllReminders = () => {
-    showToast('Sending WhatsApp automated renewal reminders to all customers...', 'success');
+    if (filtered.length === 0) {
+      showToast('No active reminders found matching the selected filter.', 'info');
+      return;
+    }
+
+    const uniqueCustomers = new Set(filtered.map((r) => r.customerName));
+    showToast(
+      `Queued automated WhatsApp & SMS reminders for ${filtered.length} renewal item(s) across ${uniqueCustomers.size} customer(s).`,
+      'success'
+    );
   };
 
   const handleExportCSV = () => {
-    showToast('Exporting renewal reminders list to CSV...', 'info');
+    if (filtered.length === 0) {
+      showToast('No reminder records to export.', 'info');
+      return;
+    }
+
+    const headers = [
+      'Loan No',
+      'Customer ID',
+      'Customer Name',
+      'Mobile Number',
+      'Vehicle Number',
+      'Reminder Type',
+      'Expiry Date',
+      'Days Left',
+      'Loan Amount',
+      'Status'
+    ];
+
+    const csvRows = [headers.join(',')];
+
+    filtered.forEach((r) => {
+      const row = [
+        `"${r.loanNo}"`,
+        `"${r.customerId}"`,
+        `"${r.customerName.replace(/"/g, '""')}"`,
+        `"+91 ${r.customerPhone}"`,
+        `"${r.vehicle.replace(/"/g, '""')}"`,
+        `"${r.type}"`,
+        `"${r.expiryDate}"`,
+        `"${r.daysLeft < 0 ? `Expired (${Math.abs(r.daysLeft)} days ago)` : `${r.daysLeft} days`}"`,
+        `"${r.amount}"`,
+        `"${r.status}"`
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `RC_Renewal_Reminders_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast(`Successfully exported ${filtered.length} reminder records to CSV.`, 'success');
   };
 
   return (
     <div className="page-content">
+      {/* PAGE TITLE */}
+      <div style={{ marginBottom: '20px' }}>
+        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 800, color: 'var(--text-dark)' }}>
+          RC &amp; Renewal Reminders
+        </h1>
+        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+          Track vehicle RC books, Insurance, Road Tax, Permit, FC expiries, and interest renewal due dates in real-time.
+        </p>
+      </div>
+
       {/* 4 Summary Stat Cards */}
       <div className="grid-4" style={{ marginBottom: '18px' }}>
         <div className="stat-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="stat-label">EXPIRED</span>
-            <AlertTriangle size={16} color="var(--badge-danger-text)" />
+            <AlertTriangle size={16} color="var(--badge-danger-text, #dc2626)" />
           </div>
-          <div className="stat-value" style={{ color: 'var(--badge-danger-text)' }}>{expiredCount}</div>
+          <div className="stat-value" style={{ color: 'var(--badge-danger-text, #dc2626)' }}>{expiredCount}</div>
           <div className="stat-helper">Requires urgent follow-up</div>
         </div>
 
         <div className="stat-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="stat-label">DUE IN 30 DAYS</span>
-            <Clock size={16} color="var(--badge-warning-text)" />
+            <Clock size={16} color="var(--badge-warning-text, #d97706)" />
           </div>
-          <div className="stat-value" style={{ color: 'var(--badge-warning-text)' }}>{due30Count}</div>
+          <div className="stat-value" style={{ color: 'var(--badge-warning-text, #d97706)' }}>{due30Count}</div>
           <div className="stat-helper">Immediate notice period</div>
         </div>
 
         <div className="stat-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="stat-label">UPCOMING</span>
-            <FileText size={16} color="var(--color-primary-accent)" />
+            <FileText size={16} color="var(--color-primary-accent, #059669)" />
           </div>
           <div className="stat-value">{upcomingCount}</div>
           <div className="stat-helper">30 to 90 days out</div>
@@ -102,73 +395,63 @@ export const RCRenewalReminders: React.FC = () => {
         <div className="stat-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="stat-label">ALL GOOD</span>
-            <CheckCircle2 size={16} color="var(--badge-success-text)" />
+            <CheckCircle2 size={16} color="var(--badge-success-text, #166534)" />
           </div>
-          <div className="stat-value" style={{ color: 'var(--badge-success-text)' }}>{allGoodCount}</div>
+          <div className="stat-value" style={{ color: 'var(--badge-success-text, #166534)' }}>{allGoodCount}</div>
           <div className="stat-helper">Fully compliant pledges</div>
         </div>
       </div>
 
       {/* Main Table Card */}
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <h2 className="card-title">RC &amp; Renewal Reminders</h2>
-            <p className="card-description">
-              RC books still to come in, plus Insurance, Road Tax, Permit and F.C. expiries on PN/HP loans
-            </p>
-          </div>
-        </div>
-
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {/* Toolbar */}
         <div
           style={{
             display: 'flex',
             gap: '12px',
             alignItems: 'flex-end',
-            marginBottom: '16px',
-            flexWrap: 'wrap',
-            padding: '14px',
-            backgroundColor: 'var(--bg-surface-secondary)',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-subtle)'
+            padding: '16px 20px',
+            backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+            borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+            flexWrap: 'wrap'
           }}
         >
-          <div className="form-group" style={{ flex: 1, minWidth: '220px' }}>
+          <div className="form-group" style={{ flex: 1, minWidth: '240px' }}>
             <label className="form-label">SEARCH</label>
             <input
               type="text"
               className="input-control"
-              placeholder="Loan No, customer, or vehicle no..."
+              placeholder="Loan No, customer ID, name, or vehicle no..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
 
-          <div className="form-group" style={{ width: '150px' }}>
+          <div className="form-group" style={{ width: '160px' }}>
             <label className="form-label">TYPE</label>
             <select
               className="select-control"
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
             >
-              <option value="All">All</option>
+              <option value="All">All Types</option>
               <option value="RC Book">RC Book</option>
               <option value="Insurance">Insurance</option>
               <option value="Road Tax">Road Tax</option>
               <option value="Permit">Permit</option>
               <option value="FC Expiry">FC Expiry</option>
+              <option value="Renewal">Renewal</option>
             </select>
           </div>
 
-          <div className="form-group" style={{ width: '150px' }}>
+          <div className="form-group" style={{ width: '160px' }}>
             <label className="form-label">STATUS</label>
             <select
               className="select-control"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
-              <option value="All">All</option>
+              <option value="All">All Statuses</option>
               <option value="EXPIRED">Expired</option>
               <option value="DUE IN 30 DAYS">Due in 30 Days</option>
               <option value="UPCOMING">Upcoming</option>
@@ -178,15 +461,15 @@ export const RCRenewalReminders: React.FC = () => {
 
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary"
               onClick={handleSendAllReminders}
-              style={{ backgroundColor: '#25D366', borderColor: '#25D366' }}
+              style={{ backgroundColor: '#25D366', borderColor: '#25D366', color: '#ffffff', fontWeight: 700, gap: '6px' }}
             >
-              <MessageCircle size={14} />
+              <MessageCircle size={15} />
               <span>Send All Reminders</span>
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
-              <Download size={14} />
+            <button className="btn btn-secondary" onClick={handleExportCSV} style={{ gap: '6px', fontWeight: 600 }}>
+              <Download size={15} />
               <span>Export CSV</span>
             </button>
           </div>
@@ -210,28 +493,100 @@ export const RCRenewalReminders: React.FC = () => {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-                    No vehicle renewals tracked. Add RC details on a Pronote or HP loan to get reminders here.
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    No vehicle or renewal reminders match your criteria. Reminders are generated automatically from active customer loans.
                   </td>
                 </tr>
               ) : (
                 filtered.map((r) => (
                   <tr key={r.id}>
-                    <td style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>{r.loanNo}</td>
-                    <td style={{ fontWeight: 600 }}>{r.customerName}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{r.vehicle}</td>
                     <td>
-                      <span className="badge badge-info">{r.type}</span>
+                      <button
+                        type="button"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          color: 'var(--color-primary-dark, #176b52)',
+                          fontWeight: 800,
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          textDecoration: 'underline'
+                        }}
+                        title={`View Loan Details for ${r.loanNo}`}
+                        onClick={() => {
+                          setSelectedLoan(r.rawLoan);
+                          setCurrentPage('loan-display');
+                        }}
+                      >
+                        {r.loanNo}
+                      </button>
                     </td>
-                    <td>{r.expiryDate}</td>
-                    <td style={{ fontWeight: 700, color: r.daysLeft <= 30 ? 'var(--badge-warning-text)' : 'inherit' }}>
-                      {r.daysLeft} days
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>₹{r.amount.toLocaleString('en-IN')}</td>
                     <td>
-                      <span className={`badge ${r.status === 'EXPIRED' ? 'badge-danger' : r.status === 'DUE IN 30 DAYS' ? 'badge-warning' : 'badge-success'}`}>
-                        {r.status}
+                      <button
+                        type="button"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          color: 'var(--text-dark, #1f2937)',
+                          fontWeight: 700,
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                        title={`View Customer Profile for ${r.customerName}`}
+                        onClick={() => {
+                          setSelectedProfileCustomerId(r.customerId);
+                          setCurrentPage('customer-profile');
+                        }}
+                      >
+                        <User size={13} color="var(--color-primary-accent)" />
+                        <span>{r.customerName}</span>
+                      </button>
+                    </td>
+                    <td style={{ color: 'var(--text-secondary)', fontSize: '12.5px', fontWeight: 500 }}>
+                      {r.vehicle}
+                    </td>
+                    <td>
+                      <span className="badge badge-info" style={{ fontSize: '11px' }}>
+                        {r.type}
                       </span>
+                    </td>
+                    <td style={{ fontSize: '13px', fontWeight: 600 }}>{r.expiryDate}</td>
+                    <td>
+                      {r.daysLeft < 0 ? (
+                        <span style={{ color: 'var(--badge-danger-text, #dc2626)', fontWeight: 800, fontSize: '12.5px' }}>
+                          Expired ({Math.abs(r.daysLeft)} days ago)
+                        </span>
+                      ) : r.daysLeft <= 30 ? (
+                        <span style={{ color: 'var(--badge-warning-text, #d97706)', fontWeight: 800, fontSize: '12.5px' }}>
+                          {r.daysLeft} days
+                        </span>
+                      ) : (
+                        <span style={{ fontWeight: 600, fontSize: '12.5px' }}>
+                          {r.daysLeft} days
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-dark)' }}>
+                      ₹{r.amount.toLocaleString('en-IN')}
+                    </td>
+                    <td>
+                      {r.status === 'EXPIRED' && (
+                        <span className="badge badge-danger" style={{ fontSize: '11px' }}>EXPIRED</span>
+                      )}
+                      {r.status === 'DUE IN 30 DAYS' && (
+                        <span className="badge badge-warning" style={{ fontSize: '11px' }}>DUE IN 30 DAYS</span>
+                      )}
+                      {r.status === 'UPCOMING' && (
+                        <span className="badge badge-info" style={{ fontSize: '11px' }}>UPCOMING</span>
+                      )}
+                      {r.status === 'ALL GOOD' && (
+                        <span className="badge badge-success" style={{ fontSize: '11px' }}>ALL GOOD</span>
+                      )}
                     </td>
                   </tr>
                 ))

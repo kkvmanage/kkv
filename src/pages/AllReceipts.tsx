@@ -89,8 +89,8 @@ export const AllReceipts: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredReceipts.map((r) => (
-                  <tr key={r.id}>
+                filteredReceipts.map((r, idx) => (
+                  <tr key={`all-rcpt-${r.id}-${idx}`}>
                     <td style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>
                       #{r.receiptNo}
                     </td>

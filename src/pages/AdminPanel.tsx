@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2, Mic, Search, CloudDownload } from 'lucide-react';
-import { AmountBand } from '../types';
+import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2, Search, CloudDownload, Eye, Edit3, RotateCcw, AlertTriangle } from 'lucide-react';
+import { AmountBand, Customer } from '../types';
 
 import { KKVLogo } from '../components/common/KKVLogo';
 import { WipeAllDataModal } from '../components/admin/WipeAllDataModal';
 import { SystemRestoreModal } from '../components/admin/SystemRestoreModal';
+import { ViewCustomerModal } from '../components/common/ViewCustomerModal';
+import { EditCustomerModal } from '../components/common/EditCustomerModal';
+import { formatIdProofDisplay } from '../utils/kycValidation';
 
 export const AdminPanel: React.FC = () => {
   const [showWipeModal, setShowWipeModal] = useState(false);
@@ -14,6 +17,7 @@ export const AdminPanel: React.FC = () => {
   const [dangerClickCount, setDangerClickCount] = useState(0);
   const [dangerClickTimer, setDangerClickTimer] = useState<any>(null);
   const {
+    userRole,
     loans,
     customers,
     receipts,
@@ -31,10 +35,22 @@ export const AdminPanel: React.FC = () => {
     updateWhatsAppTemplates,
     resetAllData,
     bulkUpdateFixedDepositDates,
+    deleteCustomer,
+    restoreCustomer,
+    deleteCustomerPermanently,
+    updateCustomer,
     showToast
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'fd-rates' | 'bulk-fd' | 'data-backup' | 'devices'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'fd-rates' | 'bulk-fd' | 'data-backup' | 'devices'>('overview');
+  const [custSubTab, setCustSubTab] = useState<'active' | 'deleted'>('active');
+  const [adminCustSearch, setAdminCustSearch] = useState('');
+  const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<Customer | null>(null);
+  const [permanentDeleteInput, setPermanentDeleteInput] = useState('');
+  const [isDeletingPermanently, setIsDeletingPermanently] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [masterSubTab, setMasterSubTab] = useState<'rates' | 'operations' | 'messaging' | 'security' | 'danger'>('rates');
   const [ratesSubChip, setRatesSubChip] = useState<'gold' | 'silver' | 'pronote' | 'hire' | 'card' | 'overdue' | 'upi'>('gold');
@@ -67,6 +83,22 @@ export const AdminPanel: React.FC = () => {
   const [pronoteCardFeeVal, setPronoteCardFeeVal] = useState<number>(masterControlSettings?.pronoteCardFee ?? 10);
   const [hireCardFeeEnabled, setHireCardFeeEnabled] = useState<boolean>(masterControlSettings?.hireCardFeeEnabled ?? true);
   const [hireCardFeeVal, setHireCardFeeVal] = useState<number>(masterControlSettings?.hireCardFee ?? 10);
+
+  const handleConfirmPermanentDelete = async () => {
+    if (!permanentDeleteTarget || permanentDeleteInput !== 'DELETE') return;
+    setIsDeletingPermanently(true);
+    try {
+      const success = await deleteCustomerPermanently(permanentDeleteTarget.id);
+      if (success) {
+        setPermanentDeleteTarget(null);
+        setPermanentDeleteInput('');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error deleting customer permanently.', 'error');
+    } finally {
+      setIsDeletingPermanently(false);
+    }
+  };
 
   const handleDangerZoneTabClick = () => {
     setMasterSubTab('danger');
@@ -328,55 +360,6 @@ export const AdminPanel: React.FC = () => {
     setShowroomsVal(prev => prev.filter((_, i) => i !== index));
   };
 
-  const startVoiceInput = (targetField: 'search' | 'offset' | 'date') => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showToast('Web Speech API is not supported in this browser.', 'error');
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    showToast('Listening...', 'info');
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      if (targetField === 'search') {
-        setFdSearchText(transcript);
-      } else if (targetField === 'offset') {
-        const num = parseInt(transcript.replace(/[^0-9-]/g, ''), 10);
-        if (!isNaN(num)) {
-          setOffsetDaysValue(num);
-        } else {
-          showToast(`Could not understand number from: "${transcript}"`, 'warning');
-        }
-      } else if (targetField === 'date') {
-        try {
-          const parsedDate = new Date(transcript);
-          if (!isNaN(parsedDate.getTime())) {
-            const yyyy = parsedDate.getFullYear();
-            const mm = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
-            const dd = parsedDate.getDate().toString().padStart(2, '0');
-            setNewDepDateVal(`${yyyy}-${mm}-${dd}`);
-            showToast(`Set date: ${dd}/${mm}/${yyyy}`, 'success');
-          } else {
-            showToast(`Heard "${transcript}". Try saying a date like "2026-08-25".`, 'warning');
-          }
-        } catch {
-          showToast(`Could not parse date: "${transcript}"`, 'warning');
-        }
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      showToast(`Speech recognition error: ${event.error}`, 'error');
-    };
-
-    recognition.start();
-  };
-
   const handleAddAmountBand = () => {
     const newBand: AmountBand = {
       id: `band-${Date.now()}`,
@@ -424,6 +407,7 @@ export const AdminPanel: React.FC = () => {
       <div style={{ display: 'flex', gap: '10px', paddingBottom: '4px', flexWrap: 'wrap' }}>
         {[
           { key: 'overview', label: 'Overview' },
+          { key: 'customers', label: 'Customer Management' },
           { key: 'fd-rates', label: 'FD Interest Rates' },
           masterControlSettings?.bulkFdDateChangeEnabled && { key: 'bulk-fd', label: 'Bulk FD Date Change' },
           { key: 'data-backup', label: 'Data & Backup' },
@@ -544,6 +528,227 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
+      {/* Customer Management Tab Content */}
+      {activeTab === 'customers' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Top Bar: Subtabs & Search */}
+          <div className="card" style={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={`btn ${custSubTab === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '13px', padding: '6px 16px' }}
+                  onClick={() => setCustSubTab('active')}
+                >
+                  Active Customers ({customers.filter(c => !c.isDeleted).length})
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${custSubTab === 'deleted' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '13px', padding: '6px 16px' }}
+                  onClick={() => setCustSubTab('deleted')}
+                >
+                  Deleted Customers ({customers.filter(c => c.isDeleted).length})
+                </button>
+              </div>
+
+              <div style={{ position: 'relative', width: '320px' }}>
+                <input
+                  type="text"
+                  className="input-control"
+                  style={{ paddingLeft: '38px', height: '38px', fontSize: '13px' }}
+                  placeholder="Search ID, name, phone..."
+                  value={adminCustSearch}
+                  onChange={(e) => setAdminCustSearch(e.target.value)}
+                />
+                <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Customer Table Card */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>CUSTOMER ID</th>
+                    <th>PROFILE PHOTO</th>
+                    <th>CUSTOMER NAME</th>
+                    <th>MOBILE NUMBER</th>
+                    <th>GENDER</th>
+                    <th>ID PROOF</th>
+                    <th>CREATED DATE</th>
+                    <th>STATUS</th>
+                    <th style={{ textAlign: 'center', width: '140px' }}>ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customers.filter(c => (custSubTab === 'deleted' ? Boolean(c.isDeleted) : !c.isDeleted)).filter(c => {
+                    const q = adminCustSearch.toLowerCase().trim();
+                    if (!q) return true;
+                    return (
+                      c.name.toLowerCase().includes(q) ||
+                      c.phone.includes(q) ||
+                      c.id.toLowerCase().includes(q) ||
+                      (c.customerId && c.customerId.toString() === q)
+                    );
+                  }).length === 0 ? (
+                    <tr>
+                      <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                        No {custSubTab === 'deleted' ? 'deleted' : 'active'} customer records found.
+                      </td>
+                    </tr>
+                  ) : (
+                    customers
+                      .filter(c => (custSubTab === 'deleted' ? Boolean(c.isDeleted) : !c.isDeleted))
+                      .filter(c => {
+                        const q = adminCustSearch.toLowerCase().trim();
+                        if (!q) return true;
+                        return (
+                          c.name.toLowerCase().includes(q) ||
+                          c.phone.includes(q) ||
+                          c.id.toLowerCase().includes(q) ||
+                          (c.customerId && c.customerId.toString() === q)
+                        );
+                      })
+                      .map((c) => (
+                        <tr key={c.id}>
+                          <td>
+                            <strong style={{ color: 'var(--color-primary-dark)', fontSize: '13px' }}>
+                              {c.id}
+                            </strong>
+                          </td>
+                          <td>
+                            {c.customerPhoto ? (
+                              <img
+                                src={c.customerPhoto}
+                                alt={c.name}
+                                style={{
+                                  width: '32px',
+                                  height: '32px',
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  border: '1.5px solid var(--color-primary-accent)'
+                                }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: '32px',
+                                  height: '32px',
+                                  borderRadius: '50%',
+                                  backgroundColor: 'var(--color-light-accent)',
+                                  color: 'var(--color-primary-dark)',
+                                  fontWeight: 700,
+                                  fontSize: '12px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}
+                              >
+                                {c.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ fontWeight: 700, color: 'var(--text-dark)' }}>{c.name}</td>
+                          <td style={{ fontWeight: 600 }}>+91 {c.phone}</td>
+                          <td>
+                            <span className="badge badge-info" style={{ fontSize: '11px' }}>{c.gender}</span>
+                          </td>
+                          <td style={{ fontSize: '12px' }}>
+                            <strong>{c.idProof}:</strong> {formatIdProofDisplay(c.idProof, c.idNumber)}
+                          </td>
+                          <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{c.joinedDate || 'Recent'}</td>
+                          <td>
+                            {c.isDeleted ? (
+                              <span className="badge badge-danger" style={{ fontSize: '11px' }}>DELETED</span>
+                            ) : (
+                              <span className="badge badge-success" style={{ fontSize: '11px' }}>VERIFIED</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', gap: '6px' }}>
+                              {custSubTab === 'deleted' ? (
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ height: '28px', padding: '0 8px', fontSize: '11px', gap: '4px' }}
+                                    title="Restore Customer"
+                                    onClick={() => restoreCustomer(c.id)}
+                                  >
+                                    <RotateCcw size={12} />
+                                    <span>Restore</span>
+                                  </button>
+                                  {userRole === 'ADMIN' && (
+                                    <button
+                                      className="btn btn-sm"
+                                      style={{
+                                        height: '28px',
+                                        padding: '0 8px',
+                                        fontSize: '11px',
+                                        gap: '4px',
+                                        backgroundColor: '#ef4444',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer'
+                                      }}
+                                      title="Delete Completely (Admin Only)"
+                                      onClick={() => {
+                                        setPermanentDeleteTarget(c);
+                                        setPermanentDeleteInput('');
+                                      }}
+                                    >
+                                      <Trash2 size={12} />
+                                      <span>🗑 Delete Completely</span>
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    className="icon-button"
+                                    style={{ width: '28px', height: '28px' }}
+                                    title="View Customer"
+                                    onClick={() => setViewingCustomer(c)}
+                                  >
+                                    <Eye size={13} />
+                                  </button>
+                                  <button
+                                    className="icon-button"
+                                    style={{ width: '28px', height: '28px' }}
+                                    title="Edit Customer"
+                                    onClick={() => setEditingCustomer(c)}
+                                  >
+                                    <Edit3 size={13} />
+                                  </button>
+                                  {userRole === 'ADMIN' && (
+                                    <button
+                                      className="icon-button"
+                                      style={{ width: '28px', height: '28px', color: 'var(--color-danger, #ef4444)' }}
+                                      title="Delete Customer (Admin Only)"
+                                      onClick={() => setDeletingCustomer(c)}
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'bulk-fd' && masterControlSettings?.bulkFdDateChangeEnabled && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="card" style={{ padding: '24px' }}>
@@ -580,15 +785,6 @@ export const AdminPanel: React.FC = () => {
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       type="button"
-                      className="btn"
-                      style={{ borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', padding: 0, backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)' }}
-                      onClick={() => startVoiceInput('search')}
-                      title="Voice Search"
-                    >
-                      <Mic size={16} />
-                    </button>
-                    <button
-                      type="button"
                       className={`btn btn-sm ${dateMode === 'shift' ? 'btn-primary' : 'btn-secondary'}`}
                       style={{ height: '38px', borderRadius: 'var(--radius-md)', fontWeight: 600 }}
                       onClick={() => setDateMode('shift')}
@@ -610,45 +806,23 @@ export const AdminPanel: React.FC = () => {
                   {dateMode === 'shift' ? (
                     <div className="form-group" style={{ margin: 0, flex: '1 1 200px' }}>
                       <label className="form-label required">DAYS TO SHIFT (+/-)</label>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input
-                          type="number"
-                          className="input-control"
-                          placeholder="e.g. 5 or -10"
-                          value={offsetDaysValue || ''}
-                          onChange={(e) => setOffsetDaysValue(Number(e.target.value))}
-                        />
-                        <button
-                          type="button"
-                          className="btn"
-                          style={{ borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', padding: 0, backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
-                          onClick={() => startVoiceInput('offset')}
-                          title="Voice input days offset"
-                        >
-                          <Mic size={16} />
-                        </button>
-                      </div>
+                      <input
+                        type="number"
+                        className="input-control"
+                        placeholder="e.g. 5 or -10"
+                        value={offsetDaysValue || ''}
+                        onChange={(e) => setOffsetDaysValue(Number(e.target.value))}
+                      />
                     </div>
                   ) : (
                     <div className="form-group" style={{ margin: 0, flex: '1 1 200px' }}>
                       <label className="form-label required">NEW DEPOSIT DATE</label>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input
-                          type="date"
-                          className="input-control"
-                          value={newDepDateVal}
-                          onChange={(e) => setNewDepDateVal(e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="btn"
-                          style={{ borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', padding: 0, backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
-                          onClick={() => startVoiceInput('date')}
-                          title="Voice input date"
-                        >
-                          <Mic size={16} />
-                        </button>
-                      </div>
+                      <input
+                        type="date"
+                        className="input-control"
+                        value={newDepDateVal}
+                        onChange={(e) => setNewDepDateVal(e.target.value)}
+                      />
                     </div>
                   )}
 
@@ -2168,6 +2342,270 @@ export const AdminPanel: React.FC = () => {
           setMasterControlOpen(false);
         }}
       />
+
+      {/* View Customer Details Modal */}
+      <ViewCustomerModal
+        isOpen={!!viewingCustomer}
+        customer={viewingCustomer}
+        onClose={() => setViewingCustomer(null)}
+        onEdit={(cust) => setEditingCustomer(cust)}
+      />
+
+      {/* Edit Customer Modal */}
+      <EditCustomerModal
+        isOpen={!!editingCustomer}
+        customer={editingCustomer}
+        onClose={() => setEditingCustomer(null)}
+        onSave={(id, updates) => {
+          updateCustomer(id, updates);
+        }}
+      />
+
+      {/* Admin Delete Confirmation Modal */}
+      {deletingCustomer && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 3000,
+            padding: '20px'
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              padding: '24px',
+              borderRadius: '12px',
+              boxShadow: 'var(--shadow-xl)'
+            }}
+          >
+            <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: '0 0 6px 0', fontSize: '18px', fontWeight: 800, color: 'var(--color-danger, #ef4444)' }}>
+                Delete Customer?
+              </h3>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+                You are about to permanently delete this customer record.
+              </p>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+                border: '1px solid var(--border-light, #cbd5e1)',
+                borderRadius: '8px',
+                padding: '14px 16px',
+                marginBottom: '16px',
+                fontSize: '13px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}
+            >
+              <div><strong>Customer Name:</strong> {deletingCustomer.name}</div>
+              <div><strong>Customer ID:</strong> {deletingCustomer.id}</div>
+              <div><strong>Mobile Number:</strong> +91 {deletingCustomer.phone}</div>
+            </div>
+
+            <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '10px 14px', marginBottom: '20px', color: '#991b1b', fontSize: '12px', fontWeight: 700, textAlign: 'center' }}>
+              ⚠ This action cannot be undone.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
+              <button className="btn btn-secondary" onClick={() => setDeletingCustomer(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                style={{ backgroundColor: 'var(--color-danger, #ef4444)', color: '#fff', fontWeight: 700 }}
+                onClick={() => {
+                  deleteCustomer(deletingCustomer.id);
+                  setDeletingCustomer(null);
+                }}
+              >
+                🗑 Delete Customer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PERMANENT DELETE DANGER CONFIRMATION MODAL */}
+      {permanentDeleteTarget && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 3500,
+            padding: '20px'
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: '500px',
+              padding: '24px',
+              borderRadius: '16px',
+              border: '2px solid #ef4444',
+              backgroundColor: '#ffffff',
+              boxShadow: '0 20px 40px rgba(239, 68, 68, 0.25)'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  backgroundColor: '#fee2e2',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+              >
+                <AlertTriangle size={24} color="#dc2626" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#991b1b' }}>
+                  ⚠ Permanently Delete Customer?
+                </h3>
+                <span style={{ fontSize: '12px', color: '#b91c1c', fontWeight: 600 }}>
+                  Admin Authorization Required · Cannot be undone
+                </span>
+              </div>
+            </div>
+
+            {/* Warning Message */}
+            <p style={{ fontSize: '13.5px', color: '#4b5563', lineHeight: 1.5, margin: '0 0 16px 0' }}>
+              You are about to permanently delete this customer and all associated records. This action cannot be undone.
+            </p>
+
+            {/* Customer Details Box */}
+            <div
+              style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '10px',
+                padding: '14px',
+                marginBottom: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                fontSize: '13px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#7f1d1d', fontWeight: 600 }}>Customer Name:</span>
+                <strong style={{ color: '#991b1b', fontSize: '14px' }}>{permanentDeleteTarget.name}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#7f1d1d', fontWeight: 600 }}>Customer ID:</span>
+                <span
+                  style={{
+                    backgroundColor: '#dc2626',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: '12px',
+                    padding: '2px 10px',
+                    borderRadius: '6px',
+                    letterSpacing: '0.5px'
+                  }}
+                >
+                  {permanentDeleteTarget.id}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#7f1d1d', fontWeight: 600 }}>Mobile Number:</span>
+                <strong style={{ color: '#991b1b' }}>+91 {permanentDeleteTarget.phone}</strong>
+              </div>
+            </div>
+
+            {/* Type DELETE Instruction & Input */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#1f2937', marginBottom: '6px' }}>
+                To permanently delete this customer and all associated records, type <strong style={{ color: '#dc2626' }}>DELETE</strong> below to confirm.
+              </label>
+              <input
+                type="text"
+                className="input-control"
+                placeholder="Type DELETE to confirm"
+                value={permanentDeleteInput}
+                onChange={(e) => setPermanentDeleteInput(e.target.value)}
+                style={{
+                  borderColor: permanentDeleteInput === 'DELETE' ? '#dc2626' : '#cbd5e1',
+                  backgroundColor: permanentDeleteInput === 'DELETE' ? '#fef2f2' : '#ffffff',
+                  fontWeight: 800,
+                  letterSpacing: '1.5px',
+                  fontSize: '14px'
+                }}
+              />
+              {permanentDeleteInput && permanentDeleteInput !== 'DELETE' && (
+                <span style={{ fontSize: '11.5px', color: '#dc2626', fontWeight: 600, display: 'block', marginTop: '4px' }}>
+                  ⚠ Type DELETE in capital letters to confirm.
+                </span>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={isDeletingPermanently}
+                onClick={() => {
+                  setPermanentDeleteTarget(null);
+                  setPermanentDeleteInput('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={permanentDeleteInput !== 'DELETE' || isDeletingPermanently}
+                onClick={handleConfirmPermanentDelete}
+                style={{
+                  backgroundColor: permanentDeleteInput === 'DELETE' && !isDeletingPermanently ? '#dc2626' : '#9ca3af',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                  padding: '8px 20px',
+                  borderRadius: '8px',
+                  cursor: permanentDeleteInput === 'DELETE' && !isDeletingPermanently ? 'pointer' : 'not-allowed',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {isDeletingPermanently ? (
+                  <>
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={15} />
+                    <span>Delete Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

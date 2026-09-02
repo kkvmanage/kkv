@@ -306,3 +306,107 @@ export function maskSensitiveObject<T extends Record<string, any>>(data: T): T {
   }
   return copy as T;
 }
+
+/**
+ * Parses existing customer record into clean ID proof state variables:
+ * - idProof
+ * - idNumber (Aadhaar number or single document number)
+ * - extraPan (PAN number for Aadhaar + PAN)
+ * - docName (Document name for Other)
+ */
+export function parseCustomerKYC(customer: any): {
+  idProof: string;
+  idNumber: string;
+  extraPan: string;
+  docName: string;
+} {
+  if (!customer) {
+    return { idProof: 'Aadhaar', idNumber: '', extraPan: '', docName: '' };
+  }
+
+  const rawProof = customer.idProof || customer.idProofType || 'Aadhaar';
+  const typeLower = rawProof.trim().toLowerCase();
+
+  let idNumber = customer.idNumber || customer.idProofNumber || '';
+  let extraPan = customer.panNumber || customer.extraPan || '';
+  let docName = customer.otherIdName || customer.docName || '';
+
+  // Case 1: Aadhaar + PAN
+  if (typeLower.includes('aadhaar + pan') || (typeLower.includes('aadhaar') && typeLower.includes('pan'))) {
+    let aadhaar = customer.aadhaarNumber || '';
+    let pan = customer.panNumber || customer.extraPan || '';
+
+    if (!aadhaar || !pan) {
+      if (idNumber.includes('/')) {
+        const parts = idNumber.split('/').map((p: string) => p.trim());
+        if (!aadhaar && parts[0]) aadhaar = parts[0];
+        if (!pan && parts[1]) pan = parts[1];
+      } else {
+        const aMatch = idNumber.match(/\b\d{4}\s?\d{4}\s?\d{4}\b/);
+        if (aMatch && !aadhaar) aadhaar = aMatch[0];
+
+        const pMatch = idNumber.match(/\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b/i);
+        if (pMatch && !pan) pan = pMatch[0];
+      }
+    }
+
+    // Fallback if idNumber holds single number
+    if (!aadhaar && idNumber.replace(/\D/g, '').length === 12) {
+      aadhaar = idNumber;
+    }
+    if (!pan && /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i.test(idNumber.trim())) {
+      pan = idNumber;
+    }
+
+    return {
+      idProof: 'Aadhaar + PAN',
+      idNumber: formatAadhaarInput(aadhaar),
+      extraPan: (pan || '').toUpperCase().trim(),
+      docName: ''
+    };
+  }
+
+  // Case 2: Aadhaar single
+  if (typeLower === 'aadhaar') {
+    const aadhaar = customer.aadhaarNumber || idNumber;
+    return {
+      idProof: 'Aadhaar',
+      idNumber: formatAadhaarInput(aadhaar),
+      extraPan: (customer.panNumber || '').toUpperCase().trim(),
+      docName: ''
+    };
+  }
+
+  // Case 3: PAN single
+  if (typeLower === 'pan') {
+    const pan = customer.panNumber || idNumber;
+    return {
+      idProof: 'PAN',
+      idNumber: (pan || '').toUpperCase().trim(),
+      extraPan: (pan || '').toUpperCase().trim(),
+      docName: ''
+    };
+  }
+
+  // Case 4: Other
+  if (typeLower.includes('other')) {
+    if (!docName && idNumber.includes(':')) {
+      const parts = idNumber.split(':').map((p: string) => p.trim());
+      docName = parts[0] || '';
+      idNumber = parts[1] || idNumber;
+    }
+    return {
+      idProof: 'Other',
+      idNumber: idNumber.trim(),
+      extraPan: '',
+      docName: docName.trim()
+    };
+  }
+
+  return {
+    idProof: rawProof,
+    idNumber: idNumber.trim(),
+    extraPan: extraPan.trim(),
+    docName: docName.trim()
+  };
+}

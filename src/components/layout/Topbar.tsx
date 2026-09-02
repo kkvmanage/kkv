@@ -16,8 +16,24 @@ const pageTitles: Record<NavPage, PageMetadata> = {
     subtitle: 'Real-time vault gold weight, active pledges, and monthly interest accrual'
   },
   customers: {
-    title: 'Customers',
+    title: 'Customer Management',
     subtitle: 'Manage borrowers and KYC details.'
+  },
+  'customers-add': {
+    title: 'Add Customer',
+    subtitle: 'Manage borrowers and KYC details.'
+  },
+  'add-customer-form': {
+    title: 'Add Borrower KYC',
+    subtitle: 'Complete borrower KYC onboarding and identity verification'
+  },
+  'search-customer': {
+    title: 'Search Customers',
+    subtitle: 'Find and manage registered borrower records.'
+  },
+  'customer-profile': {
+    title: 'Customer Profile',
+    subtitle: 'Borrower KYC details, active pledges, and complete loan history'
   },
   'loan-issue': {
     title: 'Issue New Loan',
@@ -56,12 +72,12 @@ const pageTitles: Record<NavPage, PageMetadata> = {
     subtitle: 'Borrower statement of account, principal dues, paid ledger, and net balances'
   },
   'fd-customers': {
-    title: 'Add FD Customers',
-    subtitle: 'Register fixed deposit depositors and KYC documents.'
+    title: 'Fixed Deposit Management',
+    subtitle: 'Manage term deposits linked to master customer records.'
   },
   'new-deposit': {
     title: 'Issue New Fixed Deposit',
-    subtitle: 'Existing or new deposit, monthly interest payout.'
+    subtitle: 'Issue term deposit linked to master customer ID with monthly yield payout.'
   },
   'deposit-display': {
     title: 'Deposit Display',
@@ -126,10 +142,6 @@ const pageTitles: Record<NavPage, PageMetadata> = {
   settings: {
     title: 'Settings',
     subtitle: 'Branch configuration, 22ct gold rate valuation, and printer setup'
-  },
-  lockers: {
-    title: 'Locker Management',
-    subtitle: 'Track cabinet allocations, issue lockers, and record rent payouts'
   }
 };
 

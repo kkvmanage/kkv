@@ -34,6 +34,26 @@ export interface CustomerLocation {
   addressSummary: string;
 }
 
+export interface StructuredAddress {
+  houseNumber?: string;
+  street?: string;
+  locality?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  country?: string;
+  pincode?: string;
+}
+
+export interface LocationDetails {
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy?: number | null;
+  capturedAt?: string | null;
+  googleMapsUrl?: string;
+  locationMethod?: 'gps' | 'google_maps_url' | 'manual';
+}
+
 export interface LoanTopUpRecord {
   id: string;
   date: string;
@@ -51,10 +71,17 @@ export interface Customer {
   phone: string;
   gender: 'Male' | 'Female' | 'Other';
   age?: number;
+  dateOfBirth?: string;
   occupation: string;
   email?: string;
   currentAddress: string;
   permanentAddress: string;
+  currentAddressDetails?: StructuredAddress;
+  permanentAddressDetails?: StructuredAddress;
+  customerPhoto?: string | null;
+  photoSource?: 'upload' | 'webcam' | null;
+  currentLocation?: LocationDetails | null;
+  permanentLocation?: LocationDetails | null;
   idProof: string;
   idNumber: string;
   activeLoansCount: number;
@@ -64,6 +91,8 @@ export interface Customer {
   profilePhotoDriveId?: string;
   kycDocumentDriveIds?: string[];
   driveFolderId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Loan {
