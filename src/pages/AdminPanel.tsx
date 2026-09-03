@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2, Search, CloudDownload, Eye, Edit3, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Users, CreditCard, DollarSign, CheckCircle2, PiggyBank, Wallet, Building2, Bell, Database, X, Save, Lock, Plus, Trash2, Search, CloudDownload, Eye, Edit3, RotateCcw, AlertTriangle, Clock } from 'lucide-react';
 import { AmountBand, Customer } from '../types';
 
 import { KKVLogo } from '../components/common/KKVLogo';
@@ -8,7 +8,14 @@ import { WipeAllDataModal } from '../components/admin/WipeAllDataModal';
 import { SystemRestoreModal } from '../components/admin/SystemRestoreModal';
 import { ViewCustomerModal } from '../components/common/ViewCustomerModal';
 import { EditCustomerModal } from '../components/common/EditCustomerModal';
-import { formatIdProofDisplay } from '../utils/kycValidation';
+import { getCanonicalCustomerId, isMatchingCustomerId } from '../utils/customerUtils';
+import {
+  formatFDDate,
+  normalizeDateString,
+  getDaysDifference,
+  compareFDDates,
+  getAllPendingFDInterestPeriods
+} from '../utils/fdInterestUtils';
 
 export const AdminPanel: React.FC = () => {
   const [showWipeModal, setShowWipeModal] = useState(false);
@@ -39,6 +46,9 @@ export const AdminPanel: React.FC = () => {
     restoreCustomer,
     deleteCustomerPermanently,
     updateCustomer,
+    fdInterestPayouts,
+    setSelectedProfileCustomerId,
+    setCurrentPage,
     showToast
   } = useApp();
 
@@ -242,8 +252,26 @@ export const AdminPanel: React.FC = () => {
   const totalDisbursed = safeLoans.reduce((sum, l) => sum + (l?.principal || 0), 0);
   const totalOutstanding = safeLoans.reduce((sum, l) => sum + (l?.outstandingPrincipal || 0), 0);
   const totalCollected = safeReceipts.filter((r) => r?.kind !== 'NEW LOAN').reduce((sum, r) => sum + (r?.amount || 0), 0);
-  const activeFDs = safeFixedDeposits.filter((f) => f?.status === 'ACTIVE');
   const totalRecords = safeLoans.length + safeCustomers.length + safeReceipts.length + safeFixedDeposits.length + safeDayBookEntries.length;
+
+  const todayStr = formatFDDate(new Date());
+
+  // Fixed Deposit Overview Metrics (Section 25)
+  const activeFDs = safeFixedDeposits.filter((f) => f?.status === 'ACTIVE');
+  const withdrawnFDs = safeFixedDeposits.filter((f) => f?.status === 'WITHDRAWN' || (f?.status as string) === 'CLOSED');
+  const totalFDCustomersCount = safeCustomers.filter((c) => !c.isDeleted && safeFixedDeposits.some((f) => isMatchingCustomerId(f.customerId, c))).length;
+  const totalFDPrincipal = safeFixedDeposits.reduce((sum, f) => sum + (f?.principal || 0), 0);
+  const totalActiveFDBalance = activeFDs.reduce((sum, f) => sum + (f?.remainingPrincipal ?? f?.principal ?? 0), 0);
+
+  const pendingFDPeriods = getAllPendingFDInterestPeriods(activeFDs, fdInterestPayouts || [], todayStr);
+  const pendingFDInterestTotal = pendingFDPeriods.reduce((sum, p) => sum + p.amount, 0);
+
+  const maturingSoonFDs = activeFDs.filter((f) => {
+    if (!f.maturityDate) return false;
+    const comp = compareFDDates(normalizeDateString(f.maturityDate), todayStr);
+    const diffDays = getDaysDifference(todayStr, normalizeDateString(f.maturityDate));
+    return comp >= 0 && diffDays <= 30;
+  });
 
   const handleUnlockSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -453,301 +481,471 @@ export const AdminPanel: React.FC = () => {
             </button>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }}>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">CUSTOMERS</span>
-                <span className="stat-card-value">{safeCustomers.length}</span>
-              </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Users size={20} /></div>
+          {/* LOANS & CASH OVERVIEW */}
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', letterSpacing: '0.05em', marginBottom: '8px', textTransform: 'uppercase' }}>
+              LOAN &amp; CASH OVERVIEW
             </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">ACTIVE LOANS</span>
-                <span className="stat-card-value">{activeLoans.length}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }}>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">CUSTOMERS</span>
+                  <span className="stat-card-value">{safeCustomers.length}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Users size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><CreditCard size={20} /></div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">ACTIVE LOANS</span>
+                  <span className="stat-card-value">{activeLoans.length}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><CreditCard size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">TOTAL DISBURSED</span>
+                  <span className="stat-card-value">₹{totalDisbursed.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><DollarSign size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">OUTSTANDING</span>
+                  <span className="stat-card-value">₹{totalOutstanding.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Wallet size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">COLLECTED</span>
+                  <span className="stat-card-value">₹{totalCollected.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.14)', color: '#059669' }}><CheckCircle2 size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">CASH IN HAND</span>
+                  <span className="stat-card-value">₹{(cashInHand || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Wallet size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">CASH AT BANK</span>
+                  <span className="stat-card-value">₹{(cashAtBank || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><Building2 size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">TOTAL RECORDS</span>
+                  <span className="stat-card-value">{totalRecords}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Database size={20} /></div>
+              </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">TOTAL DISBURSED</span>
-                <span className="stat-card-value">₹{totalDisbursed.toLocaleString('en-IN')}</span>
-              </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><DollarSign size={20} /></div>
+          </div>
+
+          {/* SECTION 25: FIXED DEPOSITS OVERVIEW */}
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', letterSpacing: '0.05em', marginBottom: '8px', textTransform: 'uppercase' }}>
+              FIXED DEPOSITS OVERVIEW
             </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">OUTSTANDING</span>
-                <span className="stat-card-value">₹{totalOutstanding.toLocaleString('en-IN')}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }}>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">TOTAL FD CUSTOMERS</span>
+                  <span className="stat-card-value">{totalFDCustomersCount}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Users size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Wallet size={20} /></div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">COLLECTED</span>
-                <span className="stat-card-value">₹{totalCollected.toLocaleString('en-IN')}</span>
+
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">ACTIVE FDs</span>
+                  <span className="stat-card-value">{activeFDs.length}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><PiggyBank size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.14)', color: '#059669' }}><CheckCircle2 size={20} /></div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">ACTIVE FDS</span>
-                <span className="stat-card-value">{activeFDs.length}</span>
+
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">TOTAL FD PRINCIPAL</span>
+                  <span className="stat-card-value">₹{totalFDPrincipal.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><DollarSign size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><PiggyBank size={20} /></div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">CASH IN HAND</span>
-                <span className="stat-card-value">₹{(cashInHand || 0).toLocaleString('en-IN')}</span>
+
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">ACTIVE FD BALANCE</span>
+                  <span className="stat-card-value">₹{totalActiveFDBalance.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.14)', color: '#059669' }}><Wallet size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Wallet size={20} /></div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">CASH AT BANK</span>
-                <span className="stat-card-value">₹{(cashAtBank || 0).toLocaleString('en-IN')}</span>
+
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">PENDING FD INTEREST</span>
+                  <span className="stat-card-value" style={pendingFDInterestTotal > 0 ? { color: '#dc2626' } : undefined}>
+                    ₹{pendingFDInterestTotal.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: pendingFDInterestTotal > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.15)', color: pendingFDInterestTotal > 0 ? '#dc2626' : '#D97706' }}><Bell size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><Building2 size={20} /></div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">REMINDERS DUE</span>
-                <span className="stat-card-value">0</span>
+
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">MATURING SOON (30D)</span>
+                  <span className="stat-card-value">{maturingSoonFDs.length}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><Clock size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#D97706' }}><Bell size={20} /></div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-info">
-                <span className="stat-card-label">RECORDS</span>
-                <span className="stat-card-value">{totalRecords}</span>
+
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">WITHDRAWN FDs</span>
+                  <span className="stat-card-value">{withdrawnFDs.length}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(100, 116, 139, 0.12)', color: '#64748b' }}><CheckCircle2 size={20} /></div>
               </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Database size={20} /></div>
             </div>
           </div>
         </div>
       )}
 
       {/* Customer Management Tab Content */}
-      {activeTab === 'customers' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Top Bar: Subtabs & Search */}
-          <div className="card" style={{ padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  className={`btn ${custSubTab === 'active' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ fontSize: '13px', padding: '6px 16px' }}
-                  onClick={() => setCustSubTab('active')}
-                >
-                  Active Customers ({customers.filter(c => !c.isDeleted).length})
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${custSubTab === 'deleted' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ fontSize: '13px', padding: '6px 16px' }}
-                  onClick={() => setCustSubTab('deleted')}
-                >
-                  Deleted Customers ({customers.filter(c => c.isDeleted).length})
-                </button>
-              </div>
+      {activeTab === 'customers' && (() => {
+        const query = adminCustSearch.toLowerCase().trim();
 
-              <div style={{ position: 'relative', width: '320px' }}>
-                <input
-                  type="text"
-                  className="input-control"
-                  style={{ paddingLeft: '38px', height: '38px', fontSize: '13px' }}
-                  placeholder="Search ID, name, phone..."
-                  value={adminCustSearch}
-                  onChange={(e) => setAdminCustSearch(e.target.value)}
-                />
-                <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+        const filteredCusts = customers
+          .filter(c => (custSubTab === 'deleted' ? Boolean(c.isDeleted) : !c.isDeleted))
+          .filter(c => {
+            if (!query) return true;
+            const canonicalId = getCanonicalCustomerId(c).toLowerCase();
+            const numIdStr = c.customerId ? c.customerId.toString().toLowerCase() : '';
+            const matchesLoanNo = safeLoans.some(l => isMatchingCustomerId(l.customerId, c) && l.loanNo.toLowerCase().includes(query));
+            const matchesFDNo = safeFixedDeposits.some(f => isMatchingCustomerId(f.customerId, c) && f.fdNo.toLowerCase().includes(query));
+
+            return (
+              c.name.toLowerCase().includes(query) ||
+              c.phone.includes(query) ||
+              c.id.toLowerCase().includes(query) ||
+              canonicalId.includes(query) ||
+              numIdStr.includes(query) ||
+              isMatchingCustomerId(query, c) ||
+              matchesLoanNo ||
+              matchesFDNo
+            );
+          });
+
+        const topMatch = query && filteredCusts.length > 0 ? filteredCusts[0] : null;
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Top Bar: Subtabs & Search */}
+            <div className="card" style={{ padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className={`btn ${custSubTab === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ fontSize: '13px', padding: '6px 16px' }}
+                    onClick={() => setCustSubTab('active')}
+                  >
+                    Active Customers ({customers.filter(c => !c.isDeleted).length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${custSubTab === 'deleted' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ fontSize: '13px', padding: '6px 16px' }}
+                    onClick={() => setCustSubTab('deleted')}
+                  >
+                    Deleted Customers ({customers.filter(c => c.isDeleted).length})
+                  </button>
+                </div>
+
+                <div style={{ position: 'relative', width: '360px' }}>
+                  <input
+                    type="text"
+                    className="input-control"
+                    style={{ paddingLeft: '38px', height: '40px', fontSize: '13px' }}
+                    placeholder="Search Customer ID (e.g. CUST-0006), Name, Mobile..."
+                    value={adminCustSearch}
+                    onChange={(e) => setAdminCustSearch(e.target.value)}
+                  />
+                  <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Customer Table Card */}
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div className="table-container">
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>CUSTOMER ID</th>
-                    <th>PROFILE PHOTO</th>
-                    <th>CUSTOMER NAME</th>
-                    <th>MOBILE NUMBER</th>
-                    <th>GENDER</th>
-                    <th>ID PROOF</th>
-                    <th>CREATED DATE</th>
-                    <th>STATUS</th>
-                    <th style={{ textAlign: 'center', width: '140px' }}>ACTIONS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {customers.filter(c => (custSubTab === 'deleted' ? Boolean(c.isDeleted) : !c.isDeleted)).filter(c => {
-                    const q = adminCustSearch.toLowerCase().trim();
-                    if (!q) return true;
-                    return (
-                      c.name.toLowerCase().includes(q) ||
-                      c.phone.includes(q) ||
-                      c.id.toLowerCase().includes(q) ||
-                      (c.customerId && c.customerId.toString() === q)
-                    );
-                  }).length === 0 ? (
+            {/* SECTION 17: TOP MATCH HIGHLIGHT CARD */}
+            {topMatch && (
+              (() => {
+                const c = topMatch;
+                const custCanonicalId = getCanonicalCustomerId(c);
+                const custLoans = safeLoans.filter(l => isMatchingCustomerId(l.customerId, c) && l.status !== 'CLOSED');
+                const custFDs = safeFixedDeposits.filter(f => isMatchingCustomerId(f.customerId, c));
+                const activeCustFDs = custFDs.filter(f => f.status === 'ACTIVE');
+                const totalCustFdBal = activeCustFDs.reduce((sum, f) => sum + (f.remainingPrincipal ?? f.principal ?? 0), 0);
+
+                return (
+                  <div
+                    className="card"
+                    style={{
+                      padding: '18px 22px',
+                      borderLeft: '5px solid var(--color-primary-accent, #059669)',
+                      backgroundColor: '#ffffff',
+                      boxShadow: 'var(--shadow-sm)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#064e3b', border: '2px solid #86efac', overflow: 'hidden' }}>
+                          {c.customerPhoto ? (
+                            <img src={c.customerPhoto} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            c.name.charAt(0).toUpperCase()
+                          )}
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <h3 style={{ fontSize: '17px', fontWeight: 900, color: 'var(--color-primary-dark)', margin: 0 }}>
+                              {c.name}
+                            </h3>
+                            <span className="badge badge-info" style={{ fontSize: '11px', fontWeight: 800 }}>
+                              {custCanonicalId}
+                            </span>
+                            <span className="badge badge-success" style={{ fontSize: '11px' }}>
+                              {c.isDeleted ? 'DELETED' : 'ACTIVE'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
+                            <span>Mobile: <strong>+91 {c.phone}</strong></span>
+                            <span>&bull;</span>
+                            <span style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>Loans: {custLoans.length}</span>
+                            <span>&bull;</span>
+                            <span style={{ fontWeight: 800, color: 'var(--color-gold-dark, #b45309)' }}>Fixed Deposits: {activeCustFDs.length} ACTIVE</span>
+                            <span>&bull;</span>
+                            <span style={{ fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>FD Balance: ₹{totalCustFdBal.toLocaleString('en-IN')}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setSelectedProfileCustomerId(c.id);
+                          setCurrentPage('customer-profile');
+                        }}
+                        style={{ fontWeight: 800, padding: '8px 18px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Eye size={14} />
+                        <span>View Customer Overview &rarr;</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
+            )}
+
+            {/* Customer Table Card (Sections 2 & 3) */}
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div className="table-container">
+                <table className="custom-table">
+                  <thead>
                     <tr>
-                      <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-                        No {custSubTab === 'deleted' ? 'deleted' : 'active'} customer records found.
-                      </td>
+                      <th>CUSTOMER ID</th>
+                      <th>PROFILE</th>
+                      <th>CUSTOMER</th>
+                      <th>MOBILE</th>
+                      <th>LOANS</th>
+                      <th>FIXED DEPOSITS</th>
+                      <th>FINANCIAL EXPOSURE</th>
+                      <th>STATUS</th>
+                      <th style={{ textAlign: 'center', width: '160px' }}>ACTIONS</th>
                     </tr>
-                  ) : (
-                    customers
-                      .filter(c => (custSubTab === 'deleted' ? Boolean(c.isDeleted) : !c.isDeleted))
-                      .filter(c => {
-                        const q = adminCustSearch.toLowerCase().trim();
-                        if (!q) return true;
+                  </thead>
+                  <tbody>
+                    {filteredCusts.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                          No {custSubTab === 'deleted' ? 'deleted' : 'active'} customer records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredCusts.map((c) => {
+                        const custCanonicalId = getCanonicalCustomerId(c);
+                        const custLoans = safeLoans.filter(l => isMatchingCustomerId(l.customerId, c) && l.status !== 'CLOSED');
+                        const custOutstanding = custLoans.reduce((sum, l) => sum + (l.outstandingPrincipal ?? l.principal ?? 0), 0);
+                        const custFDs = safeFixedDeposits.filter(f => isMatchingCustomerId(f.customerId, c));
+                        const activeCustFDs = custFDs.filter(f => f.status === 'ACTIVE');
+                        const totalCustFdBal = activeCustFDs.reduce((sum, f) => sum + (f.remainingPrincipal ?? f.principal ?? 0), 0);
+                        const exposure = custOutstanding + totalCustFdBal;
+
                         return (
-                          c.name.toLowerCase().includes(q) ||
-                          c.phone.includes(q) ||
-                          c.id.toLowerCase().includes(q) ||
-                          (c.customerId && c.customerId.toString() === q)
-                        );
-                      })
-                      .map((c) => (
-                        <tr key={c.id}>
-                          <td>
-                            <strong style={{ color: 'var(--color-primary-dark)', fontSize: '13px' }}>
-                              {c.id}
-                            </strong>
-                          </td>
-                          <td>
-                            {c.customerPhoto ? (
-                              <img
-                                src={c.customerPhoto}
-                                alt={c.name}
-                                style={{
-                                  width: '32px',
-                                  height: '32px',
-                                  borderRadius: '50%',
-                                  objectFit: 'cover',
-                                  border: '1.5px solid var(--color-primary-accent)'
-                                }}
-                              />
-                            ) : (
-                              <div
-                                style={{
-                                  width: '32px',
-                                  height: '32px',
-                                  borderRadius: '50%',
-                                  backgroundColor: 'var(--color-light-accent)',
-                                  color: 'var(--color-primary-dark)',
-                                  fontWeight: 700,
-                                  fontSize: '12px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center'
-                                }}
-                              >
-                                {c.name.charAt(0).toUpperCase()}
-                              </div>
-                            )}
-                          </td>
-                          <td style={{ fontWeight: 700, color: 'var(--text-dark)' }}>{c.name}</td>
-                          <td style={{ fontWeight: 600 }}>+91 {c.phone}</td>
-                          <td>
-                            <span className="badge badge-info" style={{ fontSize: '11px' }}>{c.gender}</span>
-                          </td>
-                          <td style={{ fontSize: '12px' }}>
-                            <strong>{c.idProof}:</strong> {formatIdProofDisplay(c.idProof, c.idNumber)}
-                          </td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{c.joinedDate || 'Recent'}</td>
-                          <td>
-                            {c.isDeleted ? (
-                              <span className="badge badge-danger" style={{ fontSize: '11px' }}>DELETED</span>
-                            ) : (
-                              <span className="badge badge-success" style={{ fontSize: '11px' }}>VERIFIED</span>
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'inline-flex', gap: '6px' }}>
-                              {custSubTab === 'deleted' ? (
-                                <div style={{ display: 'flex', gap: '6px' }}>
-                                  <button
-                                    className="btn btn-secondary btn-sm"
-                                    style={{ height: '28px', padding: '0 8px', fontSize: '11px', gap: '4px' }}
-                                    title="Restore Customer"
-                                    onClick={() => restoreCustomer(c.id)}
-                                  >
-                                    <RotateCcw size={12} />
-                                    <span>Restore</span>
-                                  </button>
-                                  {userRole === 'ADMIN' && (
+                          <tr key={c.id}>
+                            <td>
+                              <span className="badge badge-info" style={{ fontSize: '11px', fontWeight: 800 }}>
+                                {custCanonicalId}
+                              </span>
+                            </td>
+                            <td>
+                              {c.customerPhoto ? (
+                                <img
+                                  src={c.customerPhoto}
+                                  alt={c.name}
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '50%',
+                                    objectFit: 'cover',
+                                    border: '1.5px solid var(--color-primary-accent)'
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '50%',
+                                    backgroundColor: 'var(--color-light-accent)',
+                                    color: 'var(--color-primary-dark)',
+                                    fontWeight: 700,
+                                    fontSize: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}
+                                >
+                                  {c.name.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ fontWeight: 700, color: 'var(--text-dark)' }}>{c.name}</td>
+                            <td style={{ fontWeight: 600 }}>+91 {c.phone}</td>
+                            <td>
+                              {custLoans.length > 0 ? (
+                                <span className="badge badge-success" style={{ fontSize: '11px' }}>
+                                  {custLoans.length} Active
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>0 Loans</span>
+                              )}
+                            </td>
+                            <td>
+                              {/* Section 3: FIXED DEPOSITS COLUMN */}
+                              {activeCustFDs.length > 0 ? (
+                                <span className="badge badge-gold" style={{ fontSize: '11px', fontWeight: 800 }}>
+                                  {activeCustFDs.length} ACTIVE
+                                </span>
+                              ) : custFDs.length > 0 ? (
+                                <span className="badge badge-secondary" style={{ fontSize: '11px' }}>
+                                  {custFDs.length} Historical
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>0 FDs</span>
+                              )}
+                            </td>
+                            <td>
+                              <strong style={{ color: exposure > 0 ? 'var(--color-primary-dark)' : 'var(--text-muted)', fontSize: '12.5px' }}>
+                                ₹{exposure.toLocaleString('en-IN')}
+                              </strong>
+                            </td>
+                            <td>
+                              {c.isDeleted ? (
+                                <span className="badge badge-danger" style={{ fontSize: '11px' }}>DELETED</span>
+                              ) : (
+                                <span className="badge badge-success" style={{ fontSize: '11px' }}>VERIFIED</span>
+                              )}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <div style={{ display: 'inline-flex', gap: '6px' }}>
+                                {custSubTab === 'deleted' ? (
+                                  <div style={{ display: 'flex', gap: '6px' }}>
                                     <button
-                                      className="btn btn-sm"
-                                      style={{
-                                        height: '28px',
-                                        padding: '0 8px',
-                                        fontSize: '11px',
-                                        gap: '4px',
-                                        backgroundColor: '#ef4444',
-                                        color: '#ffffff',
-                                        border: 'none',
-                                        borderRadius: '6px',
-                                        fontWeight: 700,
-                                        cursor: 'pointer'
-                                      }}
-                                      title="Delete Completely (Admin Only)"
+                                      className="btn btn-secondary btn-sm"
+                                      style={{ height: '28px', padding: '0 8px', fontSize: '11px', gap: '4px' }}
+                                      title="Restore Customer"
+                                      onClick={() => restoreCustomer(c.id)}
+                                    >
+                                      <RotateCcw size={12} />
+                                      <span>Restore</span>
+                                    </button>
+                                    {userRole === 'ADMIN' && (
+                                      <button
+                                        className="btn btn-sm"
+                                        style={{
+                                          height: '28px',
+                                          padding: '0 8px',
+                                          fontSize: '11px',
+                                          gap: '4px',
+                                          backgroundColor: '#ef4444',
+                                          color: '#ffffff',
+                                          border: 'none',
+                                          borderRadius: '6px',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                        title="Delete Completely (Admin Only)"
+                                        onClick={() => {
+                                          setPermanentDeleteTarget(c);
+                                          setPermanentDeleteInput('');
+                                        }}
+                                      >
+                                        <Trash2 size={12} />
+                                        <span>🗑 Delete Completely</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <>
+                                    <button
+                                      className="btn btn-primary btn-sm"
+                                      style={{ height: '28px', padding: '0 8px', fontSize: '11px', gap: '4px', fontWeight: 700 }}
+                                      title="View Customer Overview"
                                       onClick={() => {
-                                        setPermanentDeleteTarget(c);
-                                        setPermanentDeleteInput('');
+                                        setSelectedProfileCustomerId(c.id);
+                                        setCurrentPage('customer-profile');
                                       }}
                                     >
-                                      <Trash2 size={12} />
-                                      <span>🗑 Delete Completely</span>
+                                      <Eye size={12} />
+                                      <span>View &rarr;</span>
                                     </button>
-                                  )}
-                                </div>
-                              ) : (
-                                <>
-                                  <button
-                                    className="icon-button"
-                                    style={{ width: '28px', height: '28px' }}
-                                    title="View Customer"
-                                    onClick={() => setViewingCustomer(c)}
-                                  >
-                                    <Eye size={13} />
-                                  </button>
-                                  <button
-                                    className="icon-button"
-                                    style={{ width: '28px', height: '28px' }}
-                                    title="Edit Customer"
-                                    onClick={() => setEditingCustomer(c)}
-                                  >
-                                    <Edit3 size={13} />
-                                  </button>
-                                  {userRole === 'ADMIN' && (
                                     <button
                                       className="icon-button"
-                                      style={{ width: '28px', height: '28px', color: 'var(--color-danger, #ef4444)' }}
-                                      title="Delete Customer (Admin Only)"
-                                      onClick={() => setDeletingCustomer(c)}
+                                      style={{ width: '28px', height: '28px' }}
+                                      title="Edit Customer"
+                                      onClick={() => setEditingCustomer(c)}
                                     >
-                                      <Trash2 size={13} />
+                                      <Edit3 size={13} />
                                     </button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                  )}
-                </tbody>
-              </table>
+                                    {userRole === 'ADMIN' && (
+                                      <button
+                                        className="icon-button"
+                                        style={{ width: '28px', height: '28px', color: 'var(--color-danger, #ef4444)' }}
+                                        title="Delete Customer (Admin Only)"
+                                        onClick={() => setDeletingCustomer(c)}
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {activeTab === 'bulk-fd' && masterControlSettings?.bulkFdDateChangeEnabled && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

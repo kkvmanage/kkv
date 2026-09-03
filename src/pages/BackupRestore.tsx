@@ -9,6 +9,13 @@ export const BackupRestore: React.FC = () => {
     customers,
     receipts,
     fixedDeposits,
+    fdInterestPayouts,
+    fdWithdrawals,
+    fdRenewals,
+    fdCustomers,
+    dayBookEntries,
+    masterControlSettings,
+    whatsAppTemplates,
     telegramConfig,
     updateTelegramConfig,
     restoreDataFromJSON,
@@ -91,7 +98,19 @@ export const BackupRestore: React.FC = () => {
       timestamp: new Date().toISOString(),
       branch: 'KKV Gold Finance - Main Branch',
       version: '2.4.0',
-      data: { customers, loans, receipts, fixedDeposits }
+      data: {
+        customers,
+        loans,
+        receipts,
+        fixedDeposits,
+        fdInterestPayouts,
+        fdWithdrawals,
+        fdRenewals,
+        fdCustomers,
+        dayBookEntries,
+        masterControlSettings,
+        whatsAppTemplates
+      }
     };
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

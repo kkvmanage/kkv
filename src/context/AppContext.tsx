@@ -402,7 +402,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [whatsAppTemplates, setWhatsAppTemplates] = useState<WhatsAppTemplates>(() => getStored('waTemplates', defaultWhatsAppTemplates));
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>(() => getStored('tgConfig', defaultTelegramConfig));
 
-  const [selectedLoan, setSelectedLoan] = useState<Loan | null>(loans[0] || null);
+  const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(receipts[0] || null);
   const [selectedProfileCustomerId, setSelectedProfileCustomerId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -948,6 +948,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     setFdInterestPayouts((prev) => prev.filter((p) => !deletedFdNos.has(p.fdNo)));
     setFdWithdrawals((prev) => prev.filter((w) => !deletedFdNos.has(w.fdNo)));
+    setFdRenewals((prev) => prev.filter((r) => !deletedFdNos.has(r.fdNo)));
 
     showToast('Customer and all associated records have been permanently deleted successfully.', 'success');
     return true;
@@ -1253,6 +1254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFixedDeposits((prev) => prev.filter((f) => f.fdNo !== fdNo));
     setFdInterestPayouts((prev) => prev.filter((p) => p.fdNo !== fdNo));
     setFdWithdrawals((prev) => prev.filter((w) => w.fdNo !== fdNo));
+    setFdRenewals((prev) => prev.filter((r) => r.fdNo !== fdNo));
 
     showToast(`Fixed Deposit ${fdNo} permanently deleted.`, 'success');
     return true;
@@ -1299,18 +1301,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFdCustomers([]);
     setFdInterestPayouts([]);
     setFdWithdrawals([]);
+    setFdRenewals([]);
 
     showToast('All system operational data wiped. System ready for fresh start.', 'warning');
   };
 
   const restoreDataFromJSON = (jsonStr: string): boolean => {
     try {
-      const data = JSON.parse(jsonStr);
-      if (data.loans) setLoans(data.loans);
-      if (data.customers) setCustomers(data.customers);
-      if (data.receipts) setReceipts(data.receipts);
-      if (data.fixedDeposits) setFixedDeposits(data.fixedDeposits);
-      if (data.dayBookEntries) setDayBookEntries(data.dayBookEntries);
+      const rawData = JSON.parse(jsonStr);
+      const data = rawData.data || rawData;
+      if (Array.isArray(data.loans)) setLoans(data.loans);
+      if (Array.isArray(data.customers)) setCustomers(data.customers);
+      if (Array.isArray(data.receipts)) setReceipts(data.receipts);
+      if (Array.isArray(data.fixedDeposits)) setFixedDeposits(data.fixedDeposits);
+      if (Array.isArray(data.fdInterestPayouts)) setFdInterestPayouts(data.fdInterestPayouts);
+      if (Array.isArray(data.fdWithdrawals)) setFdWithdrawals(data.fdWithdrawals);
+      if (Array.isArray(data.fdRenewals)) setFdRenewals(data.fdRenewals);
+      if (Array.isArray(data.fdCustomers)) setFdCustomers(data.fdCustomers);
+      if (Array.isArray(data.dayBookEntries)) setDayBookEntries(data.dayBookEntries);
       if (data.masterControlSettings) setMasterControlSettings(data.masterControlSettings);
       if (data.whatsAppTemplates) setWhatsAppTemplates(data.whatsAppTemplates);
       showToast('Data restored successfully!', 'success');

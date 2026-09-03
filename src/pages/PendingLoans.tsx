@@ -39,12 +39,18 @@ export const PendingLoans: React.FC = () => {
     masterControlSettings
   } = useApp();
 
-  // ── Step 1: Customer ID First State ─────────────────────────────────────────
+  // Normalized today's date
+  const todayStr = useMemo(() => formatFDDate(new Date()), []);
+
+  // ── Step 1: Customer ID First State (STRICTLY NULL ON INITIAL LOAD) ─────────
   const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
-  // ── Step 2 & 3: Loan Selection & Payment Collection State ───────────────────
-  const [collectingLoan, setCollectingLoan] = useState<Loan | null>(null);
+  // ── Step 2 & 3: Loan Selection & Payment Modal State (STRICTLY NULL / CLOSED) ─
+  const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState<boolean>(false);
+
+  // ── Payment Form State ──────────────────────────────────────────────────────
   const [paymentDate, setPaymentDate] = useState<string>(() => {
     const today = new Date();
     const y = today.getFullYear();
@@ -73,8 +79,37 @@ export const PendingLoans: React.FC = () => {
   const [lightboxZoom, setLightboxZoom] = useState<number>(1);
   const [viewingLoanHistory, setViewingLoanHistory] = useState<Loan | null>(null);
 
-  // Normalized today's date
-  const todayStr = useMemo(() => formatFDDate(new Date()), []);
+  // ── Requirement 17: Display-Only Summary Cards Metrics ──────────────────────
+  const summaryMetrics = useMemo(() => {
+    const activeLoans = loans.filter((l) => l.status !== 'CLOSED');
+    let overdueCount = 0;
+    let overdueAmount = 0;
+
+    activeLoans.forEach((l) => {
+      const rawDueDate = l.nextDueDate || l.renewalDate || l.date;
+      const dueDateStr = normalizeDateString(rawDueDate);
+      const comp = compareFDDates(todayStr, dueDateStr);
+      if (comp > 0) {
+        overdueCount++;
+        const baseMonthly =
+          l.monthlyInterest > 0
+            ? l.monthlyInterest
+            : Math.round(((l.outstandingPrincipal ?? l.principal) * (l.interestRate || 1.5)) / 100);
+        overdueAmount += baseMonthly;
+      }
+    });
+
+    const collectedToday = receipts
+      .filter((r) => r.date === todayStr)
+      .reduce((sum, r) => sum + r.amount, 0);
+
+    return {
+      totalPending: activeLoans.length,
+      overdueAccounts: overdueCount,
+      totalOverdueAmount: overdueAmount,
+      collectedToday
+    };
+  }, [loans, receipts, todayStr]);
 
   // ── Customer Search Filter (Customer ID prioritized) ───────────────────────
   const matchingCustomers = useMemo(() => {
@@ -104,7 +139,7 @@ export const PendingLoans: React.FC = () => {
     });
   }, [customerSearchQuery, customers, loans]);
 
-  // ── Quick Select Chips for Easy Testing ─────────────────────────────────────
+  // ── Quick Select Chips for Testing ─────────────────────────────────────────
   const sampleCustomerChips = useMemo(() => {
     return customers
       .filter((c) => !c.isDeleted)
@@ -118,7 +153,7 @@ export const PendingLoans: React.FC = () => {
       }));
   }, [customers]);
 
-  // ── Helper: Resolve Customer for a Loan ────────────────────────────────────
+  // ── Helper: Resolve Customer Details for a Loan ───────────────────────────
   const resolveLoanCustomer = (l: Loan) => {
     const found = customers.find((c) => isMatchingCustomerId(l.customerId, c));
     return {
@@ -141,10 +176,6 @@ export const PendingLoans: React.FC = () => {
         ? l.monthlyInterest
         : Math.round((outstanding * (l.interestRate || 1.5)) / 100);
 
-    const dateParts = dueDateStr.split('-');
-    const periodKey = dateParts.length === 3 ? `${dateParts[2]}-${dateParts[1]}` : dueDateStr;
-
-    // Check receipts for this loan and due period
     const periodReceipts = receipts.filter(
       (r) =>
         (r.loanNo === l.loanNo || r.loanId === l.id) &&
@@ -191,7 +222,6 @@ export const PendingLoans: React.FC = () => {
 
     return {
       dueDateStr,
-      periodKey,
       outstanding,
       baseMonthlyInterest,
       interestAlreadyPaid,
@@ -204,7 +234,7 @@ export const PendingLoans: React.FC = () => {
     };
   };
 
-  // ── Customer's Loans List ──────────────────────────────────────────────────
+  // ── Selected Customer's Loans List ─────────────────────────────────────────
   const customerLoans = useMemo(() => {
     if (!selectedCustomer) return [];
     return loans.filter((l) => isMatchingCustomerId(l.customerId, selectedCustomer));
@@ -212,7 +242,7 @@ export const PendingLoans: React.FC = () => {
 
   // ── Helper: Calculate Unpaid & Historical Periods for Selected Loan ────────
   const loanPeriodsBreakdown = useMemo(() => {
-    if (!collectingLoan) return [];
+    if (!selectedLoan) return [];
 
     const periods: Array<{
       periodKey: string;
@@ -226,13 +256,13 @@ export const PendingLoans: React.FC = () => {
       statusText: 'PAID' | 'OVERDUE' | 'DUE TODAY' | 'UPCOMING';
     }> = [];
 
-    const rawDueDate = collectingLoan.nextDueDate || collectingLoan.renewalDate || collectingLoan.date;
+    const rawDueDate = selectedLoan.nextDueDate || selectedLoan.renewalDate || selectedLoan.date;
     const canonicalDueDate = normalizeDateString(rawDueDate);
     const normalizedPayment = paymentDate ? normalizeDateString(paymentDate) : todayStr;
     const baseMonthly =
-      collectingLoan.monthlyInterest > 0
-        ? collectingLoan.monthlyInterest
-        : Math.round(((collectingLoan.outstandingPrincipal ?? collectingLoan.principal) * (collectingLoan.interestRate || 1.5)) / 100);
+      selectedLoan.monthlyInterest > 0
+        ? selectedLoan.monthlyInterest
+        : Math.round(((selectedLoan.outstandingPrincipal ?? selectedLoan.principal) * (selectedLoan.interestRate || 1.5)) / 100);
 
     const parts = canonicalDueDate.split('-');
     const dueDay = parseInt(parts[0], 10) || 2;
@@ -256,12 +286,12 @@ export const PendingLoans: React.FC = () => {
       const pDueDateStr = `${String(dueDay).padStart(2, '0')}-${String(m).padStart(2, '0')}-${y}`;
       const pDateObj = new Date(y, m - 1, dueDay);
       const monthName = pDateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      const periodKey = `${collectingLoan.loanNo} + ${y}-${String(m).padStart(2, '0')}`;
+      const periodKey = `${selectedLoan.loanNo} + ${y}-${String(m).padStart(2, '0')}`;
 
       // Check matching receipts
       const mReceipts = receipts.filter(
         (r) =>
-          (r.loanNo === collectingLoan.loanNo || r.loanId === collectingLoan.id) &&
+          (r.loanNo === selectedLoan.loanNo || r.loanId === selectedLoan.id) &&
           (r.kind === 'INTEREST PAYMENT' || r.kind === 'REPAYMENT' || r.kind === 'PART PAYMENT' || r.kind === 'LOAN CLOSURE') &&
           (r.currentDueDate === pDueDateStr || r.date === pDueDateStr || (r.notes && r.notes.includes(periodKey)))
       );
@@ -270,8 +300,8 @@ export const PendingLoans: React.FC = () => {
       const isPaid = Boolean(
         paidAmt >= baseMonthly ||
           (offset < 0 &&
-            collectingLoan.lastInterestPaidDate &&
-            compareFDDates(normalizeDateString(collectingLoan.lastInterestPaidDate), pDueDateStr) >= 0)
+            selectedLoan.lastInterestPaidDate &&
+            compareFDDates(normalizeDateString(selectedLoan.lastInterestPaidDate), pDueDateStr) >= 0)
       );
 
       let daysOverdue = 0;
@@ -305,28 +335,26 @@ export const PendingLoans: React.FC = () => {
     });
 
     return periods;
-  }, [collectingLoan, paymentDate, receipts, todayStr]);
+  }, [selectedLoan, paymentDate, receipts, todayStr]);
 
-  // ── Collection Modal Real-time Calculation ─────────────────────────────────
+  // ── Collection Real-time Calculations ──────────────────────────────────────
   const collectionMetrics = useMemo(() => {
-    if (!collectingLoan) return null;
+    if (!selectedLoan) return null;
 
-    const rawDueDate = collectingLoan.nextDueDate || collectingLoan.renewalDate || collectingLoan.date;
+    const rawDueDate = selectedLoan.nextDueDate || selectedLoan.renewalDate || selectedLoan.date;
     const dueDateStr = normalizeDateString(rawDueDate);
-    const outstanding = collectingLoan.outstandingPrincipal ?? collectingLoan.principal;
+    const outstanding = selectedLoan.outstandingPrincipal ?? selectedLoan.principal;
     const baseMonthlyInterest =
-      collectingLoan.monthlyInterest > 0
-        ? collectingLoan.monthlyInterest
-        : Math.round((outstanding * (collectingLoan.interestRate || 1.5)) / 100);
+      selectedLoan.monthlyInterest > 0
+        ? selectedLoan.monthlyInterest
+        : Math.round((outstanding * (selectedLoan.interestRate || 1.5)) / 100);
 
     const normalizedPaymentDate = paymentDate ? normalizeDateString(paymentDate) : todayStr;
-    const dateParts = dueDateStr.split('-');
-    const periodKey = dateParts.length === 3 ? `${dateParts[2]}-${dateParts[1]}` : dueDateStr;
 
     // Previous payment check for this period
     const periodReceipts = receipts.filter(
       (r) =>
-        (r.loanNo === collectingLoan.loanNo || r.loanId === collectingLoan.id) &&
+        (r.loanNo === selectedLoan.loanNo || r.loanId === selectedLoan.id) &&
         (r.kind === 'INTEREST PAYMENT' || r.kind === 'REPAYMENT' || r.kind === 'PART PAYMENT' || r.kind === 'LOAN CLOSURE') &&
         (r.date === dueDateStr ||
           compareFDDates(r.date, dueDateStr) >= 0 ||
@@ -336,8 +364,8 @@ export const PendingLoans: React.FC = () => {
     const interestAlreadyPaid = periodReceipts.reduce((sum, r) => sum + (r.interestComponent || 0), 0);
     const isPeriodAlreadyFullyPaid =
       interestAlreadyPaid >= baseMonthlyInterest ||
-      (collectingLoan.lastInterestPaidDate &&
-        compareFDDates(normalizeDateString(collectingLoan.lastInterestPaidDate), dueDateStr) >= 0);
+      (selectedLoan.lastInterestPaidDate &&
+        compareFDDates(normalizeDateString(selectedLoan.lastInterestPaidDate), dueDateStr) >= 0);
 
     const remainingInterestDue = isPeriodAlreadyFullyPaid ? 0 : Math.max(0, baseMonthlyInterest - interestAlreadyPaid);
 
@@ -365,7 +393,6 @@ export const PendingLoans: React.FC = () => {
     return {
       dueDateStr,
       normalizedPaymentDate,
-      periodKey,
       outstanding,
       baseMonthlyInterest,
       interestAlreadyPaid,
@@ -376,11 +403,11 @@ export const PendingLoans: React.FC = () => {
       penaltyAmount,
       totalInterestDueWithPenalty
     };
-  }, [collectingLoan, paymentDate, receipts, todayStr, masterControlSettings]);
+  }, [selectedLoan, paymentDate, receipts, todayStr, masterControlSettings]);
 
   // Update inputs when collection target or receiptType changes
   useEffect(() => {
-    if (!collectingLoan || !collectionMetrics) return;
+    if (!selectedLoan || !collectionMetrics) return;
 
     if (receiptType === 'Interest Payment') {
       const defaultAmt = collectionMetrics.totalInterestDueWithPenalty;
@@ -404,29 +431,38 @@ export const PendingLoans: React.FC = () => {
       setInterestPaidInput(fullInt.toString());
       setAmountReceived(totalSettlement.toString());
     }
-  }, [collectingLoan, receiptType, collectionMetrics]);
+  }, [selectedLoan, receiptType, collectionMetrics]);
 
-  // ── Open Collection Form for Specific Loan ─────────────────────────────────
-  const handleSelectLoanForCollection = (l: Loan) => {
-    setCollectingLoan(l);
+  // ── Action: Explicit User Selection of a Loan (Opens Collection Modal) ──────
+  const handleSelectLoan = (l: Loan) => {
+    setSelectedLoan(l);
     setReceiptType('Interest Payment');
     setPaymentMethod('Cash');
     setBankName('');
     setTransactionReference('');
     setUpiId('');
     setNotes(`Monthly collection for ${l.loanNo}`);
+    setIsPaymentModalOpen(true);
+  };
+
+  // ── Action: Close Payment Modal ────────────────────────────────────────────
+  const handleClosePaymentModal = () => {
+    setIsPaymentModalOpen(false);
+    setSelectedLoan(null);
+    setAmountReceived('');
+    setPrincipalPaidInput('');
+    setInterestPaidInput('');
   };
 
   // ── Action: Change Customer ────────────────────────────────────────────────
   const handleChangeCustomer = () => {
+    setIsPaymentModalOpen(false);
+    setSelectedLoan(null);
     setSelectedCustomer(null);
-    setCollectingLoan(null);
     setCustomerSearchQuery('');
-  };
-
-  // ── Action: Change Loan ────────────────────────────────────────────────────
-  const handleChangeLoan = () => {
-    setCollectingLoan(null);
+    setAmountReceived('');
+    setPrincipalPaidInput('');
+    setInterestPaidInput('');
   };
 
   // ── WhatsApp Reminder Helper ──────────────────────────────────────────────
@@ -445,8 +481,8 @@ export const PendingLoans: React.FC = () => {
   };
 
   // ── Action: Submit Payment Collection (Double-click protected) ─────────────
-  const handleConfirmCollection = () => {
-    if (isSubmitting || !collectingLoan || !collectionMetrics) return;
+  const handleConfirmPayment = () => {
+    if (isSubmitting || !selectedLoan || !collectionMetrics) return;
 
     // Period duplicate check
     if (receiptType === 'Interest Payment' && collectionMetrics.isPeriodAlreadyFullyPaid) {
@@ -492,7 +528,7 @@ export const PendingLoans: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      const rc = resolveLoanCustomer(collectingLoan);
+      const rc = resolveLoanCustomer(selectedLoan);
       const isFullClosure =
         receiptType === 'Full Loan Closure' ||
         (collectionMetrics.outstanding - numPrin <= 0 && collectionMetrics.outstanding > 0);
@@ -500,12 +536,12 @@ export const PendingLoans: React.FC = () => {
       const calculatedNextDueDate = addCalendarMonths(collectionMetrics.dueDateStr, 1);
 
       const receiptRecord = addReceipt({
-        loanId: collectingLoan.id,
-        loanNo: collectingLoan.loanNo,
+        loanId: selectedLoan.id,
+        loanNo: selectedLoan.loanNo,
         customerId: rc.custId,
         customerName: rc.name,
         customerPhone: rc.phone,
-        loanType: (collectingLoan.loanType as any) || 'GOLD LOAN',
+        loanType: (selectedLoan.loanType as any) || 'GOLD LOAN',
         kind: isFullClosure
           ? 'LOAN CLOSURE'
           : receiptType === 'Principal Payment'
@@ -534,7 +570,8 @@ export const PendingLoans: React.FC = () => {
 
       setLastGeneratedReceipt(receiptRecord);
       setShowSuccessModal(true);
-      setCollectingLoan(null);
+      setIsPaymentModalOpen(false);
+      setSelectedLoan(null);
       showToast(`Payment collected successfully! Receipt #${receiptRecord.receiptNo} generated.`, 'success');
     } catch (err: any) {
       showToast(err.message || 'Error recording payment.', 'error');
@@ -688,7 +725,7 @@ export const PendingLoans: React.FC = () => {
   return (
     <div className="page-content" style={{ paddingBottom: '60px' }}>
       {/* ════════════════════════════════════════════════════════════════════════
-          PAGE HEADER & SEQUENTIAL STEP INDICATOR
+          PAGE HEADER
           ════════════════════════════════════════════════════════════════════════ */}
       <div className="card" style={{ padding: '24px', marginBottom: '20px' }}>
         <div className="card-header" style={{ marginBottom: '18px' }}>
@@ -703,80 +740,52 @@ export const PendingLoans: React.FC = () => {
           </div>
         </div>
 
-        {/* Sequential Step Progress Indicator */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', paddingTop: '6px' }}>
-          <div
-            style={{
-              padding: '8px 14px',
-              borderRadius: '8px',
-              fontSize: '12.5px',
-              fontWeight: 700,
-              backgroundColor: selectedCustomer ? '#dcfce7' : '#064e3b',
-              color: selectedCustomer ? '#065f46' : '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            {selectedCustomer ? <CheckCircle2 size={14} /> : <span>1</span>}
-            <span>Step 1: Identify Customer {selectedCustomer ? `(${selectedCustomer.name})` : ''}</span>
+        {/* ── Requirement 17: Display-Only Summary Cards ──────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+          <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              TOTAL PENDING LOANS
+            </span>
+            <div style={{ fontSize: '22px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '4px' }}>
+              {summaryMetrics.totalPending}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Active loan accounts</div>
           </div>
 
-          <div
-            style={{
-              padding: '8px 14px',
-              borderRadius: '8px',
-              fontSize: '12.5px',
-              fontWeight: 700,
-              backgroundColor: collectingLoan ? '#dcfce7' : selectedCustomer ? '#064e3b' : '#f1f5f9',
-              color: collectingLoan ? '#065f46' : selectedCustomer ? '#ffffff' : 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            {collectingLoan ? <CheckCircle2 size={14} /> : <span>2</span>}
-            <span>Step 2: Select Loan {collectingLoan ? `(${collectingLoan.loanNo})` : ''}</span>
+          <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              OVERDUE ACCOUNTS
+            </span>
+            <div style={{ fontSize: '22px', fontWeight: 900, color: summaryMetrics.overdueAccounts > 0 ? '#dc2626' : 'var(--text-dark)', marginTop: '4px' }}>
+              {summaryMetrics.overdueAccounts}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Past contractual due date</div>
           </div>
 
-          <div
-            style={{
-              padding: '8px 14px',
-              borderRadius: '8px',
-              fontSize: '12.5px',
-              fontWeight: 700,
-              backgroundColor: collectingLoan ? '#064e3b' : '#f1f5f9',
-              color: collectingLoan ? '#ffffff' : 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <span>3</span>
-            <span>Step 3: Review &amp; Collect Payment</span>
+          <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              TOTAL OVERDUE AMOUNT
+            </span>
+            <div style={{ fontSize: '22px', fontWeight: 900, color: summaryMetrics.totalOverdueAmount > 0 ? '#dc2626' : 'var(--text-dark)', marginTop: '4px' }}>
+              ₹{summaryMetrics.totalOverdueAmount.toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Accumulated due interest</div>
           </div>
 
-          <div
-            style={{
-              padding: '8px 14px',
-              borderRadius: '8px',
-              fontSize: '12.5px',
-              fontWeight: 700,
-              backgroundColor: '#f1f5f9',
-              color: 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <span>4</span>
-            <span>Step 4: Generate Receipt</span>
+          <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              COLLECTED TODAY
+            </span>
+            <div style={{ fontSize: '22px', fontWeight: 900, color: '#059669', marginTop: '4px' }}>
+              ₹{summaryMetrics.collectedToday.toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Date: {todayStr}</div>
           </div>
         </div>
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════════
-          STEP 1: IDENTIFY CUSTOMER FOR COLLECTION (CUSTOMER ID FIRST)
+          STEP 1: IDENTIFY CUSTOMER (CUSTOMER ID FIRST)
           ════════════════════════════════════════════════════════════════════════ */}
       {!selectedCustomer && (
         <div className="card" style={{ padding: '28px', marginBottom: '20px' }}>
@@ -788,7 +797,7 @@ export const PendingLoans: React.FC = () => {
               Identify Customer for Collection
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-              Enter an existing Customer ID such as <strong>CUST-0006</strong>. Customer selection is strictly required before loading loans.
+              Enter an existing Customer ID to begin collection. Customer selection is strictly required before viewing loans.
             </p>
           </div>
 
@@ -878,7 +887,7 @@ export const PendingLoans: React.FC = () => {
             </div>
           )}
 
-          {/* Live Search Results List */}
+          {/* Live Search Results List (Customer Found State) */}
           {customerSearchQuery && matchingCustomers.length > 0 && (
             <div style={{ marginTop: '18px', display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '680px' }}>
               <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', letterSpacing: '0.05em' }}>
@@ -939,17 +948,17 @@ export const PendingLoans: React.FC = () => {
             </div>
           )}
 
-          {/* Empty State Banner when no customer selected */}
+          {/* ── Requirement 3: Empty State when no customer is selected ─────────── */}
           {!customerSearchQuery && (
             <div style={{ marginTop: '24px', padding: '40px 24px', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
               <div style={{ width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto', color: 'var(--text-muted)' }}>
                 <Search size={24} />
               </div>
               <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '0 0 6px 0' }}>
-                SEARCH FOR A CUSTOMER TO BEGIN COLLECTION
+                NO CUSTOMER SELECTED
               </h4>
               <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '440px', margin: '0 auto' }}>
-                Enter an existing Customer ID (e.g. <strong>CUST-0006</strong>) above to retrieve and verify customer loans.
+                Search for an existing Customer ID to begin collection.
               </p>
             </div>
           )}
@@ -957,763 +966,767 @@ export const PendingLoans: React.FC = () => {
       )}
 
       {/* ════════════════════════════════════════════════════════════════════════
-          CUSTOMER CONFIRMED HERO CARD (Shown after customer selection)
+          STEP 2: CUSTOMER SELECTED & LOAN LIST (MODAL REMAINS CLOSED)
           ════════════════════════════════════════════════════════════════════════ */}
       {selectedCustomer && (
-        <div className="card" style={{ padding: '20px 24px', marginBottom: '20px', borderLeft: '5px solid var(--color-primary-accent, #059669)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '54px', height: '54px', borderRadius: '50%', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#064e3b', border: '2px solid #86efac', overflow: 'hidden' }}>
-                {selectedCustomer.customerPhoto ? (
-                  <img src={selectedCustomer.customerPhoto} alt={selectedCustomer.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <User size={28} />
-                )}
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="badge badge-success" style={{ fontWeight: 800, fontSize: '11px' }}>
-                    CUSTOMER CONFIRMED
-                  </span>
-                  <span style={{ fontSize: '12px', color: '#059669', fontWeight: 700 }}>✓ Verified Master Record</span>
+        <>
+          {/* Customer Confirmation Hero Card */}
+          <div className="card" style={{ padding: '20px 24px', marginBottom: '20px', borderLeft: '5px solid var(--color-primary-accent, #059669)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ width: '54px', height: '54px', borderRadius: '50%', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#064e3b', border: '2px solid #86efac', overflow: 'hidden' }}>
+                  {selectedCustomer.customerPhoto ? (
+                    <img src={selectedCustomer.customerPhoto} alt={selectedCustomer.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <User size={28} />
+                  )}
                 </div>
-                <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '4px 0 2px 0' }}>
-                  {selectedCustomer.name}
-                </h3>
-                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span>Customer ID: <strong style={{ color: 'var(--color-primary-dark)' }}>{getCanonicalCustomerId(selectedCustomer)}</strong></span>
-                  <span>&bull;</span>
-                  <span>Mobile: <strong>+91 {selectedCustomer.phone}</strong></span>
-                  <span>&bull;</span>
-                  <span>Address: {selectedCustomer.currentAddress || 'N/A'}</span>
-                  <span>&bull;</span>
-                  <span style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>{customerLoans.length} Loan(s) Found</span>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="badge badge-success" style={{ fontWeight: 800, fontSize: '11px' }}>
+                      CUSTOMER SELECTED
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#059669', fontWeight: 700 }}>✓ Verified</span>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '4px 0 2px 0' }}>
+                    {selectedCustomer.name}
+                  </h3>
+                  <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span>Customer ID: <strong style={{ color: 'var(--color-primary-dark)' }}>{getCanonicalCustomerId(selectedCustomer)}</strong></span>
+                    <span>&bull;</span>
+                    <span>Mobile: <strong>+91 {selectedCustomer.phone}</strong></span>
+                    <span>&bull;</span>
+                    <span>Address: {selectedCustomer.currentAddress || 'N/A'}</span>
+                    <span>&bull;</span>
+                    <span style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>{customerLoans.length} Loan(s) Found</span>
+                  </div>
                 </div>
               </div>
+
+              {/* Requirement 8: Change Customer Button */}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleChangeCustomer}
+                style={{ fontWeight: 700, padding: '8px 16px', color: '#dc2626', borderColor: '#fca5a5' }}
+              >
+                <RotateCcw size={14} style={{ marginRight: '6px' }} /> Change Customer
+              </button>
+            </div>
+          </div>
+
+          {/* Customer's Loan List Cards (Explicit Selection Required) */}
+          <div className="card" style={{ padding: '24px', marginBottom: '20px' }}>
+            <div style={{ marginBottom: '18px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px' }}>
+              <span className="badge badge-info" style={{ fontWeight: 800, fontSize: '11px', marginBottom: '6px' }}>
+                STEP 2 &bull; SELECT LOAN FOR COLLECTION
+              </span>
+              <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '4px 0 2px 0' }}>
+                SELECT LOAN FOR COLLECTION
+              </h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                Customer: <strong>{selectedCustomer.name}</strong> &bull; Customer ID: <strong>{getCanonicalCustomerId(selectedCustomer)}</strong> &mdash; Select the exact loan to collect payment against.
+              </p>
             </div>
 
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleChangeCustomer}
-              style={{ fontWeight: 700, padding: '8px 16px', color: '#dc2626', borderColor: '#fca5a5' }}
-            >
-              <RotateCcw size={14} style={{ marginRight: '6px' }} /> Change Customer
-            </button>
+            {customerLoans.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '18px' }}>
+                {customerLoans.map((l) => {
+                  const metrics = getLoanDueMetrics(l);
+                  const isOverdue = metrics.statusText === 'OVERDUE';
+                  const isClosed = l.status === 'CLOSED';
+
+                  return (
+                    <div
+                      key={l.id}
+                      style={{
+                        borderRadius: '14px',
+                        border: isOverdue ? '2px solid #f87171' : '1.5px solid var(--border-subtle)',
+                        backgroundColor: '#ffffff',
+                        boxShadow: 'var(--shadow-sm)',
+                        padding: '20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: '14px'
+                      }}
+                    >
+                      {/* Card Header */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                          <div>
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                              {l.loanType} &bull; Disbursed via {l.bankMode || 'Cash'}
+                            </div>
+                            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-dark)', marginTop: '2px' }}>
+                              {l.loanNo}
+                            </div>
+                          </div>
+
+                          <div>
+                            {metrics.statusText === 'OVERDUE' && (
+                              <span className="badge badge-danger" style={{ fontSize: '11px', fontWeight: 800 }}>
+                                OVERDUE
+                              </span>
+                            )}
+                            {metrics.statusText === 'DUE TODAY' && (
+                              <span className="badge badge-warning" style={{ fontSize: '11px', fontWeight: 800 }}>
+                                DUE TODAY
+                              </span>
+                            )}
+                            {metrics.statusText === 'NOT DUE' && (
+                              <span className="badge badge-info" style={{ fontSize: '11px', fontWeight: 700 }}>
+                                NOT DUE
+                              </span>
+                            )}
+                            {metrics.statusText === 'PAID' && (
+                              <span className="badge badge-success" style={{ fontSize: '11px', fontWeight: 800 }}>
+                                ✓ PAID
+                              </span>
+                            )}
+                            {metrics.statusText === 'CLOSED' && (
+                              <span className="badge" style={{ backgroundColor: '#94a3b8', color: '#fff', fontSize: '11px', fontWeight: 800 }}>
+                                CLOSED
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Loan Metrics Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px 14px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '12px' }}>
+                          <div>
+                            <span style={{ color: 'var(--text-muted)' }}>Original Principal:</span>
+                            <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>₹{l.principal.toLocaleString('en-IN')}</div>
+                          </div>
+                          <div>
+                            <span style={{ color: 'var(--text-muted)' }}>Outstanding:</span>
+                            <div style={{ fontWeight: 800, color: isClosed ? 'var(--text-muted)' : 'var(--color-primary-dark)' }}>
+                              ₹{metrics.outstanding.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                          <div>
+                            <span style={{ color: 'var(--text-muted)' }}>Monthly Interest:</span>
+                            <div style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>
+                              ₹{metrics.baseMonthlyInterest.toLocaleString('en-IN')} ({l.interestRate}%/mo)
+                            </div>
+                          </div>
+                          <div>
+                            <span style={{ color: 'var(--text-muted)' }}>Due Date:</span>
+                            <div style={{ fontWeight: 800, color: isOverdue ? '#dc2626' : 'var(--text-dark)' }}>
+                              {metrics.dueDateStr}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Collateral preview */}
+                        {l.items && l.items.length > 0 && (
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                            <span>Pledged: </span>
+                            <strong style={{ color: 'var(--text-secondary)' }}>
+                              {l.items.map((it) => it.item).join(', ')} ({l.totalNetWeight || l.items.reduce((s, it) => s + (it.netWeight || 0), 0)}g net)
+                            </strong>
+                          </div>
+                        )}
+
+                        {/* Collateral Photos Thumbnails */}
+                        {l.photos && l.photos.length > 0 && (
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '12px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Photos ({l.photos.length}):</span>
+                            {l.photos.map((p, pIdx) => (
+                              <div
+                                key={pIdx}
+                                onClick={() => {
+                                  setSelectedLoan(l);
+                                  setLightboxIndex(pIdx);
+                                  setLightboxZoom(1);
+                                }}
+                                style={{ width: '32px', height: '32px', borderRadius: '6px', overflow: 'hidden', cursor: 'pointer', border: '1px solid #cbd5e1' }}
+                                title="Click to zoom photo"
+                              >
+                                <img src={p} alt="Collateral" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ color: '#25D366', borderColor: '#25D366', padding: '6px 10px', fontSize: '11.5px' }}
+                            title="Send WhatsApp Reminder"
+                            onClick={() => handleSendWhatsApp(l)}
+                          >
+                            <MessageSquare size={13} style={{ marginRight: '4px' }} /> WhatsApp
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '6px 10px', fontSize: '11.5px' }}
+                            onClick={() => setViewingLoanHistory(l)}
+                          >
+                            <FileText size={13} style={{ marginRight: '4px' }} /> History
+                          </button>
+                        </div>
+
+                        {/* Requirement 6: ONLY THIS BUTTON OPENS PAYMENT COLLECTION */}
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          style={{ fontWeight: 800, padding: '8px 16px', fontSize: '12.5px' }}
+                          disabled={isClosed}
+                          onClick={() => handleSelectLoan(l)}
+                        >
+                          <DollarSign size={14} style={{ marginRight: '4px' }} /> Select Loan
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                No active loans registered under {selectedCustomer.name}.
+              </div>
+            )}
           </div>
-        </div>
+        </>
       )}
 
       {/* ════════════════════════════════════════════════════════════════════════
-          STEP 2: SELECT A LOAN FOR COLLECTION (When customer selected, no loan open)
+          STEP 3: LOAN PAYMENT COLLECTION MODAL (USER-TRIGGERED ONLY)
           ════════════════════════════════════════════════════════════════════════ */}
-      {selectedCustomer && !collectingLoan && (
-        <div className="card" style={{ padding: '24px', marginBottom: '20px' }}>
-          <div style={{ marginBottom: '18px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px' }}>
-            <span className="badge badge-info" style={{ fontWeight: 800, fontSize: '11px', marginBottom: '6px' }}>
-              STEP 2 &bull; SELECT EXACT LOAN
-            </span>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '4px 0 2px 0' }}>
-              Loans for {selectedCustomer.name} (Customer ID: {getCanonicalCustomerId(selectedCustomer)})
-            </h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-              Select the exact loan to collect payment against. Each loan is an independent financial contract.
-            </p>
-          </div>
+      {isPaymentModalOpen && selectedLoan && collectionMetrics && selectedCustomer && (() => {
+        const rc = resolveLoanCustomer(selectedLoan);
+        const pledgedItems = selectedLoan.items || [];
+        const pledgedPhotos = selectedLoan.photos || [];
 
-          {customerLoans.length > 0 ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '18px' }}>
-              {customerLoans.map((l) => {
-                const metrics = getLoanDueMetrics(l);
-                const isOverdue = metrics.statusText === 'OVERDUE';
-                const isClosed = l.status === 'CLOSED';
+        return (
+          <div
+            className="modal-backdrop"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              zIndex: 1200,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px',
+              overflowY: 'auto'
+            }}
+          >
+            <div
+              className="card"
+              style={{
+                width: '100%',
+                maxWidth: '780px',
+                maxHeight: '92vh',
+                overflowY: 'auto',
+                padding: '28px',
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)'
+              }}
+            >
+              {/* Modal Top Bar */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1.5px solid var(--border-subtle)', paddingBottom: '14px', marginBottom: '18px' }}>
+                <div>
+                  <span className="badge badge-success" style={{ fontWeight: 800, fontSize: '11px', marginBottom: '4px' }}>
+                    STEP 3 &bull; LOAN PAYMENT COLLECTION
+                  </span>
+                  <h3 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--color-primary-dark)', margin: '4px 0 2px 0' }}>
+                    Loan Payment Collection
+                  </h3>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                    Customer: <strong>{rc.name}</strong> ({rc.custId}) &bull; Loan: <strong style={{ color: 'var(--color-primary-dark)' }}>{selectedLoan.loanNo}</strong>
+                  </p>
+                </div>
 
-                return (
-                  <div
-                    key={l.id}
-                    style={{
-                      borderRadius: '14px',
-                      border: isOverdue ? '2px solid #f87171' : '1.5px solid var(--border-subtle)',
-                      backgroundColor: '#ffffff',
-                      boxShadow: 'var(--shadow-sm)',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: '14px'
-                    }}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleClosePaymentModal}
+                    style={{ fontWeight: 700, padding: '6px 12px', fontSize: '12px' }}
                   >
-                    {/* Card Header */}
+                    <ChevronLeft size={13} style={{ marginRight: '3px' }} /> Change Loan
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClosePaymentModal}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' }}
+                    title="Close"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Selected Loan Summary Banner */}
+              <div style={{ padding: '14px 18px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', border: '1px solid var(--border-subtle)', marginBottom: '18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span className="badge badge-info" style={{ fontWeight: 800, fontSize: '12.5px', padding: '3px 8px' }}>
+                      {selectedLoan.loanNo}
+                    </span>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-primary-dark)' }}>
+                      {selectedLoan.loanType}
+                    </span>
+                  </div>
+
+                  <div>
+                    {collectionMetrics.timingStatus === 'OVERDUE' && (
+                      <span className="badge badge-danger" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                        ⚠ OVERDUE ({collectionMetrics.daysOverdue} Days)
+                      </span>
+                    )}
+                    {collectionMetrics.timingStatus === 'DUE TODAY' && (
+                      <span className="badge badge-warning" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                        ⏰ DUE TODAY
+                      </span>
+                    )}
+                    {collectionMetrics.timingStatus === 'EARLY PAYMENT' && (
+                      <span className="badge badge-success" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                        ✓ ON TIME
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', fontSize: '12.5px' }}>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Original Principal:</span>
+                    <div style={{ fontWeight: 700 }}>₹{selectedLoan.principal.toLocaleString('en-IN')}</div>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Outstanding:</span>
+                    <div style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>₹{collectionMetrics.outstanding.toLocaleString('en-IN')}</div>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Rate:</span>
+                    <div style={{ fontWeight: 700 }}>{selectedLoan.interestRate}% / mo</div>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Contractual Due:</span>
+                    <div style={{ fontWeight: 800, color: collectionMetrics.timingStatus === 'OVERDUE' ? '#dc2626' : 'inherit' }}>
+                      {collectionMetrics.dueDateStr}
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Monthly Interest:</span>
+                    <div style={{ fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>
+                      ₹{collectionMetrics.baseMonthlyInterest.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  {collectionMetrics.penaltyAmount > 0 && (
                     <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                        <div>
-                          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                            {l.loanType} &bull; Disbursed via {l.bankMode || 'Cash'}
-                          </div>
-                          <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-dark)', marginTop: '2px' }}>
-                            {l.loanNo}
-                          </div>
-                        </div>
+                      <span style={{ color: 'var(--text-muted)' }}>Late Penalty:</span>
+                      <div style={{ fontWeight: 800, color: '#dc2626' }}>
+                        +₹{collectionMetrics.penaltyAmount.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-                        <div>
-                          {metrics.statusText === 'OVERDUE' && (
-                            <span className="badge badge-danger" style={{ fontSize: '11px', fontWeight: 800 }}>
-                              ⚠ OVERDUE ({metrics.daysOverdue} Days)
-                            </span>
+              {/* Outstanding Payment Periods Breakdown */}
+              {loanPeriodsBreakdown.length > 0 && (
+                <div style={{ marginBottom: '18px', padding: '14px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: 0 }}>
+                      OUTSTANDING PAYMENT PERIODS BREAKDOWN
+                    </h4>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      Historical Schedule
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
+                    {loanPeriodsBreakdown.map((p, idx) => (
+                      <div
+                        key={`period-${idx}`}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          border: p.isPaid ? '1px solid #a7f3d0' : p.statusText === 'OVERDUE' ? '1.5px solid #f87171' : '1px solid #cbd5e1',
+                          backgroundColor: p.isPaid ? '#f0fdf4' : p.statusText === 'OVERDUE' ? '#fef2f2' : '#f8fafc',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ color: p.isPaid ? '#065f46' : 'var(--text-dark)' }}>{p.monthName}</strong>
+                          {p.isPaid ? (
+                            <span className="badge badge-success" style={{ fontSize: '9.5px', padding: '1px 5px' }}>✓ Paid</span>
+                          ) : p.statusText === 'OVERDUE' ? (
+                            <span className="badge badge-danger" style={{ fontSize: '9.5px', padding: '1px 5px' }}>{p.daysOverdue}d Overdue</span>
+                          ) : (
+                            <span className="badge badge-info" style={{ fontSize: '9.5px', padding: '1px 5px' }}>Current</span>
                           )}
-                          {metrics.statusText === 'DUE TODAY' && (
-                            <span className="badge badge-warning" style={{ fontSize: '11px', fontWeight: 800 }}>
-                              ⏰ DUE TODAY
-                            </span>
-                          )}
-                          {metrics.statusText === 'NOT DUE' && (
-                            <span className="badge badge-info" style={{ fontSize: '11px', fontWeight: 700 }}>
-                              ⬤ NOT DUE
-                            </span>
-                          )}
-                          {metrics.statusText === 'PAID' && (
-                            <span className="badge badge-success" style={{ fontSize: '11px', fontWeight: 800 }}>
-                              ✓ PAID
-                            </span>
-                          )}
-                          {metrics.statusText === 'CLOSED' && (
-                            <span className="badge" style={{ backgroundColor: '#94a3b8', color: '#fff', fontSize: '11px', fontWeight: 800 }}>
-                              CLOSED
-                            </span>
-                          )}
+                        </div>
+                        <div style={{ marginTop: '3px', display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                          <span>Due: {p.dueDateStr}</span>
+                          <span style={{ fontWeight: 700, color: p.isPaid ? '#059669' : 'var(--text-dark)' }}>
+                            ₹{p.interestDue.toLocaleString('en-IN')}
+                          </span>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-                      {/* Loan Metrics Grid */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px 14px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '12px' }}>
-                        <div>
-                          <span style={{ color: 'var(--text-muted)' }}>Original Principal:</span>
-                          <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>₹{l.principal.toLocaleString('en-IN')}</div>
-                        </div>
-                        <div>
-                          <span style={{ color: 'var(--text-muted)' }}>Outstanding:</span>
-                          <div style={{ fontWeight: 800, color: isClosed ? 'var(--text-muted)' : 'var(--color-primary-dark)' }}>
-                            ₹{metrics.outstanding.toLocaleString('en-IN')}
-                          </div>
-                        </div>
-                        <div>
-                          <span style={{ color: 'var(--text-muted)' }}>Monthly Interest:</span>
-                          <div style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>
-                            ₹{metrics.baseMonthlyInterest.toLocaleString('en-IN')} ({l.interestRate}%/mo)
-                          </div>
-                        </div>
-                        <div>
-                          <span style={{ color: 'var(--text-muted)' }}>Due Date:</span>
-                          <div style={{ fontWeight: 800, color: isOverdue ? '#dc2626' : 'var(--text-dark)' }}>
-                            {metrics.dueDateStr}
-                          </div>
-                        </div>
-                      </div>
+              {/* Payment Collection Form */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Payment Date & Status */}
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label required">PAYMENT DATE *</label>
+                    <input
+                      type="date"
+                      className="input-control"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      style={{ fontWeight: 700 }}
+                    />
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Date of payment received from customer (defaults to today).
+                    </span>
+                  </div>
 
-                      {/* Collateral preview */}
-                      {l.items && l.items.length > 0 && (
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                          <span>Pledged: </span>
-                          <strong style={{ color: 'var(--text-secondary)' }}>
-                            {l.items.map((it) => it.item).join(', ')} ({l.totalNetWeight || l.items.reduce((s, it) => s + (it.netWeight || 0), 0)}g net)
-                          </strong>
-                        </div>
+                  <div className="form-group">
+                    <label className="form-label">SCHEDULE TIMING STATUS</label>
+                    <div style={{ height: '42px', display: 'flex', alignItems: 'center', padding: '0 12px', borderRadius: '8px', backgroundColor: collectionMetrics.timingStatus === 'OVERDUE' ? '#fef2f2' : '#f0fdf4', border: '1px solid var(--border-subtle)' }}>
+                      {collectionMetrics.timingStatus === 'OVERDUE' && (
+                        <span style={{ color: '#dc2626', fontWeight: 800, fontSize: '12.5px' }}>
+                          ⚠ {collectionMetrics.daysOverdue} Days Overdue (Due: {collectionMetrics.dueDateStr})
+                        </span>
                       )}
+                      {collectionMetrics.timingStatus === 'DUE TODAY' && (
+                        <span style={{ color: '#d97706', fontWeight: 800, fontSize: '12.5px' }}>
+                          ⏰ Due Today ({collectionMetrics.dueDateStr})
+                        </span>
+                      )}
+                      {collectionMetrics.timingStatus === 'EARLY PAYMENT' && (
+                        <span style={{ color: '#059669', fontWeight: 800, fontSize: '12.5px' }}>
+                          ✓ On Time / Early Payment (Due: {collectionMetrics.dueDateStr})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-                      {/* Collateral Photos Thumbnails */}
-                      {l.photos && l.photos.length > 0 && (
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '12px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Photos ({l.photos.length}):</span>
-                          {l.photos.map((p, pIdx) => (
+                {/* Payment Type Selector Tabs */}
+                <div>
+                  <label className="form-label required">PAYMENT TYPE *</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px' }}>
+                    {(['Interest Payment', 'Principal Payment', 'Interest + Principal', 'Full Loan Closure'] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setReceiptType(type)}
+                        className={receiptType === type ? 'btn btn-primary' : 'btn btn-secondary'}
+                        style={{
+                          padding: '8px 10px',
+                          fontSize: '12.5px',
+                          fontWeight: 700,
+                          border: receiptType === type ? '2px solid var(--color-primary-accent, #059669)' : '1px solid var(--border-light)'
+                        }}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Settlement Inputs */}
+                <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+                  {receiptType === 'Interest Payment' && (
+                    <div className="grid-3" style={{ gap: '12px' }}>
+                      <div>
+                        <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Base Monthly Interest:</span>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>
+                          ₹{collectionMetrics.baseMonthlyInterest.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Late Penalty:</span>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: collectionMetrics.penaltyAmount > 0 ? '#dc2626' : 'var(--text-dark)' }}>
+                          ₹{collectionMetrics.penaltyAmount.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Total Interest Due:</span>
+                        <div style={{ fontSize: '17px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>
+                          ₹{collectionMetrics.totalInterestDueWithPenalty.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {receiptType === 'Principal Payment' && (
+                    <div>
+                      <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                        Current Outstanding: <strong>₹{collectionMetrics.outstanding.toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label required">PRINCIPAL REPAYMENT (₹) *</label>
+                        <input
+                          type="number"
+                          className="input-control"
+                          placeholder="Principal amount..."
+                          value={principalPaidInput}
+                          onChange={(e) => {
+                            setPrincipalPaidInput(e.target.value);
+                            setAmountReceived(e.target.value);
+                          }}
+                          style={{ fontSize: '15px', fontWeight: 800 }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {receiptType === 'Interest + Principal' && (
+                    <div className="grid-2" style={{ gap: '12px' }}>
+                      <div className="form-group">
+                        <label className="form-label required">INTEREST (₹) *</label>
+                        <input
+                          type="number"
+                          className="input-control"
+                          value={interestPaidInput}
+                          onChange={(e) => {
+                            setInterestPaidInput(e.target.value);
+                            const p = parseFloat(principalPaidInput) || 0;
+                            const i = parseFloat(e.target.value) || 0;
+                            setAmountReceived((p + i).toString());
+                          }}
+                          style={{ fontSize: '14px', fontWeight: 700 }}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label required">PRINCIPAL (₹) *</label>
+                        <input
+                          type="number"
+                          className="input-control"
+                          value={principalPaidInput}
+                          placeholder="Principal..."
+                          onChange={(e) => {
+                            setPrincipalPaidInput(e.target.value);
+                            const p = parseFloat(e.target.value) || 0;
+                            const i = parseFloat(interestPaidInput) || 0;
+                            setAmountReceived((p + i).toString());
+                          }}
+                          style={{ fontSize: '14px', fontWeight: 700 }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {receiptType === 'Full Loan Closure' && (
+                    <div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', fontSize: '12px', marginBottom: '10px' }}>
+                        <div>Principal: <strong>₹{collectionMetrics.outstanding.toLocaleString('en-IN')}</strong></div>
+                        <div>Interest: <strong>₹{collectionMetrics.baseMonthlyInterest.toLocaleString('en-IN')}</strong></div>
+                        <div>Penalty: <strong>₹{collectionMetrics.penaltyAmount.toLocaleString('en-IN')}</strong></div>
+                        <div>Total: <strong style={{ color: '#059669', fontSize: '14px' }}>₹{(collectionMetrics.outstanding + collectionMetrics.totalInterestDueWithPenalty).toLocaleString('en-IN')}</strong></div>
+                      </div>
+                      <span className="badge badge-danger" style={{ fontSize: '10.5px', fontWeight: 700 }}>
+                        ⚠ Full Loan Closure permanently closes this loan account.
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Amount Received Input */}
+                  <div className="form-group" style={{ marginTop: '12px' }}>
+                    <label className="form-label required" style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>
+                      TOTAL AMOUNT RECEIVED (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      className="input-control"
+                      placeholder="Enter amount received..."
+                      value={amountReceived}
+                      onChange={(e) => setAmountReceived(e.target.value)}
+                      style={{ fontSize: '17px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Payment Method */}
+                <div>
+                  <label className="form-label required">PAYMENT METHOD *</label>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    {(['Cash', 'Bank', 'UPI'] as const).map((method) => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setPaymentMethod(method)}
+                        className={paymentMethod === method ? 'btn btn-primary' : 'btn btn-secondary'}
+                        style={{ flex: 1, padding: '9px', fontSize: '13px', fontWeight: 700 }}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Bank Details */}
+                {paymentMethod === 'Bank' && (
+                  <div className="grid-2">
+                    <div className="form-group">
+                      <label className="form-label">BANK NAME</label>
+                      <input
+                        type="text"
+                        className="input-control"
+                        placeholder="e.g. HDFC Bank, SBI..."
+                        value={bankName}
+                        onChange={(e) => setBankName(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label required">UTR / TRANSACTION REFERENCE *</label>
+                      <input
+                        type="text"
+                        className="input-control"
+                        placeholder="Bank UTR Number..."
+                        value={transactionReference}
+                        onChange={(e) => setTransactionReference(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* UPI Details */}
+                {paymentMethod === 'UPI' && (
+                  <div className="grid-2">
+                    <div className="form-group">
+                      <label className="form-label required">UPI UTR / TRANSACTION REFERENCE *</label>
+                      <input
+                        type="text"
+                        className="input-control"
+                        placeholder="12-digit UPI reference..."
+                        value={transactionReference}
+                        onChange={(e) => setTransactionReference(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">CUSTOMER UPI ID (OPTIONAL)</label>
+                      <input
+                        type="text"
+                        className="input-control"
+                        placeholder="customer@upi"
+                        value={upiId}
+                        onChange={(e) => setUpiId(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Pledged Gold Review */}
+                {pledgedItems.length > 0 && (
+                  <div style={{ padding: '14px', borderRadius: '8px', border: '1px solid var(--border-subtle)', backgroundColor: '#ffffff' }}>
+                    <div style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--color-primary-dark)', marginBottom: '8px' }}>
+                      Pledged Gold Collateral
+                    </div>
+                    <table className="custom-table" style={{ fontSize: '12px' }}>
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th>Qty</th>
+                          <th>Purity</th>
+                          <th>Gross Wt</th>
+                          <th>Net Wt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pledgedItems.map((it, idx) => (
+                          <tr key={idx}>
+                            <td style={{ fontWeight: 700 }}>{it.item}</td>
+                            <td>{it.qty}</td>
+                            <td>{it.purity}</td>
+                            <td>{it.grossWeight}g</td>
+                            <td style={{ fontWeight: 700 }}>{it.netWeight}g</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    {pledgedPhotos.length > 0 && (
+                      <div style={{ marginTop: '10px' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Collateral Photos (Click to preview):
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {pledgedPhotos.map((p, pIdx) => (
                             <div
                               key={pIdx}
                               onClick={() => {
-                                setCollectingLoan(l);
                                 setLightboxIndex(pIdx);
                                 setLightboxZoom(1);
                               }}
-                              style={{ width: '32px', height: '32px', borderRadius: '6px', overflow: 'hidden', cursor: 'pointer', border: '1px solid #cbd5e1' }}
-                              title="Click to zoom photo"
+                              style={{ width: '42px', height: '42px', borderRadius: '6px', overflow: 'hidden', cursor: 'pointer', border: '1px solid #cbd5e1' }}
                             >
                               <img src={p} alt="Collateral" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                           ))}
                         </div>
-                      )}
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          style={{ color: '#25D366', borderColor: '#25D366', padding: '6px 10px', fontSize: '11.5px' }}
-                          title="Send WhatsApp Reminder"
-                          onClick={() => handleSendWhatsApp(l)}
-                        >
-                          <MessageSquare size={13} style={{ marginRight: '4px' }} /> WhatsApp
-                        </button>
-
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          style={{ padding: '6px 10px', fontSize: '11.5px' }}
-                          onClick={() => setViewingLoanHistory(l)}
-                        >
-                          <FileText size={13} style={{ marginRight: '4px' }} /> History
-                        </button>
                       </div>
-
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        style={{ fontWeight: 800, padding: '8px 16px', fontSize: '12.5px' }}
-                        disabled={isClosed}
-                        onClick={() => handleSelectLoanForCollection(l)}
-                      >
-                        <DollarSign size={14} style={{ marginRight: '4px' }} /> Select Loan &rarr;
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-              No loans registered under {selectedCustomer.name}.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════
-          STEP 3: REVIEW & COLLECT PAYMENT (Single Selected Loan)
-          ════════════════════════════════════════════════════════════════════════ */}
-      {selectedCustomer && collectingLoan && collectionMetrics && (() => {
-        const rc = resolveLoanCustomer(collectingLoan);
-        const pledgedItems = collectingLoan.items || [];
-        const pledgedPhotos = collectingLoan.photos || [];
-
-        return (
-          <div className="card" style={{ padding: '28px', marginBottom: '20px' }}>
-            {/* Top Navigation Bar */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1.5px solid var(--border-subtle)', paddingBottom: '16px', marginBottom: '22px' }}>
-              <div>
-                <span className="badge badge-success" style={{ fontWeight: 800, fontSize: '11px', marginBottom: '4px' }}>
-                  STEP 3 &bull; COLLECT PAYMENT
-                </span>
-                <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '4px 0 2px 0' }}>
-                  Collecting Payment for Loan {collectingLoan.loanNo}
-                </h3>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                  Customer: <strong>{rc.name}</strong> ({rc.custId}) &bull; Mobile: +91 {rc.phone}
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleChangeLoan}
-                  style={{ fontWeight: 700, padding: '8px 14px' }}
-                >
-                  <ChevronLeft size={14} style={{ marginRight: '4px' }} /> Change Loan
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleChangeCustomer}
-                  style={{ fontWeight: 700, padding: '8px 14px', color: '#dc2626' }}
-                >
-                  <RotateCcw size={14} style={{ marginRight: '4px' }} /> Change Customer
-                </button>
-              </div>
-            </div>
-
-            {/* Selected Loan Summary Banner */}
-            <div style={{ padding: '16px 20px', borderRadius: '12px', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', border: '1px solid var(--border-subtle)', marginBottom: '22px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <span className="badge badge-info" style={{ fontWeight: 800, fontSize: '13px', padding: '4px 10px' }}>
-                    {collectingLoan.loanNo}
-                  </span>
-                  <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--color-primary-dark)' }}>
-                    {collectingLoan.loanType}
-                  </span>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    Disbursement: {collectingLoan.bankMode || 'Cash'}
-                  </span>
-                </div>
-
-                <div>
-                  {collectionMetrics.timingStatus === 'OVERDUE' && (
-                    <span className="badge badge-danger" style={{ fontSize: '12px', fontWeight: 800 }}>
-                      ⚠ OVERDUE ({collectionMetrics.daysOverdue} Days Late)
-                    </span>
-                  )}
-                  {collectionMetrics.timingStatus === 'DUE TODAY' && (
-                    <span className="badge badge-warning" style={{ fontSize: '12px', fontWeight: 800 }}>
-                      ⏰ DUE TODAY
-                    </span>
-                  )}
-                  {collectionMetrics.timingStatus === 'EARLY PAYMENT' && (
-                    <span className="badge badge-success" style={{ fontSize: '12px', fontWeight: 800 }}>
-                      ✓ ON TIME / EARLY PAYMENT
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', fontSize: '13px' }}>
-                <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Original Principal:</span>
-                  <div style={{ fontWeight: 700 }}>₹{collectingLoan.principal.toLocaleString('en-IN')}</div>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Current Outstanding:</span>
-                  <div style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>₹{collectionMetrics.outstanding.toLocaleString('en-IN')}</div>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Interest Rate:</span>
-                  <div style={{ fontWeight: 700 }}>{collectingLoan.interestRate}% / month</div>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Contractual Due:</span>
-                  <div style={{ fontWeight: 800, color: collectionMetrics.timingStatus === 'OVERDUE' ? '#dc2626' : 'inherit' }}>
-                    {collectionMetrics.dueDateStr}
-                  </div>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Base Monthly Interest:</span>
-                  <div style={{ fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>
-                    ₹{collectionMetrics.baseMonthlyInterest.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                {collectionMetrics.penaltyAmount > 0 && (
-                  <div>
-                    <span style={{ color: 'var(--text-muted)' }}>Overdue Penalty:</span>
-                    <div style={{ fontWeight: 800, color: '#dc2626' }}>
-                      +₹{collectionMetrics.penaltyAmount.toLocaleString('en-IN')}
-                    </div>
+                    )}
                   </div>
                 )}
-              </div>
-            </div>
 
-            {/* Outstanding Payment Periods Breakdown (Missed & Current Periods) */}
-            {loanPeriodsBreakdown.length > 0 && (
-              <div style={{ marginBottom: '24px', padding: '16px 20px', borderRadius: '12px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: 0 }}>
-                    OUTSTANDING PAYMENT PERIODS BREAKDOWN
-                  </h4>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    Historical &amp; Current Schedule
-                  </span>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
-                  {loanPeriodsBreakdown.map((p, idx) => (
-                    <div
-                      key={`period-${idx}`}
-                      style={{
-                        padding: '10px 14px',
-                        borderRadius: '8px',
-                        border: p.isPaid ? '1px solid #a7f3d0' : p.statusText === 'OVERDUE' ? '1.5px solid #f87171' : '1px solid #cbd5e1',
-                        backgroundColor: p.isPaid ? '#f0fdf4' : p.statusText === 'OVERDUE' ? '#fef2f2' : '#f8fafc',
-                        fontSize: '12.5px'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <strong style={{ color: p.isPaid ? '#065f46' : 'var(--text-dark)' }}>{p.monthName}</strong>
-                        {p.isPaid ? (
-                          <span className="badge badge-success" style={{ fontSize: '10px' }}>✓ Paid</span>
-                        ) : p.statusText === 'OVERDUE' ? (
-                          <span className="badge badge-danger" style={{ fontSize: '10px' }}>{p.daysOverdue}d Overdue</span>
-                        ) : (
-                          <span className="badge badge-info" style={{ fontSize: '10px' }}>Current</span>
-                        )}
-                      </div>
-                      <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                        <span>Due: {p.dueDateStr}</span>
-                        <span style={{ fontWeight: 700, color: p.isPaid ? '#059669' : 'var(--text-dark)' }}>
-                          ₹{p.interestDue.toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                      {p.receiptNo && (
-                        <div style={{ fontSize: '11px', color: '#059669', marginTop: '2px' }}>
-                          Receipt: #{p.receiptNo}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Payment Collection Form */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              {/* Payment Date & Timing */}
-              <div className="grid-2">
+                {/* Notes */}
                 <div className="form-group">
-                  <label className="form-label required">PAYMENT DATE *</label>
+                  <label className="form-label">REMARKS / NOTES</label>
                   <input
-                    type="date"
+                    type="text"
                     className="input-control"
-                    value={paymentDate}
-                    onChange={(e) => setPaymentDate(e.target.value)}
-                    style={{ fontWeight: 700 }}
-                  />
-                  <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                    Actual date of payment received from customer (defaults to today).
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">DUE / OVERDUE STATUS</label>
-                  <div style={{ height: '42px', display: 'flex', alignItems: 'center', padding: '0 12px', borderRadius: '8px', backgroundColor: collectionMetrics.timingStatus === 'OVERDUE' ? '#fef2f2' : '#f0fdf4', border: '1px solid var(--border-subtle)' }}>
-                    {collectionMetrics.timingStatus === 'OVERDUE' && (
-                      <span style={{ color: '#dc2626', fontWeight: 800, fontSize: '13px' }}>
-                        ⚠ {collectionMetrics.daysOverdue} Days Overdue (Contractual Due: {collectionMetrics.dueDateStr})
-                      </span>
-                    )}
-                    {collectionMetrics.timingStatus === 'DUE TODAY' && (
-                      <span style={{ color: '#d97706', fontWeight: 800, fontSize: '13px' }}>
-                        ⏰ Due Today ({collectionMetrics.dueDateStr})
-                      </span>
-                    )}
-                    {collectionMetrics.timingStatus === 'EARLY PAYMENT' && (
-                      <span style={{ color: '#059669', fontWeight: 800, fontSize: '13px' }}>
-                        ✓ On Time / Advance Payment (Due: {collectionMetrics.dueDateStr})
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Payment Type Selector Tabs */}
-              <div>
-                <label className="form-label required">SELECT PAYMENT TYPE *</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px' }}>
-                  {(['Interest Payment', 'Principal Payment', 'Interest + Principal', 'Full Loan Closure'] as const).map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setReceiptType(type)}
-                      className={receiptType === type ? 'btn btn-primary' : 'btn btn-secondary'}
-                      style={{
-                        padding: '10px 12px',
-                        fontSize: '13px',
-                        fontWeight: 700,
-                        border: receiptType === type ? '2px solid var(--color-primary-accent, #059669)' : '1px solid var(--border-light)'
-                      }}
-                    >
-                      {type}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Settlement Calculation Inputs based on Payment Type */}
-              <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '16px 20px', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                {receiptType === 'Interest Payment' && (
-                  <div className="grid-3" style={{ gap: '14px' }}>
-                    <div>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Base Monthly Interest:</span>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>
-                        ₹{collectionMetrics.baseMonthlyInterest.toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Late Penalty:</span>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: collectionMetrics.penaltyAmount > 0 ? '#dc2626' : 'var(--text-dark)' }}>
-                        ₹{collectionMetrics.penaltyAmount.toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total Interest Due:</span>
-                      <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>
-                        ₹{collectionMetrics.totalInterestDueWithPenalty.toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {receiptType === 'Principal Payment' && (
-                  <div>
-                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                      Current Outstanding Principal: <strong>₹{collectionMetrics.outstanding.toLocaleString('en-IN')}</strong>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label required">PRINCIPAL REPAYMENT AMOUNT (₹) *</label>
-                      <input
-                        type="number"
-                        className="input-control"
-                        placeholder="Enter principal amount to repay..."
-                        value={principalPaidInput}
-                        onChange={(e) => {
-                          setPrincipalPaidInput(e.target.value);
-                          setAmountReceived(e.target.value);
-                        }}
-                        style={{ fontSize: '16px', fontWeight: 800 }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {receiptType === 'Interest + Principal' && (
-                  <div className="grid-2" style={{ gap: '14px' }}>
-                    <div className="form-group">
-                      <label className="form-label required">INTEREST COMPONENT (₹) *</label>
-                      <input
-                        type="number"
-                        className="input-control"
-                        value={interestPaidInput}
-                        onChange={(e) => {
-                          setInterestPaidInput(e.target.value);
-                          const p = parseFloat(principalPaidInput) || 0;
-                          const i = parseFloat(e.target.value) || 0;
-                          setAmountReceived((p + i).toString());
-                        }}
-                        style={{ fontSize: '15px', fontWeight: 700 }}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label required">PRINCIPAL COMPONENT (₹) *</label>
-                      <input
-                        type="number"
-                        className="input-control"
-                        value={principalPaidInput}
-                        placeholder="Principal amount..."
-                        onChange={(e) => {
-                          setPrincipalPaidInput(e.target.value);
-                          const p = parseFloat(e.target.value) || 0;
-                          const i = parseFloat(interestPaidInput) || 0;
-                          setAmountReceived((p + i).toString());
-                        }}
-                        style={{ fontSize: '15px', fontWeight: 700 }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {receiptType === 'Full Loan Closure' && (
-                  <div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', fontSize: '13px', marginBottom: '12px' }}>
-                      <div>
-                        <span style={{ color: 'var(--text-muted)' }}>Outstanding Principal:</span>
-                        <div style={{ fontWeight: 800 }}>₹{collectionMetrics.outstanding.toLocaleString('en-IN')}</div>
-                      </div>
-                      <div>
-                        <span style={{ color: 'var(--text-muted)' }}>Interest Due:</span>
-                        <div style={{ fontWeight: 800 }}>₹{collectionMetrics.baseMonthlyInterest.toLocaleString('en-IN')}</div>
-                      </div>
-                      <div>
-                        <span style={{ color: 'var(--text-muted)' }}>Overdue Penalty:</span>
-                        <div style={{ fontWeight: 800, color: '#dc2626' }}>₹{collectionMetrics.penaltyAmount.toLocaleString('en-IN')}</div>
-                      </div>
-                      <div>
-                        <span style={{ color: 'var(--text-muted)' }}>Full Settlement:</span>
-                        <div style={{ fontWeight: 900, fontSize: '16px', color: 'var(--color-primary-accent, #059669)' }}>
-                          ₹{(collectionMetrics.outstanding + collectionMetrics.totalInterestDueWithPenalty).toLocaleString('en-IN')}
-                        </div>
-                      </div>
-                    </div>
-                    <span className="badge badge-danger" style={{ fontSize: '11px', fontWeight: 700 }}>
-                      ⚠ Full Loan Closure will set outstanding principal to ₹0 and close the loan permanently.
-                    </span>
-                  </div>
-                )}
-
-                {/* Amount Received */}
-                <div className="form-group" style={{ marginTop: '14px' }}>
-                  <label className="form-label required" style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>
-                    TOTAL AMOUNT RECEIVED (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    className="input-control"
-                    placeholder="Enter exact total amount received..."
-                    value={amountReceived}
-                    onChange={(e) => setAmountReceived(e.target.value)}
-                    style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}
+                    placeholder="Optional remarks..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
                   />
                 </div>
-              </div>
 
-              {/* Payment Method */}
-              <div>
-                <label className="form-label required">PAYMENT METHOD *</label>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  {(['Cash', 'Bank', 'UPI'] as const).map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => setPaymentMethod(method)}
-                      className={paymentMethod === method ? 'btn btn-primary' : 'btn btn-secondary'}
-                      style={{ flex: 1, padding: '10px', fontSize: '13px', fontWeight: 700 }}
-                    >
-                      {method}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Bank Transfer Details */}
-              {paymentMethod === 'Bank' && (
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">BANK NAME</label>
-                    <input
-                      type="text"
-                      className="input-control"
-                      placeholder="e.g. HDFC Bank, SBI..."
-                      value={bankName}
-                      onChange={(e) => setBankName(e.target.value)}
-                    />
+                {/* Payment Summary Preview */}
+                <div style={{ backgroundColor: '#f0fdf4', padding: '14px 16px', borderRadius: '10px', border: '1.5px solid #86efac' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#065f46', marginBottom: '6px' }}>
+                    PAYMENT SUMMARY PREVIEW
                   </div>
-                  <div className="form-group">
-                    <label className="form-label required">UTR / TRANSACTION REFERENCE *</label>
-                    <input
-                      type="text"
-                      className="input-control"
-                      placeholder="Bank UTR Number..."
-                      value={transactionReference}
-                      onChange={(e) => setTransactionReference(e.target.value)}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '6px', fontSize: '12.5px' }}>
+                    <div>Customer: <strong>{rc.name}</strong></div>
+                    <div>Loan: <strong>{selectedLoan.loanNo}</strong></div>
+                    <div>Date: <strong>{collectionMetrics.normalizedPaymentDate}</strong></div>
+                    <div>Total Received: <strong style={{ color: '#059669', fontSize: '14px' }}>₹{(parseFloat(amountReceived) || 0).toLocaleString('en-IN')}</strong></div>
+                    <div>Next Due: <strong>{receiptType === 'Full Loan Closure' ? '— (Closed)' : addCalendarMonths(collectionMetrics.dueDateStr, 1)}</strong></div>
                   </div>
                 </div>
-              )}
 
-              {/* UPI Details */}
-              {paymentMethod === 'UPI' && (
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label required">UPI TRANSACTION REFERENCE / UTR *</label>
-                    <input
-                      type="text"
-                      className="input-control"
-                      placeholder="12-digit UPI UTR reference..."
-                      value={transactionReference}
-                      onChange={(e) => setTransactionReference(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">CUSTOMER UPI ID (OPTIONAL)</label>
-                    <input
-                      type="text"
-                      className="input-control"
-                      placeholder="customer@upi"
-                      value={upiId}
-                      onChange={(e) => setUpiId(e.target.value)}
-                    />
-                  </div>
+                {/* Footer Buttons */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                  {/* Requirement 10: Cancel button returns to customer's loan list */}
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleClosePaymentModal}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleConfirmPayment}
+                    disabled={isSubmitting}
+                    style={{ padding: '10px 24px', fontSize: '13.5px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <DollarSign size={15} />
+                    <span>{isSubmitting ? 'Processing Payment...' : 'Confirm Payment & Generate Receipt'}</span>
+                  </button>
                 </div>
-              )}
-
-              {/* Pledged Ornaments & Photos Review */}
-              {pledgedItems.length > 0 && (
-                <div style={{ padding: '16px', borderRadius: '10px', border: '1px solid var(--border-subtle)', backgroundColor: '#ffffff' }}>
-                  <h4 style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '0 0 10px 0' }}>
-                    Pledged Gold Collateral
-                  </h4>
-                  <table className="custom-table" style={{ fontSize: '12.5px' }}>
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Qty</th>
-                        <th>Purity</th>
-                        <th>Gross Wt</th>
-                        <th>Net Wt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pledgedItems.map((it, idx) => (
-                        <tr key={idx}>
-                          <td style={{ fontWeight: 700 }}>{it.item}</td>
-                          <td>{it.qty}</td>
-                          <td>{it.purity}</td>
-                          <td>{it.grossWeight}g</td>
-                          <td style={{ fontWeight: 700 }}>{it.netWeight}g</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-
-                  {pledgedPhotos.length > 0 && (
-                    <div style={{ marginTop: '12px' }}>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                        Collateral Photos (Click to preview with Lightbox):
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {pledgedPhotos.map((p, pIdx) => (
-                          <div
-                            key={pIdx}
-                            onClick={() => {
-                              setLightboxIndex(pIdx);
-                              setLightboxZoom(1);
-                            }}
-                            style={{ width: '48px', height: '48px', borderRadius: '6px', overflow: 'hidden', cursor: 'pointer', border: '1.5px solid #cbd5e1' }}
-                          >
-                            <img src={p} alt="Collateral" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Notes */}
-              <div className="form-group">
-                <label className="form-label">REMARKS / NOTES</label>
-                <input
-                  type="text"
-                  className="input-control"
-                  placeholder="Optional remarks..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
-
-              {/* Payment Summary Preview */}
-              <div style={{ backgroundColor: '#f0fdf4', padding: '16px 20px', borderRadius: '12px', border: '1.5px solid #86efac' }}>
-                <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#065f46', marginBottom: '8px', textTransform: 'uppercase' }}>
-                  PAYMENT SUMMARY PREVIEW
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px', fontSize: '13px' }}>
-                  <div>Customer: <strong>{rc.name}</strong></div>
-                  <div>Customer ID: <strong>{rc.custId}</strong></div>
-                  <div>Loan No: <strong>{collectingLoan.loanNo}</strong></div>
-                  <div>Payment Date: <strong>{collectionMetrics.normalizedPaymentDate}</strong></div>
-                  <div>Status: <strong style={{ color: collectionMetrics.timingStatus === 'OVERDUE' ? '#dc2626' : '#059669' }}>{collectionMetrics.timingStatus}</strong></div>
-                  <div>Total Received: <strong style={{ color: '#059669', fontSize: '15px' }}>₹{(parseFloat(amountReceived) || 0).toLocaleString('en-IN')}</strong></div>
-                  <div>Next Due: <strong>{receiptType === 'Full Loan Closure' ? '— (Closed)' : addCalendarMonths(collectionMetrics.dueDateStr, 1)}</strong></div>
-                </div>
-              </div>
-
-              {/* Confirm & Submit Button */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={handleChangeLoan}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleConfirmCollection}
-                  disabled={isSubmitting}
-                  style={{ padding: '12px 28px', fontSize: '14px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}
-                >
-                  <DollarSign size={16} />
-                  <span>{isSubmitting ? 'Processing Payment...' : 'Confirm Payment & Generate Receipt'}</span>
-                </button>
               </div>
             </div>
           </div>
@@ -1730,7 +1743,7 @@ export const PendingLoans: React.FC = () => {
             position: 'fixed',
             inset: 0,
             backgroundColor: 'rgba(0,0,0,0.65)',
-            zIndex: 1200,
+            zIndex: 1300,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1862,7 +1875,7 @@ export const PendingLoans: React.FC = () => {
               position: 'fixed',
               inset: 0,
               backgroundColor: 'rgba(0,0,0,0.7)',
-              zIndex: 1300,
+              zIndex: 1350,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -2037,7 +2050,7 @@ export const PendingLoans: React.FC = () => {
       {/* ════════════════════════════════════════════════════════════════════════
           INTERACTIVE PHOTO LIGHTBOX MODAL
           ════════════════════════════════════════════════════════════════════════ */}
-      {lightboxIndex !== null && collectingLoan && collectingLoan.photos && collectingLoan.photos[lightboxIndex] && (
+      {lightboxIndex !== null && selectedLoan && selectedLoan.photos && selectedLoan.photos[lightboxIndex] && (
         <div
           style={{
             position: 'fixed',
@@ -2068,7 +2081,7 @@ export const PendingLoans: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ fontSize: '14px', fontWeight: 700 }}>
-              Pledged Collateral &bull; {collectingLoan.loanNo} (Photo {lightboxIndex + 1} of {collectingLoan.photos.length})
+              Pledged Collateral &bull; {selectedLoan.loanNo} (Photo {lightboxIndex + 1} of {selectedLoan.photos.length})
             </div>
 
             <div style={{ display: 'flex', gap: '10px' }}>
@@ -2116,7 +2129,7 @@ export const PendingLoans: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <img
-              src={collectingLoan.photos[lightboxIndex]}
+              src={selectedLoan.photos[lightboxIndex]}
               alt="Pledged Gold"
               style={{
                 transform: `scale(${lightboxZoom})`,
@@ -2130,7 +2143,7 @@ export const PendingLoans: React.FC = () => {
           </div>
 
           {/* Navigation Arrows */}
-          {collectingLoan.photos.length > 1 && (
+          {selectedLoan.photos.length > 1 && (
             <div
               style={{
                 position: 'absolute',
@@ -2154,12 +2167,12 @@ export const PendingLoans: React.FC = () => {
               </button>
               <button
                 type="button"
-                disabled={lightboxIndex === collectingLoan.photos.length - 1}
+                disabled={lightboxIndex === selectedLoan.photos.length - 1}
                 onClick={() => {
-                  setLightboxIndex((idx) => Math.min(collectingLoan.photos.length - 1, (idx ?? 0) + 1));
+                  setLightboxIndex((idx) => Math.min(selectedLoan.photos.length - 1, (idx ?? 0) + 1));
                   setLightboxZoom(1);
                 }}
-                style={{ background: 'rgba(255,255,255,0.25)', border: 'none', color: '#fff', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: lightboxIndex === collectingLoan.photos.length - 1 ? 'not-allowed' : 'pointer', opacity: lightboxIndex === collectingLoan.photos.length - 1 ? 0.4 : 1 }}
+                style={{ background: 'rgba(255,255,255,0.25)', border: 'none', color: '#fff', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: lightboxIndex === selectedLoan.photos.length - 1 ? 'not-allowed' : 'pointer', opacity: lightboxIndex === selectedLoan.photos.length - 1 ? 0.4 : 1 }}
               >
                 <ChevronRight size={22} />
               </button>

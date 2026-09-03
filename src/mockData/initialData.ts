@@ -546,6 +546,26 @@ export const initialFixedDeposits: FixedDeposit[] = [
     ]
   },
   {
+    id: 'FD-SANJAI-002',
+    fdNo: 'FD-002',
+    customerId: 'CUST-0006',
+    depositorName: 'Sanjai',
+    phone: '8637628773',
+    idProofType: 'Aadhaar Card',
+    idProofNumber: 'XXXX-XXXX-7721',
+    address: '42 Bazaar Road, Madurai - 625001',
+    depositDate: '15-09-2026',
+    maturityDate: '15-09-2027',
+    principal: 100000,
+    remainingPrincipal: 100000,
+    totalWithdrawnPrincipal: 0,
+    tenureMonths: 12,
+    interestRatePA: 12.0,
+    receivingMethod: 'Bank',
+    monthlyPayout: 1000,
+    status: 'ACTIVE'
+  },
+  {
     id: 'FD-001',
     fdNo: 'FD-01',
     customerId: 'CUST-001',

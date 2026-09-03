@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   ArrowLeft,
@@ -14,13 +14,26 @@ import {
   Clock,
   AlertCircle,
   ExternalLink,
-  Landmark
+  Landmark,
+  DollarSign,
+  AlertTriangle
 } from 'lucide-react';
 import { formatIdProofDisplay } from '../utils/kycValidation';
 import { EditCustomerModal } from '../components/common/EditCustomerModal';
-import { isMatchingCustomerId } from '../utils/customerUtils';
+import { ViewFDModal } from '../components/common/ViewFDModal';
+import { isMatchingCustomerId, getCanonicalCustomerId } from '../utils/customerUtils';
+import {
+  formatFDDate,
+  normalizeDateString,
+  compareFDDates,
+  getDaysDifference,
+  getAllPendingFDInterestPeriods,
+  getPendingFDInterestPeriods,
+  addCalendarMonths
+} from '../utils/fdInterestUtils';
+import { FixedDeposit } from '../types';
 
-type ActiveTab = 'overview' | 'loans' | 'fixed-deposits' | 'pledged-items' | 'payments' | 'activity';
+type ActiveTab = 'overview' | 'loans' | 'fixed-deposits' | 'pending' | 'pledged-items' | 'payments' | 'activity';
 
 export const CustomerProfile: React.FC = () => {
   const {
@@ -28,20 +41,36 @@ export const CustomerProfile: React.FC = () => {
     loans,
     fixedDeposits,
     receipts,
+    fdInterestPayouts,
+    fdWithdrawals,
+    fdRenewals,
+    payFDInterest,
     selectedProfileCustomerId,
     setSelectedLoan,
     setCurrentPage,
     updateCustomer,
-    showToast
+    showToast,
+    masterControlSettings
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [selectedViewFD, setSelectedViewFD] = useState<FixedDeposit | null>(null);
+
+  // Normalized today's date
+  const todayStr = useMemo(() => formatFDDate(new Date()), []);
 
   // Find customer by id or customerId
-  const customer = customers.find(
-    (c) => c.id === selectedProfileCustomerId || (c.customerId && c.customerId.toString() === selectedProfileCustomerId)
-  ) || customers[0];
+  const customer = useMemo(() => {
+    return (
+      customers.find(
+        (c) =>
+          c.id === selectedProfileCustomerId ||
+          (c.customerId && c.customerId.toString() === selectedProfileCustomerId) ||
+          isMatchingCustomerId(selectedProfileCustomerId || '', c)
+      ) || customers[0]
+    );
+  }, [customers, selectedProfileCustomerId]);
 
   if (!customer) {
     return (
@@ -59,66 +88,163 @@ export const CustomerProfile: React.FC = () => {
     );
   }
 
+  const canonicalCustId = getCanonicalCustomerId(customer);
+
   // Open Edit Modal with current data
   const handleOpenEditModal = () => {
     setIsEditModalOpen(true);
   };
 
-  // Get all loans belonging to this customer
-  const customerLoans = loans.filter((l) => isMatchingCustomerId(l.customerId, customer));
+  // ── Customer Loans (using customerId as relationship) ───────────────────────
+  const customerLoans = useMemo(() => {
+    return loans.filter((l) => isMatchingCustomerId(l.customerId, customer));
+  }, [loans, customer]);
 
-  const activeLoansCount = customerLoans.filter((l) => l.status === 'ACTIVE').length;
-  const closedLoansCount = customerLoans.filter((l) => l.status === 'CLOSED').length;
+  const activeLoans = useMemo(() => {
+    return customerLoans.filter((l) => l.status !== 'CLOSED' && (l.outstandingPrincipal ?? l.principal) > 0);
+  }, [customerLoans]);
 
-  // Get all Fixed Deposits belonging to this customer
-  const customerFDs = fixedDeposits.filter((fd) => isMatchingCustomerId(fd.customerId, customer));
-  const activeFDsCount = customerFDs.filter((fd) => fd.status === 'ACTIVE').length;
-  const totalFdBalance = customerFDs.filter((fd) => fd.status === 'ACTIVE').reduce((sum, fd) => sum + (fd.remainingPrincipal ?? fd.principal ?? 0), 0);
-  const totalOutstandingLoans = customerLoans.filter((l) => l.status === 'ACTIVE').reduce((sum, l) => sum + (l.outstandingPrincipal ?? l.principal ?? 0), 0);
+  const activeLoansCount = activeLoans.length;
+  const totalOutstandingLoans = activeLoans.reduce((sum, l) => sum + (l.outstandingPrincipal ?? l.principal ?? 0), 0);
+
+  // ── Customer Fixed Deposits (using customerId as relationship) ───────────────
+  const customerFDs = useMemo(() => {
+    return fixedDeposits.filter((fd) => isMatchingCustomerId(fd.customerId, customer));
+  }, [fixedDeposits, customer]);
+
+  const activeFDs = useMemo(() => {
+    return customerFDs.filter((fd) => fd.status === 'ACTIVE');
+  }, [customerFDs]);
+
+  const activeFDsCount = activeFDs.length;
+  const totalFdBalance = activeFDs.reduce((sum, fd) => sum + (fd.remainingPrincipal ?? fd.principal ?? 0), 0);
+
+  // ── Requirement 4: Financial Exposure ───────────────────────────────────────
   const totalFinancialExposure = totalOutstandingLoans + totalFdBalance;
-  const totalPrincipalBorrowed = customerLoans.reduce((sum, l) => sum + (l.principal || 0), 0);
 
-  // All Pledged Items across customer loans
-  const allPledgedItems = customerLoans.flatMap((l) =>
-    (l.items || []).map((item) => ({
-      ...item,
-      loanNo: l.loanNo,
-      loanId: l.id,
-      loanDate: l.date,
-      loanStatus: l.status
-    }))
-  );
+  // ── Requirement 7: Real-Time Dynamic Pending Loan Calculations ──────────────
+  const pendingLoanItems = useMemo(() => {
+    return activeLoans
+      .map((l) => {
+        const rawDueDate = l.nextDueDate || l.renewalDate || l.date;
+        const dueDateStr = normalizeDateString(rawDueDate);
+        const outstanding = l.outstandingPrincipal ?? l.principal;
+        const baseMonthly =
+          l.monthlyInterest > 0
+            ? l.monthlyInterest
+            : Math.round((outstanding * (l.interestRate || 1.5)) / 100);
 
-  const totalGrossWt = allPledgedItems.reduce((sum, i) => sum + (i.grossWeight || 0), 0);
-  const totalNetWt = allPledgedItems.reduce((sum, i) => sum + (i.netWeight || 0), 0);
-  const totalValuation = customerLoans.reduce((sum, l) => sum + (l.marketValue || l.principal * 1.3), 0);
+        const periodReceipts = receipts.filter(
+          (r) =>
+            (r.loanNo === l.loanNo || r.loanId === l.id) &&
+            (r.kind === 'INTEREST PAYMENT' || r.kind === 'REPAYMENT' || r.kind === 'PART PAYMENT' || r.kind === 'LOAN CLOSURE') &&
+            (r.date === dueDateStr ||
+              compareFDDates(r.date, dueDateStr) >= 0 ||
+              (r.currentDueDate && normalizeDateString(r.currentDueDate) === dueDateStr))
+        );
 
-  // All Payment Receipts for this customer
-  const customerReceipts = receipts.filter(
-    (r) =>
-      r.customerId === customer.id ||
-      (customer.customerId && r.customerId === customer.customerId.toString()) ||
-      customerLoans.some((l) => l.loanNo === r.loanNo)
-  );
+        const paidAmt = periodReceipts.reduce((sum, r) => sum + (r.interestComponent || 0), 0);
+        const isPaid =
+          paidAmt >= baseMonthly ||
+          (l.lastInterestPaidDate && compareFDDates(normalizeDateString(l.lastInterestPaidDate), dueDateStr) >= 0);
+
+        const remainingDue = isPaid ? 0 : Math.max(0, baseMonthly - paidAmt);
+        const comp = compareFDDates(todayStr, dueDateStr);
+        const daysOverdue = comp > 0 ? Math.max(0, getDaysDifference(todayStr, dueDateStr)) : 0;
+        const penaltyRate = masterControlSettings?.overduePenaltyPerDayPercent ?? 0;
+        const penalty = (daysOverdue > 0 && penaltyRate > 0) ? Math.round((remainingDue * penaltyRate * daysOverdue) / 100) : 0;
+
+        return {
+          loan: l,
+          loanNo: l.loanNo,
+          dueDateStr,
+          interestDue: remainingDue,
+          penalty,
+          totalDue: remainingDue + penalty,
+          daysOverdue,
+          isOverdue: daysOverdue > 0,
+          isPaid
+        };
+      })
+      .filter((item) => !item.isPaid && item.totalDue > 0);
+  }, [activeLoans, receipts, todayStr, masterControlSettings]);
+
+  const totalPendingLoanAmount = pendingLoanItems.reduce((sum, item) => sum + item.totalDue, 0);
+
+  // ── Requirement 7: Real-Time Dynamic Pending FD Interest Calculations ───────
+  const pendingFDItems = useMemo(() => {
+    const pendingPeriods = getAllPendingFDInterestPeriods(activeFDs, fdInterestPayouts || [], todayStr);
+    return pendingPeriods.map((p) => ({
+      fdNo: p.fdNo,
+      payoutDate: p.dueDate,
+      interestDue: p.amount,
+      daysOverdue: p.daysOverdue
+    }));
+  }, [activeFDs, fdInterestPayouts, todayStr]);
+
+  const totalPendingFDInterest = pendingFDItems.reduce((sum, p) => sum + p.interestDue, 0);
+
+  // ── Requirement 4: Upcoming FD Maturity ────────────────────────────────────
+  const upcomingFDMaturity = useMemo(() => {
+    if (activeFDs.length === 0) return '—';
+    const sorted = [...activeFDs].sort((a, b) =>
+      compareFDDates(normalizeDateString(a.maturityDate), normalizeDateString(b.maturityDate))
+    );
+    return sorted[0].maturityDate || '—';
+  }, [activeFDs]);
+
+  // ── Pledged Items across customer loans ────────────────────────────────────
+  const allPledgedItems = useMemo(() => {
+    return customerLoans.flatMap((l) =>
+      (l.items || []).map((item) => ({
+        ...item,
+        loanNo: l.loanNo,
+        loanId: l.id,
+        loanDate: l.date,
+        loanStatus: l.status,
+        photos: l.photos || []
+      }))
+    );
+  }, [customerLoans]);
+
+  // ── Customer Receipts ──────────────────────────────────────────────────────
+  const customerReceipts = useMemo(() => {
+    return receipts.filter(
+      (r) =>
+        r.customerId === customer.id ||
+        (customer.customerId && r.customerId === customer.customerId.toString()) ||
+        isMatchingCustomerId(r.customerId, customer) ||
+        customerLoans.some((l) => l.loanNo === r.loanNo)
+    );
+  }, [receipts, customer, customerLoans]);
 
   const totalPaid = customerReceipts.reduce((sum, r) => sum + (r.amount || 0), 0);
 
+  // Navigation Handlers
   const handleViewLoan = (loan: any) => {
     setSelectedLoan(loan);
     setCurrentPage('loan-display');
     showToast(`Viewing loan details for ${loan.loanNo}`, 'info');
   };
 
+  const handleViewFD = (fd: any) => {
+    setCurrentPage('deposit-display');
+    showToast(`Viewing deposit details for ${fd.fdNo}`, 'info');
+  };
+
   const loc: any = customer.currentLocation;
-  const mapsUrl = loc?.googleMapsUrl || loc?.mapsUrl || (loc?.coordinates ? `https://maps.google.com/?q=${loc.coordinates}` : null);
+  const mapsUrl =
+    loc?.googleMapsUrl ||
+    loc?.mapsUrl ||
+    (loc?.coordinates ? `https://maps.google.com/?q=${loc.coordinates}` : null);
 
   // Activity Timeline Events
   const activityEvents = [
     {
       id: 'act-1',
       date: customer.joinedDate || '01/08/2026',
-      title: 'Customer Onboarded & Profile Created',
-      desc: `Registered customer ${customer.name} with Master ID ${customer.id}`,
+      title: 'Customer Onboarded & Master Profile Created',
+      desc: `Registered customer ${customer.name} with Customer ID ${canonicalCustId}`,
       type: 'user'
     },
     ...customerLoans.map((l) => ({
@@ -131,22 +257,51 @@ export const CustomerProfile: React.FC = () => {
     ...customerFDs.map((fd) => ({
       id: `act-fd-${fd.id}`,
       date: fd.depositDate,
-      title: `Fixed Deposit ${fd.fdNo} Created`,
-      desc: `Term deposit of ₹${fd.principal.toLocaleString('en-IN')} issued @ ${fd.interestRatePA}% p.a.`,
+      title: `Fixed Deposit ${fd.fdNo} Issued`,
+      desc: `Term deposit of ₹${fd.principal.toLocaleString('en-IN')} @ ${fd.interestRatePA}% p.a.`,
       type: 'fd'
     })),
+    ...(fdInterestPayouts || [])
+      .filter((p) => customerFDs.some((f) => f.fdNo === p.fdNo))
+      .map((p) => ({
+        id: `act-fd-payout-${p.id}`,
+        date: p.date,
+        title: `FD Interest Payout for ${p.fdNo}`,
+        desc: `Paid ₹${p.amount.toLocaleString('en-IN')} interest via ${p.mode || 'Cash'}`,
+        type: 'receipt'
+      })),
+    ...(fdWithdrawals || [])
+      .filter((w) => customerFDs.some((f) => f.fdNo === w.fdNo))
+      .map((w) => ({
+        id: `act-fd-wd-${w.id}`,
+        date: w.withdrawalDate,
+        title: `FD Principal Withdrawal — ${w.fdNo}`,
+        desc: `Withdrew ₹${w.principalAmount.toLocaleString('en-IN')} (${w.withdrawalType || 'PARTIAL'} withdrawal)`,
+        type: 'fd'
+      })),
+    ...(fdRenewals || [])
+      .filter((r) => customerFDs.some((f) => f.fdNo === r.fdNo))
+      .map((r) => ({
+        id: `act-fd-rn-${r.id}`,
+        date: r.renewalDate,
+        title: `FD Term Renewal — ${r.fdNo}`,
+        desc: `Renewed for ${r.renewalPeriodMonths} months. New maturity date: ${r.newMaturityDate}`,
+        type: 'fd'
+      })),
     ...customerReceipts.map((r) => ({
       id: `act-rc-${r.id}`,
       date: r.date,
       title: `Payment Receipt #${r.receiptNo} Recorded`,
-      desc: `Received ₹${r.amount.toLocaleString('en-IN')} via ${r.paymentMode} for Loan ${r.loanNo} (${r.kind})`,
+      desc: `Received ₹${r.amount.toLocaleString('en-IN')} via ${r.paymentMode} for ${r.loanNo || 'Account'} (${r.kind})`,
       type: 'receipt'
     }))
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
-      {/* TOP BAR: NAVIGATION & ACTIONS */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          TOP NAVIGATION BAR
+          ════════════════════════════════════════════════════════════════════════ */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <button
           className="btn btn-secondary"
@@ -154,7 +309,7 @@ export const CustomerProfile: React.FC = () => {
           style={{ gap: '8px', fontWeight: 600, fontSize: '13px' }}
         >
           <ArrowLeft size={16} />
-          <span>← Back to Search Customers</span>
+          <span>&larr; Back to Search Customers</span>
         </button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -164,7 +319,7 @@ export const CustomerProfile: React.FC = () => {
             style={{ gap: '6px', fontSize: '13px', padding: '8px 16px', fontWeight: 600 }}
           >
             <Edit3 size={15} />
-            <span>Edit Customer Profile</span>
+            <span>Edit Profile</span>
           </button>
 
           <button
@@ -178,28 +333,32 @@ export const CustomerProfile: React.FC = () => {
             <Plus size={15} />
             <span>+ Issue New Loan</span>
           </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              setCurrentPage('new-deposit');
+              showToast(`Pre-selected customer ${customer.name} for Fixed Deposit`, 'info');
+            }}
+            style={{ gap: '6px', fontSize: '13px', padding: '8px 16px', fontWeight: 700 }}
+          >
+            <Landmark size={15} />
+            <span>+ New Deposit</span>
+          </button>
         </div>
       </div>
 
-      {/* PAGE TITLE */}
-      <div>
-        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 800, color: 'var(--text-dark)' }}>
-          Customer Details
-        </h1>
-        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-          Complete master profile, KYC verification, loans, fixed deposits and activity history.
-        </p>
-      </div>
-
-      {/* HERO PROFILE HEADER CARD */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          SECTION 27: CUSTOMER PROFILE HERO HEADER
+          ════════════════════════════════════════════════════════════════════════ */}
       <div
         className="card"
         style={{
           padding: '24px',
-          border: '1px solid var(--border-light, #e2e8f0)',
+          border: '1.5px solid var(--border-light, #e2e8f0)',
           borderRadius: '14px',
           backgroundColor: '#ffffff',
-          boxShadow: '0 2px 8px rgba(15, 60, 45, 0.05)'
+          boxShadow: 'var(--shadow-sm)'
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
@@ -243,71 +402,216 @@ export const CustomerProfile: React.FC = () => {
             {/* NAME & PRIMARY METADATA */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 800, color: 'var(--text-dark)' }}>
+                <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: 'var(--text-dark)' }}>
                   {customer.name}
                 </h1>
                 <span className={`badge ${customer.status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>
-                  {customer.status === 'VERIFIED' ? '✓ Verified Borrower' : '🟡 Pending KYC'}
+                  {customer.status === 'VERIFIED' ? '✓ Verified' : '🟡 Pending KYC'}
                 </span>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: '13px', marginTop: '6px', fontWeight: 600 }}>
                 <span style={{ color: 'var(--color-primary-dark)', fontWeight: 800, backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '2px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
-                  Customer ID: {customer.id}
+                  Customer ID: {canonicalCustId}
                 </span>
                 <span>📱 +91 {customer.phone}</span>
                 {customer.email && <span>✉️ {customer.email}</span>}
               </div>
               <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                📍 {customer.currentAddress ? customer.currentAddress.slice(0, 45) + (customer.currentAddress.length > 45 ? '...' : '') : 'Registered Borrower'}
+                📍 {customer.currentAddress ? customer.currentAddress.slice(0, 55) + (customer.currentAddress.length > 55 ? '...' : '') : 'Registered Customer'}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 5-CARD FINANCIAL SUMMARY METRICS GRID */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
-          gap: '12px',
-          width: '100%',
-          boxSizing: 'border-box'
-        }}
-      >
-        <div className="card" style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>TOTAL LOANS</div>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-dark)', marginTop: '6px' }}>{customerLoans.length}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>All issued pledges</div>
+      {/* ════════════════════════════════════════════════════════════════════════
+          SECTION 4: COMPLETE 9-CARD CUSTOMER OVERVIEW FINANCIAL SUMMARY
+          ════════════════════════════════════════════════════════════════════════ */}
+      <div>
+        <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', letterSpacing: '0.05em', marginBottom: '8px', textTransform: 'uppercase' }}>
+          CUSTOMER FINANCIAL OVERVIEW
         </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+            gap: '12px',
+            width: '100%',
+            boxSizing: 'border-box'
+          }}
+        >
+          {/* Total Loans */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL LOANS</div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '4px' }}>{customerLoans.length}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>All pledge contracts</div>
+          </div>
 
-        <div className="card" style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--badge-success-text, #166534)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>ACTIVE LOANS</div>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--badge-success-text, #166534)', marginTop: '6px' }}>{activeLoansCount}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Currently open</div>
-        </div>
+          {/* Active Loans */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--badge-success-text, #166534)', textTransform: 'uppercase' }}>ACTIVE LOANS</div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--badge-success-text, #166534)', marginTop: '4px' }}>{activeLoansCount}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Currently open</div>
+          </div>
 
-        <div className="card" style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>TOTAL FD BALANCE</div>
-          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', marginTop: '6px', whiteSpace: 'nowrap' }}>₹{totalFdBalance.toLocaleString('en-IN')}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Active deposits</div>
-        </div>
+          {/* Total Loan Outstanding */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase' }}>LOAN OUTSTANDING</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '4px' }}>₹{totalOutstandingLoans.toLocaleString('en-IN')}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Current balance</div>
+          </div>
 
-        <div className="card" style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>ACTIVE DEPOSITS</div>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', marginTop: '6px' }}>{activeFDsCount}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Currently active</div>
-        </div>
+          {/* Total Fixed Deposits */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL FIXED DEPOSITS</div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '4px' }}>{customerFDs.length}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>All deposit folios</div>
+          </div>
 
-        <div className="card" style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>FINANCIAL EXPOSURE</div>
-          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', marginTop: '6px', whiteSpace: 'nowrap' }}>₹{totalFinancialExposure.toLocaleString('en-IN')}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Loans + deposits</div>
+          {/* Active FD Balance */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', textTransform: 'uppercase' }}>ACTIVE FD BALANCE</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-accent, #059669)', marginTop: '4px' }}>₹{totalFdBalance.toLocaleString('en-IN')}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{activeFDsCount} active accounts</div>
+          </div>
+
+          {/* Pending Loan Amount */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: totalPendingLoanAmount > 0 ? '1.5px solid #fca5a5' : '1px solid var(--border-light)', backgroundColor: totalPendingLoanAmount > 0 ? '#fef2f2' : '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: totalPendingLoanAmount > 0 ? '#dc2626' : 'var(--text-muted)', textTransform: 'uppercase' }}>PENDING LOAN AMOUNT</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: totalPendingLoanAmount > 0 ? '#dc2626' : 'var(--text-dark)', marginTop: '4px' }}>
+              ₹{totalPendingLoanAmount.toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '11px', color: totalPendingLoanAmount > 0 ? '#991b1b' : 'var(--text-muted)', marginTop: '2px' }}>
+              {pendingLoanItems.length > 0 ? `${pendingLoanItems.length} overdue/due` : 'No loan dues'}
+            </div>
+          </div>
+
+          {/* Pending FD Interest */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: totalPendingFDInterest > 0 ? '1.5px solid #fed7aa' : '1px solid var(--border-light)', backgroundColor: totalPendingFDInterest > 0 ? '#fff7ed' : '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: totalPendingFDInterest > 0 ? '#d97706' : 'var(--text-muted)', textTransform: 'uppercase' }}>PENDING FD INTEREST</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: totalPendingFDInterest > 0 ? '#d97706' : 'var(--text-dark)', marginTop: '4px' }}>
+              ₹{totalPendingFDInterest.toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {pendingFDItems.length > 0 ? `${pendingFDItems.length} payouts due` : 'Up to date'}
+            </div>
+          </div>
+
+          {/* Upcoming FD Maturity */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>UPCOMING FD MATURITY</div>
+            <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '6px' }}>
+              {upcomingFDMaturity}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Nearest term expiry</div>
+          </div>
+
+          {/* Financial Exposure */}
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', textTransform: 'uppercase' }}>FINANCIAL EXPOSURE</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-accent, #059669)', marginTop: '4px' }}>
+              ₹{totalFinancialExposure.toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Loans + deposits</div>
+          </div>
         </div>
       </div>
 
-      {/* MODERN SEGMENTED TAB BAR */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          SECTION 7: CUSTOMER → PENDING FINANCIAL ITEMS HIGHLIGHT CARD
+          ════════════════════════════════════════════════════════════════════════ */}
+      {(pendingLoanItems.length > 0 || pendingFDItems.length > 0) && (
+        <div
+          className="card"
+          style={{
+            padding: '20px 24px',
+            borderRadius: '12px',
+            borderLeft: '5px solid #ef4444',
+            backgroundColor: '#ffffff',
+            boxShadow: 'var(--shadow-sm)'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <AlertTriangle size={20} color="#dc2626" />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: 'var(--text-dark)' }}>
+                PENDING FINANCIAL ACTION ITEMS
+              </h3>
+            </div>
+            <span className="badge badge-danger" style={{ fontWeight: 800, fontSize: '11px' }}>
+              ACTION REQUIRED
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+            {/* Loan Dues */}
+            {pendingLoanItems.length > 0 && (
+              <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: '#fef2f2', border: '1px solid #fecaca' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <strong style={{ color: '#991b1b', fontSize: '13px' }}>PENDING LOAN REPAYMENTS</strong>
+                  <span className="badge badge-danger" style={{ fontSize: '10px' }}>{pendingLoanItems.length} Loan(s)</span>
+                </div>
+                {pendingLoanItems.map((pi, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < pendingLoanItems.length - 1 ? '1px dashed #fca5a5' : 'none', fontSize: '12.5px' }}>
+                    <div>
+                      <strong style={{ color: 'var(--text-dark)' }}>{pi.loanNo}</strong> &bull; Due: {pi.dueDateStr}
+                      {pi.daysOverdue > 0 && (
+                        <span style={{ color: '#dc2626', fontWeight: 700, marginLeft: '6px' }}>
+                          ({pi.daysOverdue} days overdue)
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontWeight: 900, color: '#dc2626' }}>
+                      ₹{pi.totalDue.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ width: '100%', marginTop: '10px', fontWeight: 800, fontSize: '12px', justifyContent: 'center' }}
+                  onClick={() => setCurrentPage('pending-loans')}
+                >
+                  <DollarSign size={14} style={{ marginRight: '4px' }} /> Collect Loan Payment in Pending Loans &rarr;
+                </button>
+              </div>
+            )}
+
+            {/* FD Interest Payouts */}
+            {pendingFDItems.length > 0 && (
+              <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <strong style={{ color: '#9a3412', fontSize: '13px' }}>PENDING FD INTEREST PAYOUTS</strong>
+                  <span className="badge badge-warning" style={{ fontSize: '10px' }}>{pendingFDItems.length} Payout(s)</span>
+                </div>
+                {pendingFDItems.map((p, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < pendingFDItems.length - 1 ? '1px dashed #fdba74' : 'none', fontSize: '12.5px' }}>
+                    <div>
+                      <strong style={{ color: 'var(--text-dark)' }}>{p.fdNo}</strong> &bull; Pending since: {p.payoutDate}
+                    </div>
+                    <div style={{ fontWeight: 900, color: '#c2410c' }}>
+                      ₹{p.interestDue.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', marginTop: '10px', fontWeight: 800, fontSize: '12px', justifyContent: 'center', color: '#c2410c', borderColor: '#fdba74' }}
+                  onClick={() => setCurrentPage('interest-pending')}
+                >
+                  <Landmark size={14} style={{ marginRight: '4px' }} /> Process FD Interest in Interest Pending &rarr;
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          SEGMENTED TAB BAR
+          ════════════════════════════════════════════════════════════════════════ */}
       <div
         style={{
           display: 'flex',
@@ -325,7 +629,7 @@ export const CustomerProfile: React.FC = () => {
           { id: 'loans', label: 'Loans', icon: FileSpreadsheet, count: customerLoans.length },
           { id: 'fixed-deposits', label: 'Fixed Deposits', icon: Landmark, count: customerFDs.length },
           { id: 'pledged-items', label: 'Pledged Items', icon: Coins, count: allPledgedItems.length },
-          { id: 'payments', label: 'Payments', icon: ReceiptIcon, count: customerReceipts.length },
+          { id: 'payments', label: 'Payments & Receipts', icon: ReceiptIcon, count: customerReceipts.length },
           { id: 'activity', label: 'Activity', icon: Clock, count: activityEvents.length }
         ].map((tab) => {
           const IconComp = tab.icon;
@@ -374,10 +678,12 @@ export const CustomerProfile: React.FC = () => {
         })}
       </div>
 
-      {/* TAB 1: OVERVIEW & KYC */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          TAB 1: OVERVIEW & KYC
+          ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
-          {/* LEFT COLUMN: PERSONAL & CONTACT INFORMATION */}
+          {/* PERSONAL & CONTACT INFORMATION */}
           <div className="card" style={{ padding: '22px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -404,7 +710,7 @@ export const CustomerProfile: React.FC = () => {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>CUSTOMER ID</span>
-                <span style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{customer.id}</span>
+                <span style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{canonicalCustId}</span>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
@@ -436,7 +742,7 @@ export const CustomerProfile: React.FC = () => {
             </div>
           </div>
 
-          {/* RIGHT COLUMN: KYC & ADDRESS VERIFICATION */}
+          {/* KYC & ADDRESS VERIFICATION */}
           <div className="card" style={{ padding: '22px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -509,16 +815,18 @@ export const CustomerProfile: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: LOANS */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          SECTION 5: TAB 2 — LOANS (CARDS + TABLE)
+          ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'loans' && (
         <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '14px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
-                LOANS &amp; BORROWING HISTORY
+                LOANS FOR {customer.name.toUpperCase()} ({canonicalCustId})
               </h3>
               <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                All gold loans, silver loans, and pledge agreements issued for {customer.name} ({customer.id})
+                Showing only loans linked to Customer ID {canonicalCustId} ({customerLoans.length} total)
               </p>
             </div>
 
@@ -535,97 +843,112 @@ export const CustomerProfile: React.FC = () => {
             </button>
           </div>
 
-          {/* LOANS SUMMARY BAR */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
-            <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL LOANS</span>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{customerLoans.length}</div>
-            </div>
-            <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--badge-success-text, #166534)', textTransform: 'uppercase' }}>ACTIVE LOANS</span>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--badge-success-text, #166534)' }}>{activeLoansCount}</div>
-            </div>
-            <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>CLOSED LOANS</span>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-secondary)' }}>{closedLoansCount}</div>
-            </div>
-            <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary-dark)', textTransform: 'uppercase' }}>TOTAL PRINCIPAL</span>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>₹{totalPrincipalBorrowed.toLocaleString('en-IN')}</div>
-            </div>
-          </div>
+          {/* Section 5: Loan Cards View */}
+          {customerLoans.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              {customerLoans.map((l) => {
+                const rawDueDate = l.nextDueDate || l.renewalDate || l.date;
+                const dueDateStr = normalizeDateString(rawDueDate);
+                const outstanding = l.status === 'CLOSED' ? 0 : (l.outstandingPrincipal ?? l.principal);
+                const baseMonthly =
+                  l.monthlyInterest > 0
+                    ? l.monthlyInterest
+                    : Math.round((outstanding * (l.interestRate || 1.5)) / 100);
 
-          {/* LOAN HISTORY TABLE */}
-          <div className="table-container" style={{ overflowX: 'auto' }}>
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>LOAN NO</th>
-                  <th>LOAN TYPE</th>
-                  <th>ISSUE DATE</th>
-                  <th>LOAN AMOUNT</th>
-                  <th>INTEREST RATE</th>
-                  <th>OUTSTANDING</th>
-                  <th>STATUS</th>
-                  <th style={{ textAlign: 'center', width: '120px' }}>ACTION</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customerLoans.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      No loans issued yet for this customer.
-                    </td>
-                  </tr>
-                ) : (
-                  customerLoans.map((l, idx) => (
-                    <tr key={`profile-loan-${l.id}-${idx}`}>
-                      <td style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>{l.loanNo}</td>
-                      <td>
-                        <span className="badge badge-gold">{l.loanType}</span>
-                      </td>
-                      <td>{l.date}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>
-                        ₹{l.principal.toLocaleString('en-IN')}
-                      </td>
-                      <td style={{ fontWeight: 600 }}>{l.interestRate}% / mo</td>
-                      <td style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>
-                        ₹{(l.status === 'CLOSED' ? 0 : (l.outstandingPrincipal ?? l.principal)).toLocaleString('en-IN')}
-                      </td>
-                      <td>
-                        <span className={`badge ${l.status === 'ACTIVE' ? 'badge-success' : 'badge-warning'}`}>
-                          {l.status}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          style={{ height: '28px', padding: '0 10px', fontSize: '11.5px', gap: '4px', fontWeight: 600 }}
-                          onClick={() => handleViewLoan(l)}
+                const comp = compareFDDates(todayStr, dueDateStr);
+                const isOverdue = comp > 0 && l.status !== 'CLOSED' && outstanding > 0;
+
+                return (
+                  <div
+                    key={`loan-card-${l.id}`}
+                    style={{
+                      padding: '18px',
+                      borderRadius: '12px',
+                      border: isOverdue ? '2px solid #f87171' : '1px solid var(--border-subtle)',
+                      backgroundColor: '#ffffff',
+                      boxShadow: 'var(--shadow-sm)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '12px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>{l.loanType}</span>
+                          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{l.loanNo}</div>
+                        </div>
+                        <span
+                          className={`badge ${
+                            l.status === 'CLOSED'
+                              ? ''
+                              : isOverdue
+                              ? 'badge-danger'
+                              : l.status === 'ACTIVE'
+                              ? 'badge-success'
+                              : 'badge-warning'
+                          }`}
+                          style={l.status === 'CLOSED' ? { backgroundColor: '#94a3b8', color: '#fff' } : undefined}
                         >
-                          <Eye size={13} />
-                          <span>View Details</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                          {l.status === 'CLOSED' ? 'CLOSED' : isOverdue ? 'OVERDUE' : l.status}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12.5px', marginTop: '12px', backgroundColor: 'var(--bg-surface-secondary)', padding: '10px 12px', borderRadius: '8px' }}>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Principal:</span>
+                          <div style={{ fontWeight: 700 }}>₹{l.principal.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Outstanding:</span>
+                          <div style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>₹{outstanding.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Monthly Interest:</span>
+                          <div style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>₹{baseMonthly.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Next Due:</span>
+                          <div style={{ fontWeight: 700, color: isOverdue ? '#dc2626' : 'inherit' }}>{dueDateStr}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ fontSize: '12px', fontWeight: 700, padding: '6px 14px' }}
+                        onClick={() => handleViewLoan(l)}
+                      >
+                        <Eye size={13} style={{ marginRight: '4px' }} /> View Loan
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+              No loans recorded for this customer.
+            </div>
+          )}
         </div>
       )}
 
-      {/* TAB 3: FIXED DEPOSITS */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          SECTION 6 & 7: TAB 3 — FIXED DEPOSITS (CARDS + TABLE + MODAL)
+          ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'fixed-deposits' && (
         <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '14px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
-                FIXED DEPOSITS REGISTER
+                FIXED DEPOSITS FOR {customer.name.toUpperCase()} ({canonicalCustId})
               </h3>
               <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                All term deposits, investment certificates, and maturity details for {customer.name} ({customer.id})
+                Showing only Fixed Deposits linked to Customer ID {canonicalCustId} ({customerFDs.length} total)
               </p>
             </div>
 
@@ -642,274 +965,276 @@ export const CustomerProfile: React.FC = () => {
             </button>
           </div>
 
-          <div className="table-container" style={{ overflowX: 'auto' }}>
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>FD NUMBER</th>
-                  <th>DEPOSIT DATE</th>
-                  <th>PRINCIPAL AMOUNT</th>
-                  <th>INTEREST RATE</th>
-                  <th>MONTHLY PAYOUT</th>
-                  <th>MATURITY DATE</th>
-                  <th>STATUS</th>
-                  <th style={{ textAlign: 'center', width: '120px' }}>ACTION</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customerFDs.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      No Fixed Deposits recorded yet for this customer.
-                    </td>
-                  </tr>
-                ) : (
-                  customerFDs.map((fd, idx) => (
-                    <tr key={`profile-fd-${fd.id}-${idx}`}>
-                      <td style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>{fd.fdNo}</td>
-                      <td>{fd.depositDate}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>
-                        ₹{fd.principal.toLocaleString('en-IN')}
-                      </td>
-                      <td style={{ fontWeight: 600 }}>{fd.interestRatePA}% p.a.</td>
-                      <td style={{ fontWeight: 600, color: 'var(--color-primary-dark)' }}>
-                        ₹{fd.monthlyPayout.toLocaleString('en-IN')} / mo
-                      </td>
-                      <td>{fd.maturityDate}</td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            fd.status === 'ACTIVE'
-                              ? 'badge-success'
-                              : fd.status === 'MATURED'
-                              ? 'badge-info'
-                              : 'badge-warning'
-                          }`}
-                        >
-                          {fd.status}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          style={{ height: '28px', padding: '0 10px', fontSize: '11.5px', gap: '4px', fontWeight: 600 }}
-                          onClick={() => {
-                            setCurrentPage('deposit-display');
-                            showToast(`Viewing deposit details for ${fd.fdNo}`, 'info');
-                          }}
-                        >
-                          <Eye size={13} />
-                          <span>View FD</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+          {/* Section 6 & 7: FD Cards View */}
+          {customerFDs.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              {customerFDs.map((fd) => {
+                const nextInterestStr = addCalendarMonths(fd.depositDate, 1);
+                const remaining = fd.remainingPrincipal ?? fd.principal;
+                const isPartiallyWithdrawn = remaining < fd.principal && remaining > 0;
+                const isFullyWithdrawn = remaining <= 0 || fd.status === 'WITHDRAWN';
 
-      {/* TAB 4: PLEDGED ITEMS */}
-      {activeTab === 'pledged-items' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* PLEDGED SUMMARY METRICS */}
-          <div className="card" style={{ padding: '20px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
-              <Coins size={18} color="var(--color-primary-accent, #059669)" />
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-dark)' }}>
-                PLEDGED COLLATERAL &amp; ORNAMENTS SUMMARY
-              </h3>
-            </div>
+                // Pending interest for this specific FD
+                const fdPendingPeriods = getPendingFDInterestPeriods(fd, fdInterestPayouts || [], todayStr);
+                const fdPendingInterest = fdPendingPeriods.reduce((sum, p) => sum + p.amount, 0);
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-              <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL ITEMS PLEDGED</span>
-                <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{allPledgedItems.length} Items</div>
-              </div>
-              <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL GROSS WEIGHT</span>
-                <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-dark)' }}>{totalGrossWt.toFixed(2)} g</div>
-              </div>
-              <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL NET WEIGHT</span>
-                <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{totalNetWt.toFixed(2)} g</div>
-              </div>
-              <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>ESTIMATED MARKET VALUATION</span>
-                <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>₹{totalValuation.toLocaleString('en-IN')}</div>
-              </div>
-            </div>
-          </div>
+                // Interest paid for this specific FD
+                const fdPaidPeriods = (fdInterestPayouts || []).filter((p) => p.fdNo === fd.fdNo);
+                const fdTotalPaidInterest = fdPaidPeriods.reduce((sum, p) => sum + p.amount, 0);
 
-          {/* ITEMS GROUPED BY LOAN */}
-          {customerLoans.length === 0 ? (
-            <div className="card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', borderRadius: '12px' }}>
-              No pledged items found for this customer.
-            </div>
-          ) : (
-            customerLoans.map((l, lIdx) => (
-              <div key={`loan-pledge-${l.id}-${lIdx}`} className="card" style={{ padding: '20px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '18px' }}>🪙</span>
+                // Withdrawals for this specific FD
+                const fdWds = (fdWithdrawals || []).filter((w) => w.fdNo === fd.fdNo);
+                const fdTotalWithdrawn = fdWds.reduce((sum, w) => sum + (w.principalAmount || 0), 0);
+
+                // Renewals for this specific FD
+                const fdRns = (fdRenewals || []).filter((r) => r.fdNo === fd.fdNo);
+
+                // Maturity remaining calculation
+                const maturityComp = compareFDDates(todayStr, normalizeDateString(fd.maturityDate));
+                const diffDays = getDaysDifference(todayStr, normalizeDateString(fd.maturityDate));
+                const isMatured = maturityComp >= 0;
+                const maturityStatusText = isMatured ? `Matured ${diffDays} day(s) ago` : `${diffDays} day(s) remaining`;
+
+                return (
+                  <div
+                    key={`fd-card-${fd.id}`}
+                    style={{
+                      padding: '18px',
+                      borderRadius: '12px',
+                      border: fdPendingInterest > 0 ? '2px solid #fed7aa' : '1px solid var(--border-subtle)',
+                      backgroundColor: '#ffffff',
+                      boxShadow: 'var(--shadow-sm)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '12px'
+                    }}
+                  >
                     <div>
-                      <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>
-                        Pledged Collateral for Loan: {l.loanNo}
-                      </h4>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Issued: {l.date} · {l.loanType}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>Fixed Deposit</span>
+                          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{fd.fdNo}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <span
+                            className={`badge ${
+                              isFullyWithdrawn
+                                ? 'badge-secondary'
+                                : isPartiallyWithdrawn
+                                ? 'badge-warning'
+                                : fd.status === 'ACTIVE'
+                                ? 'badge-success'
+                                : 'badge-info'
+                            }`}
+                            style={{ fontWeight: 800, fontSize: '11px' }}
+                          >
+                            {isFullyWithdrawn
+                              ? 'WITHDRAWN'
+                              : isPartiallyWithdrawn
+                              ? 'PARTIALLY WITHDRAWN'
+                              : fd.status}
+                          </span>
+                          {fdPendingInterest > 0 && (
+                            <span className="badge badge-danger" style={{ fontSize: '10.5px' }}>
+                              ⚠ PENDING ₹{fdPendingInterest.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Financial Metrics Grid (Section 7) */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px', marginTop: '12px', backgroundColor: 'var(--bg-surface-secondary)', padding: '10px 12px', borderRadius: '8px' }}>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Original Principal:</span>
+                          <div style={{ fontWeight: 800 }}>₹{fd.principal.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Remaining Principal:</span>
+                          <div style={{ fontWeight: 900, color: remaining > 0 ? 'var(--color-primary-dark)' : 'var(--text-muted)' }}>₹{remaining.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Interest Rate:</span>
+                          <div style={{ fontWeight: 700 }}>{fd.interestRatePA}% p.a.</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Monthly Payout:</span>
+                          <div style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>₹{fd.monthlyPayout.toLocaleString('en-IN')} / mo</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Next Interest Due:</span>
+                          <div style={{ fontWeight: 700 }}>{nextInterestStr}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Deposit Date:</span>
+                          <div style={{ fontWeight: 700 }}>{fd.depositDate}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Maturity Date:</span>
+                          <div style={{ fontWeight: 700, color: isMatured ? '#dc2626' : 'inherit' }}>{fd.maturityDate}</div>
+                          <span style={{ fontSize: '10.5px', color: isMatured ? '#dc2626' : 'var(--text-muted)' }}>{maturityStatusText}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Interest Paid:</span>
+                          <div style={{ fontWeight: 700, color: '#059669' }}>₹{fdTotalPaidInterest.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Total Withdrawn:</span>
+                          <div style={{ fontWeight: 700 }}>₹{fdTotalWithdrawn.toLocaleString('en-IN')}</div>
+                        </div>
+                        {fdRns.length > 0 && (
+                          <div style={{ gridColumn: 'span 2', borderTop: '1px dashed var(--border-subtle)', paddingTop: '6px', marginTop: '2px' }}>
+                            <span style={{ color: '#059669', fontSize: '11px', fontWeight: 800 }}>✓ RENEWED: </span>
+                            <span style={{ fontSize: '11.5px', fontWeight: 600 }}>Renewed for {fdRns[0].renewalPeriodMonths} months (New maturity: {fdRns[0].newMaturityDate})</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '11.5px', fontWeight: 600 }}
+                        onClick={() => handleViewFD(fd)}
+                      >
+                        Open in Register &rarr;
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ fontSize: '12px', fontWeight: 700, padding: '6px 14px' }}
+                        onClick={() => setSelectedViewFD(fd)}
+                      >
+                        <Eye size={13} style={{ marginRight: '4px' }} /> View Details / Folio
+                      </button>
                     </div>
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span className={`badge ${l.status === 'ACTIVE' ? 'badge-success' : 'badge-warning'}`}>
-                      {l.status}
-                    </span>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => handleViewLoan(l)}
-                      style={{ fontSize: '11.5px', padding: '3px 10px', gap: '4px', fontWeight: 600 }}
-                    >
-                      <Eye size={13} />
-                      <span>View Loan</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="table-container" style={{ overflowX: 'auto' }}>
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>ITEM NAME</th>
-                        <th>QTY</th>
-                        <th>PURITY</th>
-                        <th>GROSS WT (G)</th>
-                        <th>NET WT (G)</th>
-                        <th>ESTIMATED VALUATION</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!l.items || l.items.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                            No ornament items recorded for this loan.
-                          </td>
-                        </tr>
-                      ) : (
-                        l.items.map((item, iIdx) => (
-                          <tr key={`item-${l.id}-${item.id || iIdx}`}>
-                            <td style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>{item.item}</td>
-                            <td>{item.qty}</td>
-                            <td><span className="badge badge-gold">{item.purity}</span></td>
-                            <td>{item.grossWeight} g</td>
-                            <td style={{ fontWeight: 700 }}>{item.netWeight} g</td>
-                            <td style={{ fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>
-                              ₹{((item.netWeight || 1) * 4500).toLocaleString('en-IN')}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+              No Fixed Deposits recorded yet for this customer.
+            </div>
           )}
         </div>
       )}
 
-      {/* TAB 5: PAYMENTS & RECEIPTS */}
-      {activeTab === 'payments' && (
+      {/* ════════════════════════════════════════════════════════════════════════
+          TAB 4: PLEDGED COLLATERAL ITEMS
+          ════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'pledged-items' && (
         <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '14px' }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
-                PAYMENT &amp; RECEIPT HISTORY
-              </h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                All repayment and interest receipts recorded for {customer.name}
-              </p>
-            </div>
-
-            <div style={{ padding: '8px 16px', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Total Paid: </span>
-              <strong style={{ fontSize: '16px', color: 'var(--color-primary-accent, #059669)' }}>₹{totalPaid.toLocaleString('en-IN')}</strong>
-            </div>
-          </div>
-
-          <div className="table-container" style={{ overflowX: 'auto' }}>
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>RECEIPT NO</th>
-                  <th>PAYMENT DATE</th>
-                  <th>LOAN NO</th>
-                  <th>PAYMENT TYPE</th>
-                  <th>AMOUNT PAID</th>
-                  <th>PAYMENT MODE</th>
-                  <th>COLLECTED BY</th>
-                  <th>STATUS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customerReceipts.length === 0 ? (
+          <h3 style={{ margin: '0 0 14px 0', fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
+            PLEDGED COLLATERAL INVENTORY
+          </h3>
+          {allPledgedItems.length > 0 ? (
+            <div className="table-container">
+              <table className="custom-table" style={{ fontSize: '12.5px' }}>
+                <thead>
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      No payment receipts recorded yet for this customer.
-                    </td>
+                    <th>ITEM</th>
+                    <th>QTY</th>
+                    <th>PURITY</th>
+                    <th>GROSS WT</th>
+                    <th>NET WT</th>
+                    <th>LOAN NO</th>
+                    <th>STATUS</th>
                   </tr>
-                ) : (
-                  customerReceipts.map((r, idx) => (
-                    <tr key={`profile-rc-${r.id}-${idx}`}>
-                      <td style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>RC-#{r.receiptNo}</td>
-                      <td>{r.date}</td>
-                      <td style={{ fontWeight: 700 }}>{r.loanNo}</td>
-                      <td><span className="badge badge-info">{r.kind}</span></td>
-                      <td style={{ fontWeight: 800, color: 'var(--color-primary-accent, #059669)' }}>
-                        ₹{r.amount.toLocaleString('en-IN')}
-                      </td>
-                      <td><span className="badge badge-gold">{r.paymentMode}</span></td>
-                      <td>Admin Operator</td>
-                      <td><span className="badge badge-success">Completed</span></td>
+                </thead>
+                <tbody>
+                  {allPledgedItems.map((it, idx) => (
+                    <tr key={idx}>
+                      <td style={{ fontWeight: 700 }}>{it.item}</td>
+                      <td>{it.qty}</td>
+                      <td>{it.purity}</td>
+                      <td>{it.grossWeight}g</td>
+                      <td style={{ fontWeight: 700 }}>{it.netWeight}g</td>
+                      <td><span className="badge badge-info">{it.loanNo}</span></td>
+                      <td><span className={`badge ${it.loanStatus === 'ACTIVE' ? 'badge-success' : 'badge-warning'}`}>{it.loanStatus}</span></td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+              No pledged collateral items found.
+            </div>
+          )}
         </div>
       )}
 
-      {/* TAB 6: ACTIVITY TIMELINE */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          TAB 5: PAYMENTS & RECEIPTS
+          ════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'payments' && (
+        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
+              PAYMENTS &amp; RECEIPTS
+            </h3>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-primary-accent, #059669)' }}>
+              Total Paid: ₹{totalPaid.toLocaleString('en-IN')}
+            </span>
+          </div>
+
+          {customerReceipts.length > 0 ? (
+            <div className="table-container">
+              <table className="custom-table" style={{ fontSize: '12.5px' }}>
+                <thead>
+                  <tr>
+                    <th>RECEIPT NO</th>
+                    <th>DATE</th>
+                    <th>LOAN NO</th>
+                    <th>TYPE</th>
+                    <th>AMOUNT</th>
+                    <th>MODE</th>
+                    <th>REFERENCE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customerReceipts.map((r) => (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 800, color: 'var(--color-primary-dark)' }}>REC-{r.receiptNo}</td>
+                      <td>{r.date}</td>
+                      <td><strong>{r.loanNo || '—'}</strong></td>
+                      <td><span className="badge badge-info">{r.kind}</span></td>
+                      <td style={{ fontWeight: 800, color: '#059669' }}>₹{r.amount.toLocaleString('en-IN')}</td>
+                      <td>{r.paymentMode}</td>
+                      <td style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>{r.transactionReference || 'Cash'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+              No payments or receipts recorded yet.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          TAB 6: ACTIVITY TIMELINE
+          ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'activity' && (
         <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-          <h3 style={{ margin: '0 0 20px 0', fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
-            CUSTOMER ACTIVITY &amp; AUDIT TIMELINE
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
+            CHRONOLOGICAL ACTIVITY TIMELINE
           </h3>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative', paddingLeft: '20px', borderLeft: '2px solid var(--border-light, #cbd5e1)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {activityEvents.map((evt) => (
-              <div key={evt.id} style={{ position: 'relative' }}>
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: '-29px',
-                    top: '4px',
-                    width: '16px',
-                    height: '16px',
-                    borderRadius: '50%',
-                    backgroundColor: evt.type === 'loan' ? 'var(--color-primary-accent)' : evt.type === 'receipt' ? '#3b82f6' : evt.type === 'fd' ? '#eab308' : '#8b5cf6',
-                    border: '3px solid #ffffff',
-                    boxShadow: '0 0 0 2px var(--border-light)'
-                  }}
-                />
-                <div style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '8px' }}>
-                    <strong style={{ fontSize: '13.5px', color: 'var(--text-dark)' }}>{evt.title}</strong>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>{evt.date}</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-secondary)' }}>{evt.desc}</p>
+              <div key={evt.id} style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', paddingBottom: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ minWidth: '90px', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                  {evt.date}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--text-dark)' }}>{evt.title}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{evt.desc}</div>
                 </div>
               </div>
             ))}
@@ -917,15 +1242,32 @@ export const CustomerProfile: React.FC = () => {
         </div>
       )}
 
-      {/* EDIT CUSTOMER PROFILE MODAL */}
-      <EditCustomerModal
-        isOpen={isEditModalOpen}
-        customer={customer}
-        onClose={() => setIsEditModalOpen(false)}
-        onSave={(id, updates) => {
-          updateCustomer(id, updates);
-        }}
-      />
+      {/* Edit Customer Modal */}
+      {isEditModalOpen && (
+        <EditCustomerModal
+          isOpen={isEditModalOpen}
+          customer={customer}
+          onClose={() => setIsEditModalOpen(false)}
+          onSave={(id, updates) => {
+            updateCustomer(id, updates);
+            setIsEditModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* View FD Statement / Certificate Modal */}
+      {selectedViewFD && (
+        <ViewFDModal
+          isOpen={Boolean(selectedViewFD)}
+          fd={selectedViewFD}
+          customer={customer}
+          onClose={() => setSelectedViewFD(null)}
+          onPayInterest={(fdNo) => {
+            payFDInterest(fdNo, 'Cash');
+            showToast(`Interest payment recorded for Fixed Deposit ${fdNo}`, 'success');
+          }}
+        />
+      )}
     </div>
   );
 };
