@@ -229,13 +229,13 @@ export const SearchCustomer: React.FC = () => {
               padding: '20px 24px',
               marginBottom: '24px',
               borderLeft: '5px solid var(--color-primary-accent, #059669)',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--bg-card)',
               boxShadow: 'var(--shadow-sm)'
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#064e3b', border: '2px solid #86efac', overflow: 'hidden' }}>
+                <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: 'var(--badge-success-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--badge-success-text)', border: '1px solid var(--badge-success-border)', overflow: 'hidden' }}>
                   {c.customerPhoto ? (
                     <img src={c.customerPhoto} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (

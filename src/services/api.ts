@@ -420,5 +420,209 @@ export const apiService = {
     } catch (err: any) {
       return { success: false, message: err?.message || 'Network error during system restore.' };
     }
+  },
+
+  // ── Device & Active Session Management ─────────────────────────────────────
+  async getSessions(): Promise<{ success: boolean; data: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions`);
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data || [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to load sessions.' };
+    }
+  },
+
+  async registerSession(sessionData: any): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionData)
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to register session.' };
+    }
+  },
+
+  async revokeSession(sessionId: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to revoke session.' };
+    }
+  },
+
+  async revokeOtherSessions(currentSessionId: string): Promise<{ success: boolean; revokedCount?: number; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/revoke-others`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentSessionId })
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, revokedCount: json.revokedCount, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to revoke other sessions.' };
+    }
+  },
+
+  async revokeAllSessions(): Promise<{ success: boolean; revokedCount?: number; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/revoke-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, revokedCount: json.revokedCount, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to revoke all sessions.' };
+    }
+  },
+
+  async checkSessionStatus(sessionId: string): Promise<{ success: boolean; data?: { isValid: boolean; session?: any }; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/check/${sessionId}`);
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to check session.' };
+    }
+  },
+
+  // ── Staff & Role-Based Access Control ──────────────────────────────────────
+  async getStaffList(actorHeaders?: { uid?: string; email?: string }): Promise<{ success: boolean; data: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/staff`, {
+        headers: {
+          'x-actor-uid': actorHeaders?.uid || '',
+          'x-actor-email': actorHeaders?.email || ''
+        }
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data || [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to load staff directory.' };
+    }
+  },
+
+  async createStaff(
+    staffData: any,
+    actorHeaders?: { uid?: string; email?: string }
+  ): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/staff/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-actor-uid': actorHeaders?.uid || '',
+          'x-actor-email': actorHeaders?.email || ''
+        },
+        body: JSON.stringify(staffData)
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to create staff account.' };
+    }
+  },
+
+  async updateStaff(
+    uid: string,
+    updates: any,
+    actorHeaders?: { uid?: string; email?: string }
+  ): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/staff/${uid}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-actor-uid': actorHeaders?.uid || '',
+          'x-actor-email': actorHeaders?.email || ''
+        },
+        body: JSON.stringify(updates)
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to update staff profile.' };
+    }
+  },
+
+  async toggleStaffStatus(
+    uid: string,
+    isActive: boolean,
+    actorHeaders?: { uid?: string; email?: string }
+  ): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/staff/${uid}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-actor-uid': actorHeaders?.uid || '',
+          'x-actor-email': actorHeaders?.email || ''
+        },
+        body: JSON.stringify({ isActive })
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to change staff status.' };
+    }
+  },
+
+  async revokeStaffSessions(
+    uid: string,
+    actorHeaders?: { uid?: string; email?: string }
+  ): Promise<{ success: boolean; revokedCount?: number; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/staff/${uid}/revoke-sessions`, {
+        method: 'POST',
+        headers: {
+          'x-actor-uid': actorHeaders?.uid || '',
+          'x-actor-email': actorHeaders?.email || ''
+        }
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, revokedCount: json.revokedCount, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to revoke staff sessions.' };
+    }
+  },
+
+  async deleteStaff(
+    uid: string,
+    actorHeaders?: { uid?: string; email?: string }
+  ): Promise<{ success: boolean; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/staff/${uid}`, {
+        method: 'DELETE',
+        headers: {
+          'x-actor-uid': actorHeaders?.uid || '',
+          'x-actor-email': actorHeaders?.email || ''
+        }
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to delete staff account.' };
+    }
+  },
+
+  async getStaffAuditLogs(): Promise<{ success: boolean; data: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/staff/audit`);
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data || [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to load staff audit logs.' };
+    }
   }
 };

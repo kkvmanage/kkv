@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import '../styles/LoanIssue.css';
-import { useApp } from '../context/AppContext';
-import { DatePicker } from '../components/common/DatePicker';
+import { useApp, defaultPurityOptions } from '../context/AppContext';
 import { OtherSelectField, RELATION_OPTIONS, resolveRelation } from '../components/common/OtherSelectField';
 import { FinancialTermsSection } from '../components/common/FinancialTermsSection';
-import { OrnamentItem, PurityOption, Customer } from '../types';
+import { OrnamentItem, Customer, CalculationStrategy } from '../types';
 import { formatIdProofDisplay } from '../utils/kycValidation';
+import {
+  getActiveLoanTypesForIssue,
+  getProductCardFeeConfig,
+  calculateLoanTerms
+} from '../utils/loanCalculationUtils';
 import { WebcamCapture } from '../components/common/WebcamCapture';
 import {
   Plus,
@@ -22,29 +26,66 @@ import {
 } from 'lucide-react';
 
 export const LoanIssue: React.FC = () => {
-  const { customers, loans, receipts, addLoan, setCurrentPage, showToast, masterControlSettings } = useApp();
+  const { customers, loans, receipts, addLoan, setCurrentPage, showToast, masterControlSettings, getPurityRate } = useApp();
 
   // File Upload Ref & Lightbox State
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
 
-  // Top Section: Identification & Configuration
-  const nextReceiptNo = receipts.length > 0 ? Math.max(...receipts.map(r => r.receiptNo)) + 1 : 1;
-  const [receiptBillNo, setReceiptBillNo] = useState<number>(nextReceiptNo);
-  const [loanNo, setLoanNo] = useState<string>(`GL-${String(loans.length + 1).padStart(2, '0')}`);
-  const todayDateObj = new Date();
-  const [loanIssueDateIso, setLoanIssueDateIso] = useState<string>(
-    `${todayDateObj.getFullYear()}-${String(todayDateObj.getMonth() + 1).padStart(2, '0')}-${String(todayDateObj.getDate()).padStart(2, '0')}`
-  );
-  const [loanIssueDate, setLoanIssueDate] = useState<string>(
-    todayDateObj.toLocaleDateString('en-GB').replace(/\//g, '-')
-  );
-  const [loanIssueDateError, setLoanIssueDateError] = useState<string>('');
+  // Dynamic Active Configurations
+  const activeLoanTypes = useMemo(() => {
+    return getActiveLoanTypesForIssue(masterControlSettings?.loanTypes, masterControlSettings);
+  }, [masterControlSettings]);
 
-  const [loanType, setLoanType] = useState<'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE'>('GOLD LOAN');
-  const [repaymentSystem, setRepaymentSystem] = useState<'Monthly interest only' | 'EMI' | 'Bullet Repayment'>('Monthly interest only');
-  const [area, setArea] = useState<string>('');
-  const [showroom, setShowroom] = useState<string>('');
+  const activeRepaymentSystems = useMemo(() => {
+    const list = masterControlSettings?.repaymentSystems || [];
+    const active = list.filter((r) => r.active);
+    return active.length > 0 ? active : [
+      { id: 'monthly-interest-only', name: 'Monthly Interest Only', calculationStrategy: 'MONTHLY_INTEREST_ONLY' as CalculationStrategy, active: true, sortOrder: 1 }
+    ];
+  }, [masterControlSettings?.repaymentSystems]);
+
+  // Top Section: Auto-generated Identifiers & Locked System Date
+  const displayReceiptNo = useMemo(() => {
+    if (!receipts || receipts.length === 0) return 1;
+    const maxNo = Math.max(...receipts.map((r) => Number(r.receiptNo) || 0));
+    return maxNo + 1;
+  }, [receipts]);
+
+  const displayLoanNo = useMemo(() => {
+    let maxNum = 0;
+    for (const l of loans) {
+      const match = (l.loanNo || '').match(/\d+/);
+      if (match) {
+        const num = parseInt(match[0], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    }
+    return `GL-${String(maxNum + 1).padStart(2, '0')}`;
+  }, [loans]);
+
+  const currentBusinessDate = useMemo(() => {
+    return new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+  }, []);
+
+  const [loanTypeId, setLoanTypeId] = useState<string>(() => activeLoanTypes[0]?.id || 'gold-loan');
+  const [repaymentSystemId, setRepaymentSystemId] = useState<string>(() => activeRepaymentSystems[0]?.id || 'monthly-interest-only');
+
+  // Synchronize selection if active options change
+  useEffect(() => {
+    if (!activeLoanTypes.some(t => t.id === loanTypeId)) {
+      setLoanTypeId(activeLoanTypes[0]?.id || 'gold-loan');
+    }
+  }, [activeLoanTypes, loanTypeId]);
+
+  useEffect(() => {
+    if (!activeRepaymentSystems.some(r => r.id === repaymentSystemId)) {
+      setRepaymentSystemId(activeRepaymentSystems[0]?.id || 'monthly-interest-only');
+    }
+  }, [activeRepaymentSystems, repaymentSystemId]);
+
+  const selectedLoanTypeConfig = activeLoanTypes.find(t => t.id === loanTypeId) || activeLoanTypes[0];
+  const selectedRepaymentConfig = activeRepaymentSystems.find(r => r.id === repaymentSystemId) || activeRepaymentSystems[0];
 
   // Customer Selection & Preview State
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -203,54 +244,69 @@ export const LoanIssue: React.FC = () => {
   const [splitCashAmount, setSplitCashAmount] = useState<number | ''>(50000);
   const [splitBankAmount, setSplitBankAmount] = useState<number | ''>(50000);
 
-  // Interest Rate (Admin Controlled)
-  const getApplicableInterestRate = (principalAmount: number, type: string = 'GOLD LOAN'): number => {
-    if (type === 'SILVER LOAN') {
-      const bands = masterControlSettings?.silverAmountBands || [];
-      if (bands.length > 0 && principalAmount > 0) {
-        const sortedBands = [...bands].sort((a, b) => a.amount - b.amount);
-        for (const band of sortedBands) {
-          if (band.condition === 'Below' && principalAmount <= band.amount) return band.baseRateMonthly;
-          if (band.condition === 'Above' && principalAmount > band.amount) return band.baseRateMonthly;
-        }
-        const match = sortedBands.find((b) => principalAmount <= b.amount) || sortedBands[sortedBands.length - 1];
-        if (match) return match.baseRateMonthly;
-      }
-      return masterControlSettings?.silverLoanMonthlyRate || 2.0;
-    }
-    if (type === 'PRONOTE') {
-      return masterControlSettings?.pronoteRate || masterControlSettings?.pronoteMonthlyRate || 1.0;
-    }
-    if (type === 'HIRE PURCHASE') {
-      return masterControlSettings?.hirePurchaseMonthlyRate || 1.0;
-    }
-    // Default: GOLD LOAN
-    const bands = masterControlSettings?.amountBands || [];
-    if (bands.length > 0 && principalAmount > 0) {
-      const sortedBands = [...bands].sort((a, b) => a.amount - b.amount);
-      for (const band of sortedBands) {
-        if (band.condition === 'Below' && principalAmount <= band.amount) return band.baseRateMonthly;
-        if (band.condition === 'Above' && principalAmount > band.amount) return band.baseRateMonthly;
-      }
-      const match = sortedBands.find((b) => principalAmount <= b.amount) || sortedBands[sortedBands.length - 1];
-      if (match) return match.baseRateMonthly;
-    }
-    return masterControlSettings?.goldLoanMonthlyRate || 1.5;
-  };
-
   const numericPrincipal = typeof principal === 'number' ? principal : 0;
-  const interestRate = getApplicableInterestRate(numericPrincipal, loanType);
 
   // Advance Interest
   const [deductAdvanceInterest, setDeductAdvanceInterest] = useState<boolean>(false);
   const [advanceDays, setAdvanceDays] = useState<number>(0);
   const [advanceReceivingMethod, setAdvanceReceivingMethod] = useState<'Cash' | 'Bank' | 'Cash + Bank'>('Cash');
 
-  // Card Fee
-  const [cardFeeEnabled, setCardFeeEnabled] = useState<boolean>(true);
-  const [cardFeeAmount, setCardFeeAmount] = useState<number>(10);
+  // Card Fee strictly derived from Master Control configuration per loan product
+  const cardFeeConfig = useMemo(() => {
+    return getProductCardFeeConfig(selectedLoanTypeConfig?.name || selectedLoanTypeConfig?.id, masterControlSettings);
+  }, [selectedLoanTypeConfig?.id, selectedLoanTypeConfig?.name, masterControlSettings]);
+
+  const cardFeeEnabled = cardFeeConfig.enabled;
+  const cardFeeAmount = cardFeeConfig.amount;
   const [cardFeeMode, setCardFeeMode] = useState<'Cash' | 'Bank'>('Bank');
   const [cardFeeBankMode, setCardFeeBankMode] = useState<string>('UPI');
+
+  // Dynamic Unified Loan Calculation Terms from Master Control
+  const loanTerms = useMemo(() => {
+    return calculateLoanTerms({
+      principal: numericPrincipal,
+      loanTypeId: selectedLoanTypeConfig?.id,
+      loanTypeName: selectedLoanTypeConfig?.name,
+      repaymentStrategy: selectedRepaymentConfig?.calculationStrategy,
+      settings: masterControlSettings,
+      deductAdvanceInterest,
+      advanceDays,
+      customCardFeeEnabled: cardFeeEnabled,
+      customCardFeeAmount: cardFeeAmount,
+      issueDate: currentBusinessDate
+    });
+  }, [
+    numericPrincipal,
+    selectedLoanTypeConfig,
+    selectedRepaymentConfig,
+    masterControlSettings,
+    deductAdvanceInterest,
+    advanceDays,
+    cardFeeEnabled,
+    cardFeeAmount,
+    currentBusinessDate
+  ]);
+
+  const interestRate = loanTerms.interestRate;
+  const monthlyInterest = loanTerms.monthlyInterest;
+  const advanceInterestAmount = loanTerms.advanceInterestAmount;
+
+  // Purity Configuration Options
+  const activePurityOptions = useMemo(() => {
+    const list = masterControlSettings?.purityOptions || defaultPurityOptions;
+    return list
+      .filter(p => p.active)
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  }, [masterControlSettings?.purityOptions]);
+
+  const defaultPurityName = useMemo(() => {
+    return activePurityOptions[0]?.name || '22ct';
+  }, [activePurityOptions]);
+
+  const getRateForItem = (item: OrnamentItem): number => {
+    if (item.rateUsed && item.rateUsed > 0) return item.rateUsed;
+    return getPurityRate(item.purity || defaultPurityName);
+  };
 
   // Ornament Items
   const [items, setItems] = useState<OrnamentItem[]>([
@@ -266,18 +322,12 @@ export const LoanIssue: React.FC = () => {
   const [additionalNotes, setAdditionalNotes] = useState<string>('');
   const [ornamentPhotos, setOrnamentPhotos] = useState<string[]>([]);
 
-  const goldRatePerGram22ct = 6400;
-
   // Auto Calculations
   const totalGrossWeight = items.reduce((sum, item) => sum + (Number(item.grossWeight) || 0), 0);
   const totalNetWeight = items.reduce((sum, item) => sum + (Number(item.netWeight) || 0), 0);
   const totalQty = items.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
-  const marketValue = Math.round(totalNetWeight * goldRatePerGram22ct);
+  const marketValue = items.reduce((sum, item) => sum + Math.round((Number(item.netWeight) || 0) * getRateForItem(item)), 0);
   const ltv = marketValue > 0 ? ((numericPrincipal / marketValue) * 100).toFixed(2) : '0.00';
-  const monthlyInterest = Math.round((numericPrincipal * interestRate) / 100);
-  const advanceInterestAmount = deductAdvanceInterest
-    ? Math.round((monthlyInterest / 30) * (advanceDays || 30))
-    : 0;
 
   // Items Handlers
   const handleAddItem = () => {
@@ -302,7 +352,8 @@ export const LoanIssue: React.FC = () => {
     setItems(prev => prev.filter(i => i.id !== id));
   };
 
-  const handleItemChange = (id: string, field: keyof OrnamentItem, value: any) => {
+    const handleItemChange = (id: string, field: keyof OrnamentItem, value: any) => {
+    const allPurities = masterControlSettings?.purityOptions || defaultPurityOptions;
     setItems(prev =>
       prev.map(item => {
         if (item.id === id) {
@@ -313,6 +364,20 @@ export const LoanIssue: React.FC = () => {
               updated.netWeight = numVal;
             }
           }
+          if (field === 'purity') {
+            const pConfig = allPurities.find(
+              p => p.name.trim().toLowerCase() === String(value).trim().toLowerCase() || p.id === value
+            );
+            if (pConfig) {
+              updated.purityId = pConfig.id;
+              updated.purityName = pConfig.name;
+              updated.purityCategory = pConfig.category;
+              updated.purityValue = pConfig.purityValue;
+              updated.rateUsed = getPurityRate(pConfig.id);
+            }
+          }
+          const currentRate = updated.rateUsed || getRateForItem(updated);
+          updated.valuation = Math.round((Number(updated.netWeight) || 0) * currentRate);
           return updated;
         }
         return item;
@@ -413,12 +478,6 @@ export const LoanIssue: React.FC = () => {
   const handleClearForm = () => {
     setSelectedCustomer(null);
     setCustSearchQuery('');
-    const tDateObj = new Date();
-    const tIso = `${tDateObj.getFullYear()}-${String(tDateObj.getMonth() + 1).padStart(2, '0')}-${String(tDateObj.getDate()).padStart(2, '0')}`;
-    const tDisplay = tDateObj.toLocaleDateString('en-GB').replace(/\//g, '-');
-    setLoanIssueDateIso(tIso);
-    setLoanIssueDate(tDisplay);
-    setLoanIssueDateError('');
     setHasNominee(false);
     setNomineeName('');
     setNomineeRelation('-');
@@ -445,8 +504,6 @@ export const LoanIssue: React.FC = () => {
     setDisbursementMethod('Cash');
     setDeductAdvanceInterest(false);
     setAdvanceDays(0);
-    setCardFeeEnabled(true);
-    setCardFeeAmount(10);
     setItems([
       {
         id: 'item-1',
@@ -465,12 +522,6 @@ export const LoanIssue: React.FC = () => {
   // Submit Issue Loan
   const handleSubmitIssue = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!loanIssueDateIso || !loanIssueDate) {
-      setLoanIssueDateError('Loan Issue Date is required.');
-      showToast('Please select a valid Loan Issue Date.', 'error');
-      return;
-    }
 
     if (isSubmitting) return;
 
@@ -576,15 +627,14 @@ export const LoanIssue: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      const effectiveCardFee = cardFeeEnabled ? cardFeeAmount : 0;
-      const finalDisbursedAmount = Math.max(
-        0,
-        numericPrincipal - (deductAdvanceInterest ? advanceInterestAmount : 0) - effectiveCardFee
-      );
+      // Revalidate latest business date and allocate sequence safely
+      const finalBusinessDate = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+      const finalLoanNo = displayLoanNo;
+      const finalReceiptNo = displayReceiptNo;
 
       const created = addLoan({
-        receiptBillNo,
-        loanNo,
+        receiptBillNo: finalReceiptNo,
+        loanNo: finalLoanNo,
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         customerPhone: selectedCustomer.phone,
@@ -663,13 +713,17 @@ export const LoanIssue: React.FC = () => {
           }
           : undefined,
         kycDocuments: selectedCustomer.kycDocumentDriveIds || [],
-        date: loanIssueDate,
-        loanType,
-        repaymentSystem,
-        area: area || 'T. Nagar Central',
-        showroom: showroom || 'Main Branch - Counter 1',
+        date: finalBusinessDate,
+        loanType: selectedLoanTypeConfig.name,
+        loanTypeId: selectedLoanTypeConfig.id,
+        loanTypeName: selectedLoanTypeConfig.name,
+        repaymentSystem: selectedRepaymentConfig.name,
+        repaymentSystemId: selectedRepaymentConfig.id,
+        repaymentSystemName: selectedRepaymentConfig.name,
+        calculationStrategy: selectedRepaymentConfig.calculationStrategy,
+        ...loanTerms.contractSnapshot,
         principal: numericPrincipal,
-        interestRate,
+        interestRate: loanTerms.interestRate,
         bankMode: disbursementMethod === 'Cash' ? 'Cash' : (disbursementMethod === 'Bank' ? (bankMode as any) : 'Split'),
         splitBankMode: disbursementMethod === 'Cash + Bank' ? bankMode : undefined,
         cashAmount: disbursementMethod === 'Cash' ? numericPrincipal : (disbursementMethod === 'Cash + Bank' ? Number(splitCashAmount) || 0 : 0),
@@ -678,7 +732,8 @@ export const LoanIssue: React.FC = () => {
         advanceDays,
         advanceInterestAmount,
         advanceInterestReceivingMethod: deductAdvanceInterest ? advanceReceivingMethod : undefined,
-        cardFee: effectiveCardFee,
+        cardFee: loanTerms.effectiveCardFee,
+        cardFeeEnabled: loanTerms.contractSnapshot.cardFeeEnabled,
         cardFeePaymentMode: cardFeeMode,
         cardFeeBankMode: cardFeeMode === 'Bank' ? cardFeeBankMode : undefined,
         items,
@@ -690,14 +745,16 @@ export const LoanIssue: React.FC = () => {
         notes: additionalNotes,
         photos: ornamentPhotos,
         status: 'ACTIVE',
-        disbursedAmount: finalDisbursedAmount,
+        disbursedAmount: loanTerms.netDisbursed,
+        netDisbursed: loanTerms.netDisbursed,
         outstandingPrincipal: numericPrincipal,
         accruedInterest: 0,
-        renewalDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB').replace(/\//g, '-')
+        renewalDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB').replace(/\//g, '-'),
+        nextDueDate: loanTerms.nextDueDate
       });
 
       if (created) {
-        showToast(`Loan ${loanNo} issued successfully!`, 'success');
+        showToast(`Loan ${created.loanNo || finalLoanNo} issued successfully!`, 'success');
         setCurrentPage('all-receipts');
       }
     } finally {
@@ -726,7 +783,7 @@ export const LoanIssue: React.FC = () => {
                 <span className="fi-section-icon">📋</span>
                 <div>
                   <h2 className="fi-section-title">Loan Configuration</h2>
-                  <p className="fi-section-desc">Reference numbers, type, and branch details</p>
+                  <p className="fi-section-desc">Reference numbers, issue date, loan type, and repayment system</p>
                 </div>
               </div>
             </div>
@@ -738,9 +795,16 @@ export const LoanIssue: React.FC = () => {
                     <label className="fi-label">Receipt / Bill No <span className="fi-req">*</span></label>
                     <span className="fi-label-badge">✓ Auto</span>
                   </div>
-                  <input type="number" className="input-control" value={receiptBillNo}
-                    onChange={(e) => setReceiptBillNo(Number(e.target.value) || 1)} />
-                  <span className="fi-hint">Edit only to match a manual register</span>
+                  <input
+                    type="text"
+                    className="input-control"
+                    value={displayReceiptNo}
+                    readOnly
+                    tabIndex={-1}
+                    inputMode="none"
+                    style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', cursor: 'default', fontWeight: 600 }}
+                  />
+                  <span className="fi-hint">✓ Auto-generated by system</span>
                 </div>
 
                 <div className="fi-field">
@@ -748,52 +812,53 @@ export const LoanIssue: React.FC = () => {
                     <label className="fi-label">Loan No <span className="fi-req">*</span></label>
                     <span className="fi-label-badge">✓ Auto</span>
                   </div>
-                  <input type="text" className="input-control" value={loanNo}
-                    onChange={(e) => setLoanNo(e.target.value)} />
+                  <input
+                    type="text"
+                    className="input-control"
+                    value={displayLoanNo}
+                    readOnly
+                    tabIndex={-1}
+                    inputMode="none"
+                    style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', cursor: 'default', fontWeight: 600 }}
+                  />
+                  <span className="fi-hint">✓ Auto-generated by system</span>
                 </div>
 
                 <div className="fi-field">
-                  <label className="fi-label">Loan Issue Date <span className="fi-req">*</span></label>
-                  <DatePicker
-                    isoValue={loanIssueDateIso}
-                    displayValue={loanIssueDate}
-                    onChange={(iso, display) => { setLoanIssueDateIso(iso); setLoanIssueDate(display); setLoanIssueDateError(''); }}
-                    error={loanIssueDateError}
-                    placeholder="DD-MM-YYYY"
+                  <div className="fi-label-sub">
+                    <label className="fi-label">Loan Issue Date <span className="fi-req">*</span></label>
+                    <span className="fi-label-badge">🔒 System Date</span>
+                  </div>
+                  <input
+                    type="text"
+                    className="input-control"
+                    value={currentBusinessDate}
+                    readOnly
+                    tabIndex={-1}
+                    inputMode="none"
+                    style={{ backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', cursor: 'default', fontWeight: 600 }}
                   />
+                  <span className="fi-hint">✓ Current business date (read-only)</span>
                 </div>
               </div>
 
-              <div className="fi-grid-4">
+              <div className="fi-grid-2">
                 <div className="fi-field">
                   <label className="fi-label">Loan Type <span className="fi-req">*</span></label>
-                  <select className="input-control" value={loanType} onChange={(e) => setLoanType(e.target.value as any)}>
-                    <option value="GOLD LOAN">Gold Loan</option>
-                    <option value="SILVER LOAN">Silver Loan</option>
-                    <option value="PRONOTE">Pronote</option>
-                    <option value="HIRE PURCHASE">Hire Purchase</option>
+                  <select className="input-control" value={loanTypeId} onChange={(e) => setLoanTypeId(e.target.value)}>
+                    {activeLoanTypes.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div className="fi-field">
                   <label className="fi-label">Repayment System <span className="fi-req">*</span></label>
-                  <select className="input-control" value={repaymentSystem} onChange={(e) => setRepaymentSystem(e.target.value as any)}>
-                    <option value="Monthly interest only">Monthly Interest Only</option>
-                    <option value="EMI">EMI</option>
-                    <option value="Bullet Repayment">Bullet Repayment</option>
+                  <select className="input-control" value={repaymentSystemId} onChange={(e) => setRepaymentSystemId(e.target.value)}>
+                    {activeRepaymentSystems.map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
                   </select>
-                </div>
-
-                <div className="fi-field">
-                  <label className="fi-label">Area</label>
-                  <input type="text" className="input-control" placeholder="e.g. T. Nagar"
-                    value={area} onChange={(e) => setArea(e.target.value)} />
-                </div>
-
-                <div className="fi-field">
-                  <label className="fi-label">Showroom</label>
-                  <input type="text" className="input-control" placeholder="e.g. Main Branch"
-                    value={showroom} onChange={(e) => setShowroom(e.target.value)} />
                 </div>
               </div>
             </div>
@@ -928,7 +993,7 @@ export const LoanIssue: React.FC = () => {
 
               {/* Customer Not Found Warning Banner */}
               {!selectedCustomer && (
-                <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', color: '#991b1b', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ backgroundColor: 'var(--badge-danger-bg)', border: '1px solid var(--badge-danger-border)', borderRadius: '8px', padding: '12px 16px', color: 'var(--color-danger)', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <AlertTriangle size={18} style={{ flexShrink: 0 }} />
                   <span>⚠ Customer not found. Please enter a valid Customer ID or search for an existing customer.</span>
                 </div>
@@ -936,7 +1001,7 @@ export const LoanIssue: React.FC = () => {
 
               {/* READ-ONLY CUSTOMER PREVIEW CARD */}
               {selectedCustomer && (
-                <div style={{ padding: '20px', borderRadius: '12px', border: '1px solid var(--border-light, #cbd5e1)', backgroundColor: '#ffffff', boxShadow: '0 4px 12px rgba(15, 23, 42, 0.05)', marginTop: '8px' }}>
+                <div style={{ padding: '20px', borderRadius: '12px', border: '1px solid var(--border-light, #cbd5e1)', backgroundColor: 'var(--bg-card)', boxShadow: '0 4px 12px rgba(15, 23, 42, 0.05)', marginTop: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: 'rgba(5, 150, 105, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-primary-dark, #059669)' }}>
@@ -1068,7 +1133,7 @@ export const LoanIssue: React.FC = () => {
                   <span className="fi-checkbox-label"><span className="fi-checkbox-label-icon">👤</span> Do you have a Nominee?</span>
                 </label>
                 {hasNominee && (
-                  <div className="fi-sub-panel fi-rows" style={{ backgroundColor: '#ffffff', border: '1px solid var(--border-light, #e2e8f0)', padding: '20px', borderRadius: '12px', marginTop: '12px', boxShadow: 'var(--shadow-sm)' }}>
+                  <div className="fi-sub-panel fi-rows" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light, #e2e8f0)', padding: '20px', borderRadius: '12px', marginTop: '12px', boxShadow: 'var(--shadow-sm)' }}>
                     <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <User size={16} /> 1. NOMINEE PHOTO &amp; PERSONAL INFORMATION
                     </div>
@@ -1550,9 +1615,7 @@ export const LoanIssue: React.FC = () => {
             advanceReceivingMethod={advanceReceivingMethod}
             onAdvanceReceivingMethodChange={setAdvanceReceivingMethod}
             cardFeeEnabled={cardFeeEnabled}
-            onCardFeeEnabledChange={setCardFeeEnabled}
             cardFeeAmount={cardFeeAmount}
-            onCardFeeAmountChange={setCardFeeAmount}
             cardFeeMode={cardFeeMode}
             onCardFeeModeChange={setCardFeeMode}
             cardFeeBankMode={cardFeeBankMode}
@@ -1613,15 +1676,16 @@ export const LoanIssue: React.FC = () => {
                         <select
                           className="input-control"
                           value={item.purity}
-                          onChange={(e) => handleItemChange(item.id, 'purity', e.target.value as PurityOption)}
+                          onChange={(e) => handleItemChange(item.id, 'purity', e.target.value)}
                         >
-                          <option value="22ct">22ct</option>
-                          <option value="24ct">24ct</option>
-                          <option value="20ct">20ct</option>
-                          <option value="18ct">18ct</option>
-                          <option value="14ct">14ct</option>
-                          <option value="Silver 925">Silver 925</option>
-                          <option value="Silver 999">Silver 999</option>
+                          {activePurityOptions.map((p) => (
+                            <option key={p.id} value={p.name}>
+                              {p.name} {p.category !== 'GOLD' ? `(${p.category})` : ''}
+                            </option>
+                          ))}
+                          {item.purity && !activePurityOptions.some((p) => p.name.trim().toLowerCase() === (item.purity || '').trim().toLowerCase()) && (
+                            <option value={item.purity}>{item.purity} (Inactive)</option>
+                          )}
                         </select>
                       </td>
                       <td>
@@ -1655,9 +1719,9 @@ export const LoanIssue: React.FC = () => {
                   <tr style={{ fontWeight: 800, backgroundColor: 'var(--bg-surface-subtle)' }}>
                     <td colSpan={2} style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>TOTALS</td>
                     <td>{totalQty}</td>
-                    <td>-</td>
-                    <td style={{ color: 'var(--color-primary-dark)' }}>{totalGrossWeight.toFixed(3)} g</td>
-                    <td style={{ color: 'var(--color-primary-dark)' }}>{totalNetWeight.toFixed(3)} g</td>
+                    <td>—</td>
+                    <td style={{ color: 'var(--color-primary-dark)' }}>{totalGrossWeight.toFixed(3)}</td>
+                    <td style={{ color: 'var(--color-primary-dark)' }}>{totalNetWeight.toFixed(3)}</td>
                     <td></td>
                   </tr>
                 </tbody>
@@ -1676,6 +1740,11 @@ export const LoanIssue: React.FC = () => {
                 <label className="fi-label">Market Value (₹)</label>
                 <input type="text" className="input-control" readOnly
                   value={marketValue > 0 ? `Estimated ₹${marketValue.toLocaleString('en-IN')}` : 'Estimated'} />
+                {items.some((it) => (Number(it.netWeight) || 0) > 0 && getRateForItem(it) === 0) && (
+                  <span style={{ fontSize: '11px', color: '#F59E0B', marginTop: '3px', display: 'block' }}>
+                    ⚠ Rate not configured for this purity.
+                  </span>
+                )}
               </div>
 
               <div className="fi-field">
@@ -1914,21 +1983,79 @@ export const LoanIssue: React.FC = () => {
             </div>
           )}
 
-          {/* SECTION 5 — MONTHLY INTEREST HIGHLIGHT BOX & BUTTONS */}
-          <div className="fi-interest-highlight">
-            <div className="fi-interest-label">Monthly Interest</div>
-            <div className="fi-interest-amount">
-              ₹{monthlyInterest.toLocaleString('en-IN')} <span style={{ fontSize: '20px', fontWeight: 600 }}>/ mo</span>
+          {/* SECTION 5 — DYNAMIC LOAN INTEREST & PRICING PREVIEW */}
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+              border: '1.5px solid var(--color-primary-accent, #059669)',
+              borderRadius: 'var(--fi-radius, 12px)',
+              padding: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.03)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h3 style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-primary-dark, #163f35)', margin: 0, letterSpacing: '0.5px' }}>
+                  LOAN INTEREST &amp; PRICING PREVIEW
+                </h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {loanTerms.matchingBand
+                    ? `Matched Master Band: ${loanTerms.matchingBand.condition} ₹${loanTerms.matchingBand.amount.toLocaleString('en-IN')} (${loanTerms.interestRate}%/mo · Penalty after ${loanTerms.matchingBand.penaltyAfterMonths} mos · Step-up ${loanTerms.matchingBand.penaltyStepUpMonthly}%/mo)`
+                    : `Master Control active rate for ${selectedLoanTypeConfig?.name || 'Gold Loan'} (${loanTerms.interestRate}%/mo)`}
+                </span>
+              </div>
+              <span className="badge badge-success" style={{ fontSize: '11px', padding: '4px 10px', fontWeight: 700 }}>
+                {selectedRepaymentConfig?.name || 'Monthly Interest Only'}
+              </span>
             </div>
-            <div className="fi-interest-sub">
-              {interestRate}%/month (30-day cycle) on ₹{numericPrincipal.toLocaleString('en-IN')} = ₹{monthlyInterest.toLocaleString('en-IN')}/mo (interest only) · Penalty after 3 months
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+              <div style={{ padding: '10px 12px', backgroundColor: 'var(--bg-surface, #ffffff)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Principal</span>
+                <strong style={{ fontSize: '14.5px', color: 'var(--text-primary)' }}>₹{numericPrincipal.toLocaleString('en-IN')}</strong>
+              </div>
+
+              <div style={{ padding: '10px 12px', backgroundColor: 'var(--bg-surface, #ffffff)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Interest Rate</span>
+                <strong style={{ fontSize: '14.5px', color: 'var(--color-primary-dark, #163f35)' }}>{loanTerms.interestRate}% / mo</strong>
+              </div>
+
+              <div style={{ padding: '10px 12px', backgroundColor: 'var(--bg-surface, #ffffff)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Monthly Interest</span>
+                <strong style={{ fontSize: '14.5px', color: 'var(--color-primary-dark, #163f35)' }}>₹{loanTerms.monthlyInterest.toLocaleString('en-IN')}</strong>
+              </div>
+
+              <div style={{ padding: '10px 12px', backgroundColor: 'var(--bg-surface, #ffffff)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Processing / Card Fee</span>
+                <strong style={{ fontSize: '14.5px', color: loanTerms.effectiveCardFee > 0 ? '#EF4444' : 'var(--text-muted)' }}>
+                  {loanTerms.effectiveCardFee > 0 ? `₹${loanTerms.effectiveCardFee.toLocaleString('en-IN')}` : '₹0'}
+                </strong>
+              </div>
+
+              <div style={{ padding: '10px 12px', backgroundColor: 'var(--bg-surface, #ffffff)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Net Disbursed</span>
+                <strong style={{ fontSize: '15px', color: 'var(--color-primary-accent, #059669)', fontWeight: 900 }}>₹{loanTerms.netDisbursed.toLocaleString('en-IN')}</strong>
+              </div>
+
+              <div style={{ padding: '10px 12px', backgroundColor: 'var(--bg-surface, #ffffff)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Next Due Date</span>
+                <strong style={{ fontSize: '14.5px', color: 'var(--text-primary)' }}>{loanTerms.nextDueDate}</strong>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>ℹ️</span>
+              <span>Interest is calculated using the active Master Control rate for this loan type. Contractual values lock upon issue.</span>
             </div>
           </div>
 
           {/* Submit Action Buttons */}
           <div className="fi-actions">
             <button type="submit" className="fi-btn-primary" disabled={isSubmitting || !selectedCustomer}>
-              {isSubmitting ? 'Processing Loan...' : 'Issue Loan & Generate Receipt'}
+              {isSubmitting ? 'Creating Loan...' : 'Issue Loan & Generate Receipt'}
             </button>
             <button type="button" className="fi-btn-secondary" onClick={handleClearForm} disabled={isSubmitting}>
               Clear Form

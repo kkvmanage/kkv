@@ -25,7 +25,18 @@ import { KKVLogo } from '../common/KKVLogo';
 import { BackupCloseModal } from '../common/BackupCloseModal';
 
 export const Sidebar: React.FC = () => {
-  const { currentPage, setCurrentPage, showToast, darkMode, toggleDarkMode, isMobileMenuOpen, closeMobileMenu, userRole, setUserRole, setIsWorkspaceSelected } = useApp();
+  const {
+    currentPage,
+    setCurrentPage,
+    darkMode,
+    toggleDarkMode,
+    isMobileMenuOpen,
+    closeMobileMenu,
+    userRole,
+    currentUser,
+    hasPermission,
+    logoutUser
+  } = useApp();
 
   const [customersOpen, setCustomersOpen] = useState(true);
   const [loanDetailsOpen, setLoanDetailsOpen] = useState(true);
@@ -91,10 +102,17 @@ export const Sidebar: React.FC = () => {
   };
 
   const handleFinishCloseSession = () => {
-    setUserRole(null);
-    setIsWorkspaceSelected(false);
-    showToast('Session closed cleanly. Application signed out.', 'info');
+    logoutUser();
   };
+
+  const roleLabel =
+    userRole === 'MASTER_ADMIN'
+      ? 'Master Admin'
+      : userRole === 'ADMIN'
+      ? 'Admin'
+      : userRole === 'MANAGER'
+      ? 'Branch Manager'
+      : 'Operator';
 
   return (
     <>
@@ -402,24 +420,28 @@ export const Sidebar: React.FC = () => {
             </>
           )}
 
-          {/* SYSTEM - hidden if Operator */}
-          {userRole !== 'OPERATOR' && (
+          {/* SYSTEM - only if adminPanel or settings permission */}
+          {(hasPermission('adminPanel') || hasPermission('settings')) && (
             <>
               <div className="sidebar-section-label">SYSTEM</div>
-              <button
-                className={`sidebar-link ${currentPage === 'admin-panel' ? 'active' : ''}`}
-                onClick={() => setCurrentPage('admin-panel')}
-              >
-                <Shield size={17} />
-                <span>Admin Panel</span>
-              </button>
-              <button
-                className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
-                onClick={() => setCurrentPage('settings')}
-              >
-                <Settings size={17} />
-                <span>Settings</span>
-              </button>
+              {hasPermission('adminPanel') && (
+                <button
+                  className={`sidebar-link ${currentPage === 'admin-panel' ? 'active' : ''}`}
+                  onClick={() => setCurrentPage('admin-panel')}
+                >
+                  <Shield size={17} />
+                  <span>Admin Panel</span>
+                </button>
+              )}
+              {hasPermission('settings') && (
+                <button
+                  className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
+                  onClick={() => setCurrentPage('settings')}
+                >
+                  <Settings size={17} />
+                  <span>Settings</span>
+                </button>
+              )}
             </>
           )}
         </nav>
@@ -445,22 +467,21 @@ export const Sidebar: React.FC = () => {
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-md)', marginTop: '2px', border: '1px solid var(--border-subtle)' }}>
-            <div>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Signed in as</p>
-              <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                {userRole === 'ADMIN' ? 'Admin' : userRole === 'MANAGER' ? 'Branch Manager' : 'Operator'}
+              <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                {currentUser?.displayName || roleLabel}
               </p>
+              <span style={{ fontSize: '10.5px', color: 'var(--color-gold-light)', fontWeight: 600 }}>
+                {roleLabel}
+              </span>
             </div>
             <button
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px', borderRadius: 'var(--radius-sm)' }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '6px', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               title="Sign Out"
-              onClick={() => {
-                setUserRole(null);
-                setIsWorkspaceSelected(false);
-                showToast('Signed out successfully', 'info');
-              }}
+              onClick={logoutUser}
             >
-              <LogOut size={14} />
+              <LogOut size={16} />
             </button>
           </div>
         </div>

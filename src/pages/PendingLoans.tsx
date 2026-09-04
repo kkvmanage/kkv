@@ -541,7 +541,7 @@ export const PendingLoans: React.FC = () => {
         customerId: rc.custId,
         customerName: rc.name,
         customerPhone: rc.phone,
-        loanType: (selectedLoan.loanType as any) || 'GOLD LOAN',
+        loanType: selectedLoan.loanTypeName || selectedLoan.loanType || 'Gold Loan',
         kind: isFullClosure
           ? 'LOAN CLOSURE'
           : receiptType === 'Principal Payment'
@@ -879,7 +879,7 @@ export const PendingLoans: React.FC = () => {
 
           {/* Invalid / Not Found State */}
           {customerSearchQuery && matchingCustomers.length === 0 && (
-            <div style={{ marginTop: '18px', padding: '14px 18px', borderRadius: '10px', backgroundColor: '#fef2f2', border: '1.5px solid #fecaca', color: '#991b1b', fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '680px' }}>
+            <div style={{ marginTop: '18px', padding: '14px 18px', borderRadius: '10px', backgroundColor: 'var(--badge-danger-bg)', border: '1.5px solid var(--badge-danger-border)', color: 'var(--color-danger)', fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '680px' }}>
               <AlertCircle size={18} color="#dc2626" />
               <div>
                 <strong>Customer not found.</strong> Please enter a valid existing Customer ID.
@@ -912,7 +912,7 @@ export const PendingLoans: React.FC = () => {
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{ width: '42px', height: '42px', borderRadius: '50%', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--color-primary-dark)', overflow: 'hidden' }}>
+                      <div style={{ width: '42px', height: '42px', borderRadius: '50%', backgroundColor: 'var(--bg-surface-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--color-primary-dark)', overflow: 'hidden' }}>
                         {cust.customerPhoto ? (
                           <img src={cust.customerPhoto} alt={cust.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : (
@@ -950,7 +950,7 @@ export const PendingLoans: React.FC = () => {
 
           {/* ── Requirement 3: Empty State when no customer is selected ─────────── */}
           {!customerSearchQuery && (
-            <div style={{ marginTop: '24px', padding: '40px 24px', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+            <div style={{ marginTop: '24px', padding: '40px 24px', textAlign: 'center', backgroundColor: 'var(--bg-surface-secondary)', borderRadius: '12px', border: '1px dashed var(--border-light)' }}>
               <div style={{ width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto', color: 'var(--text-muted)' }}>
                 <Search size={24} />
               </div>
@@ -974,7 +974,7 @@ export const PendingLoans: React.FC = () => {
           <div className="card" style={{ padding: '20px 24px', marginBottom: '20px', borderLeft: '5px solid var(--color-primary-accent, #059669)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ width: '54px', height: '54px', borderRadius: '50%', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#064e3b', border: '2px solid #86efac', overflow: 'hidden' }}>
+                <div style={{ width: '54px', height: '54px', borderRadius: '50%', backgroundColor: 'var(--badge-success-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--badge-success-text)', border: '1px solid var(--badge-success-border)', overflow: 'hidden' }}>
                   {selectedCustomer.customerPhoto ? (
                     <img src={selectedCustomer.customerPhoto} alt={selectedCustomer.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
@@ -1042,7 +1042,7 @@ export const PendingLoans: React.FC = () => {
                       style={{
                         borderRadius: '14px',
                         border: isOverdue ? '2px solid #f87171' : '1.5px solid var(--border-subtle)',
-                        backgroundColor: '#ffffff',
+                        backgroundColor: 'var(--bg-card)',
                         boxShadow: 'var(--shadow-sm)',
                         padding: '20px',
                         display: 'flex',
@@ -1056,7 +1056,7 @@ export const PendingLoans: React.FC = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                           <div>
                             <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                              {l.loanType} &bull; Disbursed via {l.bankMode || 'Cash'}
+                              {l.loanTypeName || l.loanType} &bull; Disbursed via {l.bankMode || 'Cash'}
                             </div>
                             <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary-dark)', marginTop: '2px' }}>
                               {l.loanNo}
@@ -1228,9 +1228,10 @@ export const PendingLoans: React.FC = () => {
                 maxHeight: '92vh',
                 overflowY: 'auto',
                 padding: '28px',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--bg-card)',
                 borderRadius: '16px',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)'
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+                color: 'var(--text-primary)'
               }}
             >
               {/* Modal Top Bar */}
@@ -1275,7 +1276,7 @@ export const PendingLoans: React.FC = () => {
                       {selectedLoan.loanNo}
                     </span>
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-primary-dark)' }}>
-                      {selectedLoan.loanType}
+                      {selectedLoan.loanTypeName || selectedLoan.loanType}
                     </span>
                   </div>
 
@@ -1336,7 +1337,7 @@ export const PendingLoans: React.FC = () => {
 
               {/* Outstanding Payment Periods Breakdown */}
               {loanPeriodsBreakdown.length > 0 && (
-                <div style={{ marginBottom: '18px', padding: '14px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff' }}>
+                <div style={{ marginBottom: '18px', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-surface-secondary)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <h4 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: 0 }}>
                       OUTSTANDING PAYMENT PERIODS BREAKDOWN
@@ -1628,7 +1629,7 @@ export const PendingLoans: React.FC = () => {
 
                 {/* Pledged Gold Review */}
                 {pledgedItems.length > 0 && (
-                  <div style={{ padding: '14px', borderRadius: '8px', border: '1px solid var(--border-subtle)', backgroundColor: '#ffffff' }}>
+                  <div style={{ padding: '14px', borderRadius: '8px', border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-surface-secondary)' }}>
                     <div style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--color-primary-dark)', marginBottom: '8px' }}>
                       Pledged Gold Collateral
                     </div>
@@ -1692,8 +1693,8 @@ export const PendingLoans: React.FC = () => {
                 </div>
 
                 {/* Payment Summary Preview */}
-                <div style={{ backgroundColor: '#f0fdf4', padding: '14px 16px', borderRadius: '10px', border: '1.5px solid #86efac' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#065f46', marginBottom: '6px' }}>
+                <div style={{ backgroundColor: 'var(--badge-success-bg)', padding: '14px 16px', borderRadius: '10px', border: '1.5px solid var(--badge-success-border)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--badge-success-text)', marginBottom: '6px' }}>
                     PAYMENT SUMMARY PREVIEW
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '6px', fontSize: '12.5px' }}>
@@ -1758,7 +1759,7 @@ export const PendingLoans: React.FC = () => {
               padding: '32px',
               textAlign: 'center',
               borderRadius: '16px',
-              backgroundColor: '#ffffff'
+              backgroundColor: 'var(--bg-card)'
             }}
           >
             <div
@@ -1766,8 +1767,8 @@ export const PendingLoans: React.FC = () => {
                 width: '64px',
                 height: '64px',
                 borderRadius: '50%',
-                backgroundColor: '#dcfce7',
-                color: '#059669',
+                backgroundColor: 'var(--badge-success-bg)',
+                color: 'var(--badge-success-text)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1891,7 +1892,7 @@ export const PendingLoans: React.FC = () => {
                 maxHeight: '94vh',
                 overflowY: 'auto',
                 padding: '32px',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--bg-card)',
                 borderRadius: '16px',
                 boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)'
               }}
@@ -2211,7 +2212,7 @@ export const PendingLoans: React.FC = () => {
                 maxHeight: '85vh',
                 overflowY: 'auto',
                 padding: '24px',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--bg-card)',
                 borderRadius: '16px'
               }}
             >

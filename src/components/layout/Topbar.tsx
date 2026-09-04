@@ -132,8 +132,8 @@ const pageTitles: Record<NavPage, PageMetadata> = {
     subtitle: 'Customer collection calls, interest follow-ups, and operational tasks'
   },
   'backup-restore': {
-    title: 'Backup & Restore',
-    subtitle: 'Encrypted offline database snapshot export and recovery'
+    title: 'Admin Panel',
+    subtitle: 'Authorized administrative controls, role permissions, and audit logs'
   },
   'admin-panel': {
     title: 'Admin Panel',

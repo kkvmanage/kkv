@@ -373,7 +373,7 @@ export const AddCustomer: React.FC = () => {
       <div
         className="card"
         style={{
-          backgroundColor: '#fff',
+          backgroundColor: 'var(--bg-card)',
           border: '1px solid var(--border-light, #e2e8f0)',
           borderRadius: 'var(--radius-lg, 12px)',
           padding: '24px 28px',
@@ -562,7 +562,7 @@ export const AddCustomer: React.FC = () => {
                   )}
 
                   {duplicateCustomerMatch && (
-                    <div style={{ padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', marginTop: '6px', color: '#991b1b', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <div style={{ padding: '8px 12px', backgroundColor: 'var(--badge-danger-bg)', border: '1px solid var(--badge-danger-border)', borderRadius: '8px', marginTop: '6px', color: 'var(--color-danger)', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                       <span>⚠ Mobile registered to <strong>{duplicateCustomerMatch.name}</strong> ({duplicateCustomerMatch.id})</span>
                       <button
                         type="button"

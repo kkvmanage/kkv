@@ -13,6 +13,8 @@ import reminderRoutes from './reminder.routes.js';
 import driveRoutes from './drive.routes.js';
 import searchRoutes from './search.routes.js';
 import locationRoutes from './location.routes.js';
+import sessionRoutes from './session.routes.js';
+import staffRoutes from './staff.routes.js';
 
 const router = Router();
 
@@ -33,5 +35,7 @@ router.use('/admin', adminRoutes);
 router.use('/backup', backupRoutes);
 router.use('/telegram', telegramRoutes);
 router.use('/reminders', reminderRoutes);
+router.use('/sessions', sessionRoutes);
+router.use('/staff', staffRoutes);
 
 export default router;

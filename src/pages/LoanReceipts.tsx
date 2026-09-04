@@ -313,7 +313,7 @@ export const LoanReceipts: React.FC = () => {
         customerName: selectedCustomer.name,
         customerPhone: selectedCustomer.phone,
         kind: canonicalKind,
-        loanType: currentLoan.loanType || 'GOLD LOAN',
+        loanType: currentLoan.loanTypeName || currentLoan.loanType || 'Gold Loan',
         amount: netTotalAmount,
         principalComponent:
           receiptType === 'Full Principal Closure'
@@ -548,7 +548,7 @@ export const LoanReceipts: React.FC = () => {
                           padding: '14px',
                           borderRadius: '8px',
                           border: '1.5px solid var(--border-light, #e2e8f0)',
-                          backgroundColor: '#ffffff',
+                          backgroundColor: 'var(--bg-card)',
                           display: 'flex',
                           flexDirection: 'column',
                           gap: '10px',
@@ -813,7 +813,7 @@ export const LoanReceipts: React.FC = () => {
                             className="badge badge-gold"
                             style={{ fontSize: '11px', fontWeight: 700 }}
                           >
-                            {l.loanType || 'GOLD LOAN'}
+                            {l.loanTypeName || l.loanType || 'Gold Loan'}
                           </span>
                         </div>
 
@@ -1060,8 +1060,8 @@ export const LoanReceipts: React.FC = () => {
                   <div
                     style={{
                       padding: '16px',
-                      backgroundColor: '#f0fdf4',
-                      border: '1.5px solid #bbf7d0',
+                      backgroundColor: 'var(--badge-success-bg)',
+                      border: '1.5px solid var(--badge-success-border)',
                       borderRadius: '8px',
                       display: 'flex',
                       flexDirection: 'column',
@@ -1069,7 +1069,7 @@ export const LoanReceipts: React.FC = () => {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 700, color: '#166534' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--badge-success-text)' }}>
                         Full Loan Closure &amp; Gold Collateral Release
                       </span>
                       <span className="badge badge-success">OUTSTANDING BECOMES ₹0</span>

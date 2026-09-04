@@ -120,7 +120,7 @@ export const GlobalSearch: React.FC = () => {
       type: 'loan' as const,
       id: l.id,
       title: `Loan No: ${l.loanNo}`,
-      subtitle: `${l.customerName} • ${l.loanType}`,
+      subtitle: `${l.customerName} • ${l.loanTypeName || l.loanType}`,
       metadata: `₹${l.principal.toLocaleString('en-IN')}`,
       data: l
     })),
@@ -389,7 +389,7 @@ export const GlobalSearch: React.FC = () => {
                               {renderHighlightedText(l.loanNo, query)} • {renderHighlightedText(l.customerName, query)}
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                              {l.loanType} • ₹{l.principal.toLocaleString('en-IN')}
+                              {l.loanTypeName || l.loanType} • ₹{l.principal.toLocaleString('en-IN')}
                             </div>
                           </div>
                         </div>

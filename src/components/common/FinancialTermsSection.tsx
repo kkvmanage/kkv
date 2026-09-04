@@ -23,9 +23,9 @@ export interface FinancialTermsSectionProps {
   advanceReceivingMethod: 'Cash' | 'Bank' | 'Cash + Bank';
   onAdvanceReceivingMethodChange: (val: 'Cash' | 'Bank' | 'Cash + Bank') => void;
   cardFeeEnabled: boolean;
-  onCardFeeEnabledChange: (val: boolean) => void;
+  onCardFeeEnabledChange?: (val: boolean) => void;
   cardFeeAmount: number;
-  onCardFeeAmountChange: (val: number) => void;
+  onCardFeeAmountChange?: (val: number) => void;
   cardFeeMode: 'Cash' | 'Bank';
   onCardFeeModeChange: (val: 'Cash' | 'Bank') => void;
   cardFeeBankMode: string;
@@ -52,9 +52,7 @@ export const FinancialTermsSection: React.FC<FinancialTermsSectionProps> = ({
   advanceReceivingMethod,
   onAdvanceReceivingMethodChange,
   cardFeeEnabled,
-  onCardFeeEnabledChange,
   cardFeeAmount,
-  onCardFeeAmountChange,
   cardFeeMode,
   onCardFeeModeChange,
   cardFeeBankMode,
@@ -363,17 +361,21 @@ export const FinancialTermsSection: React.FC<FinancialTermsSectionProps> = ({
 
         {/* CARD FEE SECTION */}
         <div className="fi-accent-box fi-accent-box--green">
-          <label className="fi-checkbox-row">
-            <input
-              type="checkbox"
-              checked={cardFeeEnabled}
-              onChange={(e) => onCardFeeEnabledChange(e.target.checked)}
-            />
-            <span className="fi-checkbox-label">💳 Card Fee</span>
-          </label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '15px' }}>💳</span>
+              <span className="fi-checkbox-label" style={{ fontWeight: 700 }}>CARD PROCESSING FEE</span>
+              <span className="badge badge-info" style={{ fontSize: '10px', padding: '2px 8px' }}>
+                🔒 Master Controlled
+              </span>
+            </div>
+            <div style={{ fontSize: '13.5px', fontWeight: 800, color: cardFeeEnabled && cardFeeAmount > 0 ? 'var(--color-primary-dark, #163f35)' : 'var(--text-muted)' }}>
+              {cardFeeEnabled && cardFeeAmount > 0 ? `₹${cardFeeAmount.toLocaleString('en-IN')}` : '₹0 (Disabled in Master Control)'}
+            </div>
+          </div>
 
-          {cardFeeEnabled && (
-            <div className="fi-rows" style={{ marginTop: '8px' }}>
+          {cardFeeEnabled && cardFeeAmount > 0 ? (
+            <div className="fi-rows" style={{ marginTop: '10px' }}>
               <div className="fi-grid-3">
                 <div className="fi-field">
                   <label className="fi-label">Collection Method</label>
@@ -405,16 +407,27 @@ export const FinancialTermsSection: React.FC<FinancialTermsSectionProps> = ({
                 )}
 
                 <div className="fi-field">
-                  <label className="fi-label">Card Fee Amount (₹)</label>
+                  <div className="fi-label-sub">
+                    <label className="fi-label">Fee Amount (₹)</label>
+                    <span className="fi-label-badge" style={{ backgroundColor: 'var(--bg-surface-secondary)', color: 'var(--text-muted)', fontSize: '10px' }}>
+                      Read-Only
+                    </span>
+                  </div>
                   <input
-                    type="number"
-                    className="input-control fi-input"
-                    min={0}
-                    value={cardFeeAmount}
-                    onChange={(e) => onCardFeeAmountChange(Number(e.target.value) || 0)}
+                    type="text"
+                    className="input-control fi-input fi-input--readonly"
+                    readOnly
+                    disabled
+                    value={`₹${cardFeeAmount.toLocaleString('en-IN')}`}
+                    style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'not-allowed', backgroundColor: 'var(--bg-surface-secondary)' }}
                   />
+                  <span className="fi-hint">Fee configured by Master Admin in Rates &amp; Payments.</span>
                 </div>
               </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Card Processing Fee is currently switched off for this loan type in Master Control.
             </div>
           )}
         </div>

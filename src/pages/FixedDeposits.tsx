@@ -74,6 +74,7 @@ export const FixedDeposits: React.FC = () => {
     renewFD,
     fdRenewals,
     deleteFixedDeposit,
+    masterControlSettings,
     userRole,
     setSelectedProfileCustomerId,
     showToast
@@ -114,13 +115,20 @@ export const FixedDeposits: React.FC = () => {
   // New Deposit Form State
   const [depositDate, setDepositDate] = useState<string>(new Date().toLocaleDateString('en-GB').replace(/\//g, '-'));
   const [principal, setPrincipal] = useState<number | ''>(200000);
-  const [interestRatePA, setInterestRatePA] = useState<number | ''>(12);
+  const [interestRatePA, setInterestRatePA] = useState<number | ''>(masterControlSettings?.fdInterestRate ?? 12);
   const [tenureMonths, setTenureMonths] = useState<number | ''>(12);
   const [payoutFrequency, setPayoutFrequency] = useState<string>('Monthly');
   const [receivingMethod, setReceivingMethod] = useState<'Cash' | 'Bank' | 'UPI'>('Cash');
   const [nomineeName, setNomineeName] = useState<string>('');
   const [nomineeRelation, setNomineeRelation] = useState<string>('');
   const [remarks, setRemarks] = useState<string>('');
+
+  // Sync interestRatePA with master rate when master rate changes
+  useEffect(() => {
+    if (masterControlSettings?.fdInterestRate !== undefined) {
+      setInterestRatePA(masterControlSettings.fdInterestRate);
+    }
+  }, [masterControlSettings?.fdInterestRate]);
 
   // Register display filter state
   const [displaySearchText, setDisplaySearchText] = useState<string>('');
@@ -535,7 +543,7 @@ export const FixedDeposits: React.FC = () => {
               <div
                 style={{
                   marginTop: '8px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--bg-card)',
                   border: '1px solid var(--border-light, #e2e8f0)',
                   borderRadius: '8px',
                   maxHeight: '220px',
@@ -591,7 +599,7 @@ export const FixedDeposits: React.FC = () => {
                 style={{
                   marginTop: '14px',
                   padding: '16px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--bg-card)',
                   borderRadius: '10px',
                   border: '1.5px solid var(--color-primary-accent, #059669)',
                   boxShadow: 'var(--shadow-sm)'
@@ -684,7 +692,12 @@ export const FixedDeposits: React.FC = () => {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label required">INTEREST RATE (% P.A.)</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="form-label required">INTEREST RATE (% P.A.)</label>
+                    <span className="badge badge-success" style={{ fontSize: '10px' }}>
+                      Master Rate: {(masterControlSettings?.fdInterestRate ?? 12).toFixed(2)}%
+                    </span>
+                  </div>
                   <input
                     type="number"
                     step="0.25"
@@ -693,6 +706,9 @@ export const FixedDeposits: React.FC = () => {
                     value={interestRatePA}
                     onChange={(e) => setInterestRatePA(Number(e.target.value) || 0)}
                   />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', display: 'block' }}>
+                    Default Master Admin Rate · Rate is frozen into contract upon issuance
+                  </span>
                 </div>
               </div>
 
@@ -1033,7 +1049,7 @@ export const FixedDeposits: React.FC = () => {
                         </td>
                         <td>
                           {schedule.status === 'NOT_DUE' && (
-                            <span className="badge" style={{ backgroundColor: '#f1f5f9', color: '#475569', fontSize: '11px', fontWeight: 700 }}>
+                            <span className="badge" style={{ backgroundColor: 'var(--bg-surface-secondary)', color: 'var(--text-secondary)', fontSize: '11px', fontWeight: 700 }}>
                               NOT YET DUE
                             </span>
                           )}
@@ -1189,7 +1205,7 @@ export const FixedDeposits: React.FC = () => {
           <div>
             {/* DYNAMIC SUMMARY METRIC CARDS */}
             <div className="grid-4" style={{ marginBottom: '20px' }}>
-              <div className="card" style={{ padding: '16px', backgroundColor: '#fffbe6', border: '1px solid #ffe58f' }}>
+              <div className="card" style={{ padding: '16px', backgroundColor: 'var(--badge-warning-bg)', border: '1px solid var(--badge-warning-border)', color: 'var(--color-warning)' }}>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: '#d46b08', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   TOTAL PENDING INTEREST
                 </div>
@@ -1379,7 +1395,7 @@ export const FixedDeposits: React.FC = () => {
             {/* PAY PENDING INTEREST MODAL */}
             {payingPeriod && (
               <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-                <div className="card" style={{ width: '100%', maxWidth: '480px', padding: '24px', borderRadius: '12px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+                <div className="card" style={{ width: '100%', maxWidth: '480px', padding: '24px', borderRadius: '12px', backgroundColor: 'var(--bg-card)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                     <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: 0 }}>
                       Disburse Interest — {payingPeriod.fdNo}
@@ -1575,7 +1591,7 @@ export const FixedDeposits: React.FC = () => {
 
                 {/* Suggestions Dropdown */}
                 {!wdSelectedCustomer && wdCustSearchQuery.trim() !== '' && (
-                  <div style={{ marginTop: '8px', backgroundColor: '#ffffff', border: '1px solid var(--border-light, #e2e8f0)', borderRadius: '8px', maxHeight: '220px', overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
+                  <div style={{ marginTop: '8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light, #e2e8f0)', borderRadius: '8px', maxHeight: '220px', overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
                     {wdMatchingCustomers.length === 0 ? (
                       <div style={{ padding: '14px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-danger, #ef4444)', fontSize: '13px', fontWeight: 600 }}>
                         <AlertCircle size={15} />
@@ -1614,7 +1630,7 @@ export const FixedDeposits: React.FC = () => {
 
                 {/* Selected Customer Chip */}
                 {wdSelectedCustomer && (
-                  <div style={{ marginTop: '8px', padding: '12px 16px', backgroundColor: '#ffffff', borderRadius: '10px', border: '1.5px solid var(--color-primary-accent, #059669)', boxShadow: 'var(--shadow-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ marginTop: '8px', padding: '12px 16px', backgroundColor: 'var(--bg-card)', borderRadius: '10px', border: '1.5px solid var(--color-primary-accent, #059669)', boxShadow: 'var(--shadow-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       {wdSelectedCustomer.customerPhoto ? (
                         <img src={wdSelectedCustomer.customerPhoto} alt={wdSelectedCustomer.name} style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--color-primary-accent)' }} />
@@ -1660,7 +1676,7 @@ export const FixedDeposits: React.FC = () => {
                       No Fixed Deposits found for this customer.
                     </div>
                   ) : wdActiveFDs.length === 0 ? (
-                    <div style={{ padding: '16px', backgroundColor: '#fffbe6', border: '1px solid #ffe58f', borderRadius: '10px', color: '#d46b08', fontSize: '13px', fontWeight: 600 }}>
+                    <div style={{ padding: '16px', backgroundColor: 'var(--badge-warning-bg)', border: '1px solid var(--badge-warning-border)', borderRadius: '10px', color: 'var(--color-warning)', fontSize: '13px', fontWeight: 600 }}>
                       ⚠️ All Fixed Deposits for this customer have been fully withdrawn.
                     </div>
                   ) : (
@@ -1668,7 +1684,7 @@ export const FixedDeposits: React.FC = () => {
                       {wdActiveFDs.map((fd) => {
                         const rem = fd.remainingPrincipal ?? fd.principal;
                         return (
-                          <div key={fd.id} style={{ padding: '16px 20px', backgroundColor: '#ffffff', borderRadius: '10px', border: '1.5px solid var(--border-light, #e2e8f0)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', boxShadow: 'var(--shadow-sm)' }}>
+                          <div key={fd.id} style={{ padding: '16px 20px', backgroundColor: 'var(--bg-card)', borderRadius: '10px', border: '1.5px solid var(--border-light, #e2e8f0)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', boxShadow: 'var(--shadow-sm)' }}>
                             <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', flex: 1 }}>
                               <div>
                                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>FD NUMBER</div>
@@ -1744,7 +1760,7 @@ export const FixedDeposits: React.FC = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
                     {/* FD Summary */}
-                    <div style={{ padding: '16px 20px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1.5px solid var(--color-primary-accent, #059669)' }}>
+                    <div style={{ padding: '16px 20px', backgroundColor: 'var(--badge-success-bg)', borderRadius: '12px', border: '1.5px solid var(--badge-success-border)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                         <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>SELECTED FIXED DEPOSIT</h3>
                         <button type="button" className="btn btn-secondary btn-sm" style={{ fontSize: '12px' }} onClick={() => setWdSelectedFD(null)}>← Back to FD List</button>
@@ -1974,7 +1990,7 @@ export const FixedDeposits: React.FC = () => {
                     {/* Withdrawal Confirm Modal */}
                     {wdShowConfirmModal && (
                       <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-                        <div className="card" style={{ width: '100%', maxWidth: '500px', padding: '28px', borderRadius: '14px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
+                        <div className="card" style={{ width: '100%', maxWidth: '500px', padding: '28px', borderRadius: '14px', backgroundColor: 'var(--bg-card)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
                           <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)', margin: '0 0 6px 0' }}>Confirm Fixed Deposit Withdrawal?</h3>
                           <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 18px 0' }}>Please verify the details. This action cannot be undone.</p>
                           <div style={{ backgroundColor: 'var(--bg-surface-secondary)', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '9px', fontSize: '13px', marginBottom: '18px', border: '1px solid var(--border-subtle)' }}>
@@ -2001,7 +2017,7 @@ export const FixedDeposits: React.FC = () => {
                     {/* WITHDRAWAL SUCCESS SCREEN & IMMEDIATE RECEIPT MODAL */}
                     {wdShowSuccessModal && lastWdReceipt && (
                       <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-                        <div className="card" style={{ width: '100%', maxWidth: '520px', padding: '32px', borderRadius: '16px', backgroundColor: '#ffffff', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', textAlign: 'center' }}>
+                        <div className="card" style={{ width: '100%', maxWidth: '520px', padding: '32px', borderRadius: '16px', backgroundColor: 'var(--bg-card)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', textAlign: 'center' }}>
                           <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#ecfdf5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', border: '2px solid #a7f3d0' }}>
                             <CheckCircle2 size={36} />
                           </div>
@@ -2101,7 +2117,7 @@ export const FixedDeposits: React.FC = () => {
                     {/* Renewal Confirm Modal */}
                     {rnShowConfirmModal && (
                       <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-                        <div className="card" style={{ width: '100%', maxWidth: '480px', padding: '28px', borderRadius: '14px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
+                        <div className="card" style={{ width: '100%', maxWidth: '480px', padding: '28px', borderRadius: '14px', backgroundColor: 'var(--bg-card)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
                           <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#1d4ed8', margin: '0 0 6px 0' }}>Confirm FD Renewal?</h3>
                           <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 18px 0' }}>The maturity date will be extended. This creates an auditable renewal record.</p>
                           <div style={{ backgroundColor: '#eff6ff', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '9px', fontSize: '13px', marginBottom: '18px', border: '1px solid #bfdbfe' }}>
@@ -2191,7 +2207,7 @@ export const FixedDeposits: React.FC = () => {
                   { label: 'CURRENT MONTH', value: `₹${currentMonthRefunded.toLocaleString('en-IN')} (${currentMonthWds.length})`, color: '#7c3aed' },
                   { label: 'TOTAL RENEWALS', value: fdRenewals.length, color: '#2563eb' }
                 ].map((card) => (
-                  <div key={card.label} style={{ padding: '14px 16px', backgroundColor: '#ffffff', borderRadius: '10px', border: '1px solid var(--border-light)', boxShadow: 'var(--shadow-sm)', textAlign: 'center' }}>
+                  <div key={card.label} style={{ padding: '14px 16px', backgroundColor: 'var(--bg-card)', borderRadius: '10px', border: '1px solid var(--border-light)', boxShadow: 'var(--shadow-sm)', textAlign: 'center' }}>
                     <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.05em' }}>{card.label}</div>
                     <div style={{ fontSize: '19px', fontWeight: 800, color: card.color }}>{card.value}</div>
                   </div>
@@ -2456,9 +2472,9 @@ export const FixedDeposits: React.FC = () => {
                     `}
                   </style>
 
-                  <div className="card" style={{ width: '100%', maxWidth: '780px', maxHeight: '92vh', overflowY: 'auto', padding: '0', borderRadius: '14px', backgroundColor: '#ffffff', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)' }}>
+                  <div className="card" style={{ width: '100%', maxWidth: '780px', maxHeight: '92vh', overflowY: 'auto', padding: '0', borderRadius: '14px', backgroundColor: 'var(--bg-card)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)' }}>
                     {/* Top Action Bar (hidden on print) */}
-                    <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 24px', borderBottom: '1px solid var(--border-subtle)', backgroundColor: '#f8fafc' }}>
+                    <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 24px', borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-surface-secondary)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span className="badge badge-success" style={{ fontWeight: 800, fontSize: '11px' }}>
                           {viewingReceiptWd.receiptNo || 'FDR-001'}
@@ -2495,7 +2511,7 @@ export const FixedDeposits: React.FC = () => {
                     </div>
 
                     {/* Printable Voucher Body */}
-                    <div id="fd-withdrawal-receipt-voucher" style={{ padding: '32px 36px', backgroundColor: '#ffffff' }}>
+                    <div id="fd-withdrawal-receipt-voucher" style={{ padding: '32px 36px', backgroundColor: '#ffffff', color: '#0f172a' }}>
                       {/* Company Header */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: '16px', borderBottom: '2.5px solid var(--color-primary-dark)' }}>
                         <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>

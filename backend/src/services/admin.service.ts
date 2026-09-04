@@ -6,6 +6,17 @@ const WA_FILE = 'whatsapp_templates.json';
 const TG_FILE = 'telegram_settings.json';
 
 const defaultMasterSettings: MasterControlSettings = {
+  loanTypes: [
+    { id: 'gold-loan', name: 'Gold Loan', description: 'Standard gold ornament backed financing', active: true, sortOrder: 1 },
+    { id: 'silver-loan', name: 'Silver Loan', description: 'Silver article backed loan', active: true, sortOrder: 2 },
+    { id: 'pronote', name: 'Pronote', description: 'Promissory note unsecured credit', active: true, sortOrder: 3 },
+    { id: 'hire-purchase', name: 'Hire Purchase', description: 'Vehicle and asset hire purchase financing', active: true, sortOrder: 4 }
+  ],
+  repaymentSystems: [
+    { id: 'monthly-interest-only', name: 'Monthly Interest Only', description: 'Monthly interest due; principal remains until closure', calculationStrategy: 'MONTHLY_INTEREST_ONLY', active: true, sortOrder: 1 },
+    { id: 'emi', name: 'EMI', description: 'Equated Monthly Installment (Principal + Interest)', calculationStrategy: 'EMI', active: true, sortOrder: 2 },
+    { id: 'bullet', name: 'Bullet Repayment', description: 'Lump-sum principal + accrued interest at maturity', calculationStrategy: 'BULLET', active: true, sortOrder: 3 }
+  ],
   goldLoanMonthlyRate: 1.5,
   silverLoanMonthlyRate: 2.0,
   pronoteMonthlyRate: 2.5,
@@ -89,7 +100,20 @@ const defaultMasterSettings: MasterControlSettings = {
   operatorPassword: 'operator123',
   animationsEnabled: true,
   performanceModeEnabled: false,
-  bulkFdDateChangeEnabled: true
+  bulkFdDateChangeEnabled: true,
+  fdInterestRate: 12,
+  fdInterestRateEffectiveFrom: '01-08-2026',
+  fdInterestRateHistory: [
+    {
+      id: 'FD-RATE-001',
+      rate: 12,
+      previousRate: 10,
+      effectiveFrom: '01-08-2026',
+      changedBy: 'Master Admin',
+      changedAt: '2026-08-01T09:00:00.000Z',
+      notes: 'Initial Base Master FD Interest Rate'
+    }
+  ]
 };
 
 const defaultWhatsAppTemplates: WhatsAppTemplates = {

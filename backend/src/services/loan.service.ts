@@ -126,10 +126,17 @@ export class LoanService {
     return masterSettings?.goldLoanMonthlyRate || 1.5;
   }
 
-  public async create(loanData: Omit<Loan, 'id' | 'loanNo'>): Promise<Loan> {
+  public async create(loanData: Omit<Loan, 'id' | 'loanNo'> & { loanNo?: string }): Promise<Loan> {
     const loans = this.getAll();
-    const nextNumber = loans.length + 1;
-    const loanNo = `GL-${nextNumber.toString().padStart(2, '0')}`;
+    let maxNum = 0;
+    for (const l of loans) {
+      const match = (l.loanNo || '').match(/\d+/);
+      if (match) {
+        const n = parseInt(match[0], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+    const loanNo = loanData.loanNo || `GL-${(maxNum + 1).toString().padStart(2, '0')}`;
     const id = `L-${Date.now()}`;
     let driveFolderId: string | undefined;
 

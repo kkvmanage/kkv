@@ -117,7 +117,7 @@ export const LoanDisplay: React.FC = () => {
 
       const matchesType =
         typeFilter === 'ALL' ||
-        loan.loanType.toUpperCase() === typeFilter.toUpperCase();
+        (loan.loanTypeName || loan.loanType || '').toUpperCase() === typeFilter.toUpperCase();
 
       let matchesDate = true;
       if (dateFilter === 'TODAY') {
@@ -362,7 +362,7 @@ export const LoanDisplay: React.FC = () => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Loan Type:</span>
-                <span className="badge badge-gold">{inspectingLoan.loanType}</span>
+                <span className="badge badge-gold">{inspectingLoan.loanTypeName || inspectingLoan.loanType}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Loan Issue Date:</span>
@@ -378,7 +378,7 @@ export const LoanDisplay: React.FC = () => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Repayment System:</span>
-                <strong style={{ color: 'var(--text-dark)' }}>{inspectingLoan.repaymentSystem || 'Monthly interest only'}</strong>
+                <strong style={{ color: 'var(--text-dark)' }}>{inspectingLoan.repaymentSystemName || inspectingLoan.repaymentSystem || 'Monthly interest only'}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Loan Tenure:</span>
@@ -392,10 +392,12 @@ export const LoanDisplay: React.FC = () => {
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Disbursement Method:</span>
                 <strong style={{ color: 'var(--text-dark)' }}>{inspectingLoan.bankMode || 'Cash'}</strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Area / Branch:</span>
-                <strong style={{ color: 'var(--text-dark)' }}>{inspectingLoan.area || 'Main Office'} ({inspectingLoan.showroom || 'KKV Gold'})</strong>
-              </div>
+              {(inspectingLoan.area || inspectingLoan.showroom) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Area / Branch:</span>
+                  <strong style={{ color: 'var(--text-dark)' }}>{inspectingLoan.area || 'Main Office'} {inspectingLoan.showroom ? `(${inspectingLoan.showroom})` : ''}</strong>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1289,7 +1291,7 @@ export const LoanDisplay: React.FC = () => {
                       <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>+91 {custPhone}</td>
                       <td>
                         <span className="badge badge-gold" style={{ fontSize: '11px' }}>
-                          {loan.loanType}
+                          {loan.loanTypeName || loan.loanType}
                         </span>
                       </td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: '12.5px' }}>{loan.date}</td>

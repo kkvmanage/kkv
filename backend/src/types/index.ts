@@ -89,6 +89,29 @@ export interface Customer {
   updatedAt?: string;
 }
 
+export type CalculationStrategy = 'MONTHLY_INTEREST_ONLY' | 'EMI' | 'BULLET';
+
+export interface LoanTypeConfig {
+  id: string;
+  name: string;
+  description?: string;
+  active: boolean;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RepaymentSystemConfig {
+  id: string;
+  name: string;
+  description?: string;
+  calculationStrategy: CalculationStrategy;
+  active: boolean;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Loan {
   id: string;
   receiptBillNo: number;
@@ -108,10 +131,15 @@ export interface Loan {
   guarantor?: GuarantorDetails;
   kycDocuments?: string[];
   date: string;
-  loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
-  repaymentSystem: 'Monthly interest only' | 'EMI' | 'Bullet Repayment';
-  area: string;
-  showroom: string;
+  loanType: string;
+  repaymentSystem: string;
+  loanTypeId?: string;
+  loanTypeName?: string;
+  repaymentSystemId?: string;
+  repaymentSystemName?: string;
+  calculationStrategy?: CalculationStrategy;
+  area?: string;
+  showroom?: string;
   principal: number;
   interestRate: number;
   bankMode: 'Cash' | 'UPI' | 'Bank Transfer' | 'Split';
@@ -153,7 +181,7 @@ export interface Receipt {
   customerId: string;
   customerName: string;
   kind: 'REPAYMENT' | 'NEW LOAN' | 'INTEREST PAYMENT' | 'PART PAYMENT' | 'LOAN CLOSURE';
-  loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
+  loanType: string;
   amount: number;
   principalComponent: number;
   interestComponent: number;
@@ -259,7 +287,20 @@ export interface AmountBand {
   penaltyCalculation: 'From the start — stepped rate over the whole overc' | 'After threshold';
 }
 
+export interface FDRateHistoryItem {
+  id: string;
+  rate: number;
+  previousRate?: number;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  changedBy: string;
+  changedAt: string;
+  notes?: string;
+}
+
 export interface MasterControlSettings {
+  loanTypes?: LoanTypeConfig[];
+  repaymentSystems?: RepaymentSystemConfig[];
   goldLoanMonthlyRate: number;
   silverLoanMonthlyRate: number;
   pronoteMonthlyRate: number;
@@ -299,6 +340,9 @@ export interface MasterControlSettings {
   animationsEnabled?: boolean;
   performanceModeEnabled?: boolean;
   bulkFdDateChangeEnabled?: boolean;
+  fdInterestRate?: number;
+  fdInterestRateEffectiveFrom?: string;
+  fdInterestRateHistory?: FDRateHistoryItem[];
 }
 
 export interface WhatsAppTemplates {
@@ -337,10 +381,79 @@ export interface Reminder {
   createdAt: string;
 }
 
+export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR';
+
+export interface UserPermissions {
+  customers: boolean;
+  loans: boolean;
+  loanReceipts: boolean;
+  pendingLoans: boolean;
+  fixedDeposits: boolean;
+  fdInterest: boolean;
+  fdWithdrawal: boolean;
+  notifications: boolean;
+  adminPanel: boolean;
+  masterControl: boolean;
+  fdInterestRates: boolean;
+  bulkFdDateChange: boolean;
+  devices: boolean;
+  staffManagement: boolean;
+  settings: boolean;
+  permanentDelete: boolean;
+}
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  phone?: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+  createdByUid?: string;
+  createdByEmail?: string;
+  permissions: UserPermissions;
+}
+
+export interface StaffAuditLog {
+  id: string;
+  timestamp: string;
+  actorUid: string;
+  actorEmail: string;
+  action: string;
+  targetUid?: string;
+  targetEmail?: string;
+  details?: string;
+  result: 'SUCCESS' | 'FAILED';
+}
+
 export interface AdminUser {
   id: string;
   username: string;
-  role: 'ADMIN' | 'MANAGER' | 'OPERATOR';
+  role: UserRole;
   email: string;
   lastLogin?: string;
+}
+
+export interface DeviceSession {
+  sessionId: string;
+  userId: string;
+  userRole: UserRole;
+  userEmail?: string;
+  deviceType: 'DESKTOP' | 'LAPTOP' | 'MOBILE' | 'TABLET';
+  deviceName: string;
+  operatingSystem: string;
+  osVersion?: string;
+  browser: string;
+  browserVersion?: string;
+  ipAddress?: string;
+  location?: string;
+  screenResolution?: string;
+  timezone?: string;
+  createdAt: string;
+  lastActiveAt: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'REVOKED';
+  isCurrent?: boolean;
 }

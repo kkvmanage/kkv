@@ -31,6 +31,7 @@
   --bg-topbar:            #0C241C;
   --bg-card:              #102A21;
   --bg-card-elevated:     #14372B;
+  --bg-surface:           #102A21;
   --bg-surface-secondary: #0F2F25;
   --bg-surface-subtle:    #0C2820;
   --bg-input:             #102A21;
@@ -45,53 +46,55 @@
   --ring-focus:     rgba(47, 111, 91, 0.35);
 
   /* ── Brand Greens ── */
-  --color-primary-dark:        #6E9F8B;
-  --color-primary-dark-hover:  #7DB09C;
+  --color-primary-dark:        #88BBA7;
+  --color-primary-dark-hover:  #9BCAB7;
   --color-primary-accent:      #2F6F5B;
   --color-primary-accent-hover:#367F6A;
   --color-primary-accent-active:#265E4C;
-  --color-soft-green:          #6E9F8B;
-  --color-muted-green:         #4A7A6A;
+  --color-soft-green:          #88BBA7;
+  --color-muted-green:         #629A87;
   --color-light-accent:        #1C4035;
   --color-light-accent-hover:  #224A3E;
 
   /* ── Gold Accents ── */
-  --color-gold:        #C9A227;
-  --color-gold-light:  #D8B84D;
-  --color-gold-muted:  #A88620;
-  --color-gold-subtle: rgba(201, 162, 39, 0.15);
+  --color-gold:        #DFB83D;
+  --color-gold-light:  #F3CE61;
+  --color-gold-muted:  #BFA028;
+  --color-gold-subtle: rgba(223, 184, 61, 0.15);
+  --color-gold-primary:#DFB83D;
 
   /* ── Typography ── */
   --text-primary:   #F4F7F5;
-  --text-secondary: #A9BCB3;
-  --text-muted:     #738C82;
+  --text-secondary: #C2D5CD;
+  --text-muted:     #94ADA2;
+  --text-dark:      #F4F7F5;
   --text-inverse:   #071A14;
-  --text-brand:     #6E9F8B;
+  --text-brand:     #88BBA7;
 
   /* ── Sidebar Specific ── */
-  --sidebar-text:            #8AADA0;
+  --sidebar-text:            #A5C4B9;
   --sidebar-active-text:     #F4F7F5;
-  --sidebar-active-bg:       rgba(47, 111, 91, 0.18);
-  --sidebar-active-indicator:#2F6F5B;
-  --sidebar-section-color:   #4A6B60;
+  --sidebar-active-bg:       rgba(47, 111, 91, 0.25);
+  --sidebar-active-indicator:#4FAF86;
+  --sidebar-section-color:   #7FA597;
 
   /* ── Semantic Colors ── */
-  --color-success:  #4FAF86;
-  --color-warning:  #D2A84A;
-  --color-danger:   #C96A6A;
-  --color-info:     #5BA4C4;
+  --color-success:  #5CD19F;
+  --color-warning:  #E5BE42;
+  --color-danger:   #F87171;
+  --color-info:     #67BAE0;
 
   /* ── Semantic Badges ── */
-  --badge-success-bg:   rgba(79, 175, 134, 0.15);
-  --badge-success-text: #4FAF86;
-  --badge-warning-bg:   rgba(210, 168, 74, 0.15);
-  --badge-warning-text: #D2A84A;
-  --badge-danger-bg:    rgba(201, 106, 106, 0.15);
-  --badge-danger-text:  #C96A6A;
-  --badge-info-bg:      rgba(91, 164, 196, 0.15);
-  --badge-info-text:    #5BA4C4;
-  --badge-gold-bg:      rgba(201, 162, 39, 0.15);
-  --badge-gold-text:    #D8B84D;
+  --badge-success-bg:   rgba(92, 209, 159, 0.16);
+  --badge-success-text: #5CD19F;
+  --badge-warning-bg:   rgba(229, 190, 66, 0.16);
+  --badge-warning-text: #E5BE42;
+  --badge-danger-bg:    rgba(248, 113, 113, 0.16);
+  --badge-danger-text:  #F87171;
+  --badge-info-bg:      rgba(103, 186, 224, 0.16);
+  --badge-info-text:    #67BAE0;
+  --badge-gold-bg:      rgba(223, 184, 61, 0.16);
+  --badge-gold-text:    #F3CE61;
 
   /* ── Shadows ── */
   --shadow-sm:   0 1px 4px rgba(0, 0, 0, 0.4);
@@ -124,6 +127,7 @@ body.light-mode {
   --bg-topbar:            #FFFFFF;
   --bg-card:              #FFFFFF;
   --bg-card-elevated:     #FFFFFF;
+  --bg-surface:           #FFFFFF;
   --bg-surface-secondary: #EBF1ED;
   --bg-surface-subtle:    #F4F8F5;
   --bg-input:             #F4F6F3;
@@ -146,10 +150,12 @@ body.light-mode {
   --color-gold-light:  #F5E7B2;
   --color-gold-muted:  #A88620;
   --color-gold-subtle: rgba(201, 162, 39, 0.15);
+  --color-gold-primary:#C9A227;
 
   --text-primary:   #1F2D26;
   --text-secondary: #66756D;
   --text-muted:     #889890;
+  --text-dark:      #1F2D26;
   --text-inverse:   #FFFFFF;
   --text-brand:     #176B52;
 
@@ -835,14 +841,22 @@ main {
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px var(--ring-focus);
 }
-.input-control::placeholder {
+.input-control::placeholder, input::placeholder, textarea::placeholder {
   color: var(--text-muted);
+  opacity: 0.85;
 }
-.input-control:disabled, .input-control.readonly {
+.input-control:disabled, input:disabled, textarea:disabled, select:disabled {
   background-color: var(--bg-surface-subtle);
   color: var(--text-muted);
   cursor: not-allowed;
   border-color: var(--border-subtle);
+  opacity: 0.75;
+}
+.input-control[readonly], .input-control.readonly, input[readonly], textarea[readonly] {
+  background-color: var(--bg-surface-secondary);
+  color: var(--text-primary);
+  cursor: default;
+  border-color: var(--border-input);
 }
 
 .textarea-control, textarea {

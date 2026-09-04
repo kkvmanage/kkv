@@ -160,9 +160,9 @@
   gap: 5px;
 }
 .fi-label {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   display: flex;
@@ -184,8 +184,8 @@
   font-weight: 700;
   padding: 1px 7px;
   border-radius: 20px;
-  background: rgba(79, 175, 134, 0.15);
-  color: var(--color-success, #4FAF86);
+  background: var(--badge-success-bg, rgba(79, 175, 134, 0.15));
+  color: var(--badge-success-text, #5CD19F);
   letter-spacing: 0.3px;
 }
 .fi-hint {
@@ -233,11 +233,12 @@
 .fi-textarea::placeholder {
   color: var(--text-muted);
   font-weight: 400;
+  opacity: 0.85;
 }
 .fi-input--readonly,
 .fi-input[readonly] {
   background: var(--bg-surface-secondary);
-  color: var(--color-primary-dark);
+  color: var(--text-primary);
   font-weight: 700;
   cursor: default;
 }

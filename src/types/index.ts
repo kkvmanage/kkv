@@ -34,13 +34,34 @@ export type NavPage =
   | 'admin-panel'
   | 'settings';
 
-export type PurityOption = '24ct' | '22ct' | '20ct' | '18ct' | '14ct' | 'Silver 925' | 'Silver 999';
+export type PurityCategory = 'GOLD' | 'SILVER' | 'OTHER';
+
+export type PurityOption = string;
+
+export interface PurityConfig {
+  id: string; // stable unique identifier e.g. 'gold-22', 'gold-24', 'silver-925', 'gold-21'
+  name: string; // display name e.g. '22ct', '21ct Gold'
+  category: PurityCategory;
+  purityValue?: number; // numeric value e.g. 22, 24, 925
+  ratePerGram?: number; // optional custom rate per gram override
+  description?: string;
+  active: boolean;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface OrnamentItem {
   id: string;
   item: string;
   qty: number;
-  purity: PurityOption;
+  purity: string; // contractual purity name e.g. '22ct'
+  purityId?: string; // unique ID e.g. 'gold-22'
+  purityName?: string; // display name snapshot e.g. '22ct'
+  purityCategory?: PurityCategory;
+  purityValue?: number;
+  rateUsed?: number; // valuation rate applied per gram
+  valuation?: number; // total valuation for this item
   grossWeight: number;
   netWeight: number;
 }
@@ -131,6 +152,36 @@ export interface CustomerLocationData {
   capturedAt: string | null;
 }
 
+export type CalculationStrategy = 'MONTHLY_INTEREST_ONLY' | 'EMI' | 'BULLET';
+
+export interface LoanTypeConfig {
+  id: string;
+  name: string;
+  description?: string;
+  active: boolean;
+  showOnLoanIssue?: boolean;
+  cardFeeEnabled?: boolean;
+  cardFee?: number;
+  defaultMonthlyRate?: number;
+  interestProfileId?: 'gold-bands' | 'silver-bands' | 'fixed-rate' | string;
+  repaymentSystemId?: string;
+  calculationStrategy?: CalculationStrategy;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RepaymentSystemConfig {
+  id: string;
+  name: string;
+  description?: string;
+  calculationStrategy: CalculationStrategy;
+  active: boolean;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Loan {
   id: string;
   receiptBillNo: number;
@@ -150,12 +201,27 @@ export interface Loan {
   guarantor?: GuarantorDetails;
   kycDocuments?: string[];
   date: string;
-  loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
-  repaymentSystem: 'Monthly interest only' | 'EMI' | 'Bullet Repayment';
-  area: string;
-  showroom: string;
+  loanType: string;
+  repaymentSystem: string;
+  loanTypeId?: string;
+  loanTypeName?: string;
+  repaymentSystemId?: string;
+  repaymentSystemName?: string;
+  calculationStrategy?: CalculationStrategy;
+  area?: string;
+  showroom?: string;
   principal: number;
   interestRate: number; // monthly %
+  interestRateUnit?: 'MONTHLY' | 'YEARLY';
+  rateSource?: 'MASTER_CONTROL' | 'CUSTOM';
+  rateEffectiveAt?: string;
+  loanConfigVersion?: string;
+  amountBandId?: string;
+  amountBandCondition?: 'Below' | 'Above';
+  amountBandThreshold?: number;
+  penaltyAfterMonths?: number;
+  penaltyStepUpMonthly?: number;
+  penaltyCalculation?: string;
   bankMode: 'Cash' | 'UPI' | 'Bank Transfer' | 'Split';
   splitBankMode?: string;
   cashAmount: number;
@@ -165,6 +231,7 @@ export interface Loan {
   advanceInterestAmount: number;
   advanceInterestReceivingMethod?: 'Cash' | 'Bank' | 'Cash + Bank';
   cardFee: number;
+  cardFeeEnabled?: boolean;
   cardFeePaymentMode: 'Cash' | 'Bank';
   cardFeeBankMode?: string;
   items: OrnamentItem[];
@@ -177,6 +244,7 @@ export interface Loan {
   photos: string[];
   status: 'ACTIVE' | 'CLOSED' | 'PENDING' | 'OVERDUE';
   disbursedAmount: number;
+  netDisbursed?: number;
   outstandingPrincipal: number;
   accruedInterest: number;
   renewalDate: string;
@@ -209,7 +277,7 @@ export interface Receipt {
     | 'EMI PAYMENT'
     | 'INTEREST + PRINCIPAL'
     | 'OTHER';
-  loanType: 'GOLD LOAN' | 'SILVER LOAN' | 'PRONOTE' | 'HIRE PURCHASE';
+  loanType: string;
   amount: number;
   principalComponent: number;
   interestComponent: number;
@@ -426,10 +494,25 @@ export interface AmountBand {
   baseRateMonthly: number;
   penaltyAfterMonths: number;
   penaltyStepUpMonthly: number;
-  penaltyCalculation: 'From the start — stepped rate over the whole overc' | 'After threshold';
+  penaltyCalculation: string;
+}
+
+export interface FDRateHistoryItem {
+  id: string;
+  rate: number;
+  previousRate?: number;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  changedBy: string;
+  changedAt: string;
+  notes?: string;
 }
 
 export interface MasterControlSettings {
+  purityOptions?: PurityConfig[];
+  goldRate22ct?: number;
+  loanTypes?: LoanTypeConfig[];
+  repaymentSystems?: RepaymentSystemConfig[];
   goldLoanMonthlyRate: number;
   silverLoanMonthlyRate: number;
   pronoteMonthlyRate: number;
@@ -440,6 +523,8 @@ export interface MasterControlSettings {
   graceDays: number;
   upiId: string;
   upiPayeeName: string;
+  upiPaymentEnabled?: boolean;
+  loanConfigVersion?: string;
   showOnLoanIssue: boolean;
   hireShowOnLoanIssue?: boolean;
   silverShowOnLoanIssue?: boolean;
@@ -469,6 +554,9 @@ export interface MasterControlSettings {
   animationsEnabled?: boolean;
   performanceModeEnabled?: boolean;
   bulkFdDateChangeEnabled?: boolean;
+  fdInterestRate?: number;
+  fdInterestRateEffectiveFrom?: string;
+  fdInterestRateHistory?: FDRateHistoryItem[];
 }
 
 export interface WhatsAppTemplates {
@@ -492,6 +580,75 @@ export interface DeviceInfo {
   ipAddress: string;
   lastActive: string;
   isCurrent: boolean;
+}
+
+export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR';
+
+export interface UserPermissions {
+  customers: boolean;
+  loans: boolean;
+  loanReceipts: boolean;
+  pendingLoans: boolean;
+  fixedDeposits: boolean;
+  fdInterest: boolean;
+  fdWithdrawal: boolean;
+  notifications: boolean;
+  adminPanel: boolean;
+  masterControl: boolean;
+  fdInterestRates: boolean;
+  bulkFdDateChange: boolean;
+  devices: boolean;
+  staffManagement: boolean;
+  settings: boolean;
+  permanentDelete: boolean;
+}
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  phone?: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+  createdByUid?: string;
+  createdByEmail?: string;
+  permissions: UserPermissions;
+}
+
+export interface StaffAuditLog {
+  id: string;
+  timestamp: string;
+  actorUid: string;
+  actorEmail: string;
+  action: string;
+  targetUid?: string;
+  targetEmail?: string;
+  details?: string;
+  result: 'SUCCESS' | 'FAILED';
+}
+
+export interface DeviceSession {
+  sessionId: string;
+  userId: string;
+  userRole: UserRole;
+  userEmail?: string;
+  deviceType: 'DESKTOP' | 'LAPTOP' | 'MOBILE' | 'TABLET';
+  deviceName: string;
+  operatingSystem: string;
+  osVersion?: string;
+  browser: string;
+  browserVersion?: string;
+  ipAddress?: string;
+  location?: string;
+  screenResolution?: string;
+  timezone?: string;
+  createdAt: string;
+  lastActiveAt: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'REVOKED';
+  isCurrent?: boolean;
 }
 
 // ── Notification Center Models ────────────────────────────────────────────────

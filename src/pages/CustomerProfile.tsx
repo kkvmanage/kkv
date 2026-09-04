@@ -15,8 +15,7 @@ import {
   AlertCircle,
   ExternalLink,
   Landmark,
-  DollarSign,
-  AlertTriangle
+  DollarSign
 } from 'lucide-react';
 import { formatIdProofDisplay } from '../utils/kycValidation';
 import { EditCustomerModal } from '../components/common/EditCustomerModal';
@@ -251,7 +250,7 @@ export const CustomerProfile: React.FC = () => {
       id: `act-loan-${l.id}`,
       date: l.date,
       title: `Loan ${l.loanNo} Issued`,
-      desc: `${l.loanType} principal of ₹${l.principal.toLocaleString('en-IN')} issued @ ${l.interestRate}% interest/mo`,
+      desc: `${l.loanTypeName || l.loanType} principal of ₹${l.principal.toLocaleString('en-IN')} issued @ ${l.interestRate}% interest/mo`,
       type: 'loan'
     })),
     ...customerFDs.map((fd) => ({
@@ -351,13 +350,15 @@ export const CustomerProfile: React.FC = () => {
       {/* ════════════════════════════════════════════════════════════════════════
           SECTION 27: CUSTOMER PROFILE HERO HEADER
           ════════════════════════════════════════════════════════════════════════ */}
+      {/* ════════════════════════════════════════════════════════════════════════
+          SECTION 27: CUSTOMER PROFILE HERO HEADER
+          ════════════════════════════════════════════════════════════════════════ */}
       <div
         className="card"
         style={{
           padding: '24px',
-          border: '1.5px solid var(--border-light, #e2e8f0)',
+          border: '1.5px solid var(--border-light)',
           borderRadius: '14px',
-          backgroundColor: '#ffffff',
           boxShadow: 'var(--shadow-sm)'
         }}
       >
@@ -384,8 +385,8 @@ export const CustomerProfile: React.FC = () => {
                   width: '84px',
                   height: '84px',
                   borderRadius: '50%',
-                  backgroundColor: 'var(--color-light-accent, #e6f4f1)',
-                  color: 'var(--color-primary-dark, #163f35)',
+                  backgroundColor: 'var(--color-light-accent, rgba(47, 111, 91, 0.15))',
+                  color: 'var(--color-primary-dark)',
                   fontWeight: 800,
                   fontSize: '30px',
                   display: 'flex',
@@ -402,7 +403,7 @@ export const CustomerProfile: React.FC = () => {
             {/* NAME & PRIMARY METADATA */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: 'var(--text-dark)' }}>
+                <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)' }}>
                   {customer.name}
                 </h1>
                 <span className={`badge ${customer.status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>
@@ -411,7 +412,7 @@ export const CustomerProfile: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: '13px', marginTop: '6px', fontWeight: 600 }}>
-                <span style={{ color: 'var(--color-primary-dark)', fontWeight: 800, backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', padding: '2px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                <span style={{ color: 'var(--color-primary-dark)', fontWeight: 800, backgroundColor: 'var(--bg-surface-secondary)', padding: '2px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
                   Customer ID: {canonicalCustId}
                 </span>
                 <span>📱 +91 {customer.phone}</span>
@@ -442,55 +443,55 @@ export const CustomerProfile: React.FC = () => {
           }}
         >
           {/* Total Loans */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
             <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL LOANS</div>
             <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '4px' }}>{customerLoans.length}</div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>All pledge contracts</div>
           </div>
 
           {/* Active Loans */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--badge-success-text, #166534)', textTransform: 'uppercase' }}>ACTIVE LOANS</div>
-            <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--badge-success-text, #166534)', marginTop: '4px' }}>{activeLoansCount}</div>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--badge-success-text)', textTransform: 'uppercase' }}>ACTIVE LOANS</div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--badge-success-text)', marginTop: '4px' }}>{activeLoansCount}</div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Currently open</div>
           </div>
 
           {/* Total Loan Outstanding */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
             <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase' }}>LOAN OUTSTANDING</div>
             <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '4px' }}>₹{totalOutstandingLoans.toLocaleString('en-IN')}</div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Current balance</div>
           </div>
 
           {/* Total Fixed Deposits */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
             <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>TOTAL FIXED DEPOSITS</div>
             <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '4px' }}>{customerFDs.length}</div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>All deposit folios</div>
           </div>
 
           {/* Active FD Balance */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', textTransform: 'uppercase' }}>ACTIVE FD BALANCE</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-accent, #059669)', marginTop: '4px' }}>₹{totalFdBalance.toLocaleString('en-IN')}</div>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent)', textTransform: 'uppercase' }}>ACTIVE FD BALANCE</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-accent)', marginTop: '4px' }}>₹{totalFdBalance.toLocaleString('en-IN')}</div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{activeFDsCount} active accounts</div>
           </div>
 
           {/* Pending Loan Amount */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: totalPendingLoanAmount > 0 ? '1.5px solid #fca5a5' : '1px solid var(--border-light)', backgroundColor: totalPendingLoanAmount > 0 ? '#fef2f2' : '#ffffff' }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: totalPendingLoanAmount > 0 ? '#dc2626' : 'var(--text-muted)', textTransform: 'uppercase' }}>PENDING LOAN AMOUNT</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: totalPendingLoanAmount > 0 ? '#dc2626' : 'var(--text-dark)', marginTop: '4px' }}>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: totalPendingLoanAmount > 0 ? '1.5px solid var(--color-danger)' : '1px solid var(--border-light)', backgroundColor: totalPendingLoanAmount > 0 ? 'var(--badge-danger-bg)' : undefined }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: totalPendingLoanAmount > 0 ? 'var(--color-danger)' : 'var(--text-muted)', textTransform: 'uppercase' }}>PENDING LOAN AMOUNT</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: totalPendingLoanAmount > 0 ? 'var(--color-danger)' : 'var(--text-primary)', marginTop: '4px' }}>
               ₹{totalPendingLoanAmount.toLocaleString('en-IN')}
             </div>
-            <div style={{ fontSize: '11px', color: totalPendingLoanAmount > 0 ? '#991b1b' : 'var(--text-muted)', marginTop: '2px' }}>
+            <div style={{ fontSize: '11px', color: totalPendingLoanAmount > 0 ? 'var(--color-danger)' : 'var(--text-muted)', marginTop: '2px' }}>
               {pendingLoanItems.length > 0 ? `${pendingLoanItems.length} overdue/due` : 'No loan dues'}
             </div>
           </div>
 
           {/* Pending FD Interest */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: totalPendingFDInterest > 0 ? '1.5px solid #fed7aa' : '1px solid var(--border-light)', backgroundColor: totalPendingFDInterest > 0 ? '#fff7ed' : '#ffffff' }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: totalPendingFDInterest > 0 ? '#d97706' : 'var(--text-muted)', textTransform: 'uppercase' }}>PENDING FD INTEREST</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: totalPendingFDInterest > 0 ? '#d97706' : 'var(--text-dark)', marginTop: '4px' }}>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: totalPendingFDInterest > 0 ? '1.5px solid var(--color-warning)' : '1px solid var(--border-light)', backgroundColor: totalPendingFDInterest > 0 ? 'var(--badge-warning-bg)' : undefined }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: totalPendingFDInterest > 0 ? 'var(--color-warning)' : 'var(--text-muted)', textTransform: 'uppercase' }}>PENDING FD INTEREST</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: totalPendingFDInterest > 0 ? 'var(--color-warning)' : 'var(--text-primary)', marginTop: '4px' }}>
               ₹{totalPendingFDInterest.toLocaleString('en-IN')}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
@@ -499,7 +500,7 @@ export const CustomerProfile: React.FC = () => {
           </div>
 
           {/* Upcoming FD Maturity */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
             <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>UPCOMING FD MATURITY</div>
             <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '6px' }}>
               {upcomingFDMaturity}
@@ -508,34 +509,34 @@ export const CustomerProfile: React.FC = () => {
           </div>
 
           {/* Financial Exposure */}
-          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent, #059669)', textTransform: 'uppercase' }}>FINANCIAL EXPOSURE</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-accent, #059669)', marginTop: '4px' }}>
+          <div className="card" style={{ padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-accent)', textTransform: 'uppercase' }}>FINANCIAL EXPOSURE</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary-dark)', marginTop: '6px' }}>
               ₹{totalFinancialExposure.toLocaleString('en-IN')}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Loans + deposits</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Total company commitment</div>
           </div>
         </div>
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════════
-          SECTION 7: CUSTOMER → PENDING FINANCIAL ITEMS HIGHLIGHT CARD
+          SECTION 4: PENDING LOAN DUES & FD INTEREST PAYOUT ALERTS (IF ANY)
           ════════════════════════════════════════════════════════════════════════ */}
       {(pendingLoanItems.length > 0 || pendingFDItems.length > 0) && (
         <div
           className="card"
           style={{
-            padding: '20px 24px',
-            borderRadius: '12px',
-            borderLeft: '5px solid #ef4444',
-            backgroundColor: '#ffffff',
+            padding: '20px',
+            borderRadius: '14px',
+            border: '2px solid var(--border-light)',
+            marginBottom: '24px',
             boxShadow: 'var(--shadow-sm)'
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <AlertTriangle size={20} color="#dc2626" />
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: 'var(--text-dark)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertCircle size={18} color="var(--color-danger, #ef4444)" />
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 900, color: 'var(--color-danger, #ef4444)', letterSpacing: '0.02em' }}>
                 PENDING FINANCIAL ACTION ITEMS
               </h3>
             </div>
@@ -547,22 +548,22 @@ export const CustomerProfile: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
             {/* Loan Dues */}
             {pendingLoanItems.length > 0 && (
-              <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: '#fef2f2', border: '1px solid #fecaca' }}>
+              <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: 'var(--badge-danger-bg, rgba(239, 68, 68, 0.1))', border: '1px solid var(--badge-danger-border, rgba(239, 68, 68, 0.3))' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <strong style={{ color: '#991b1b', fontSize: '13px' }}>PENDING LOAN REPAYMENTS</strong>
+                  <strong style={{ color: 'var(--color-danger, #ef4444)', fontSize: '13px' }}>PENDING LOAN REPAYMENTS</strong>
                   <span className="badge badge-danger" style={{ fontSize: '10px' }}>{pendingLoanItems.length} Loan(s)</span>
                 </div>
                 {pendingLoanItems.map((pi, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < pendingLoanItems.length - 1 ? '1px dashed #fca5a5' : 'none', fontSize: '12.5px' }}>
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < pendingLoanItems.length - 1 ? '1px dashed var(--border-subtle)' : 'none', fontSize: '12.5px' }}>
                     <div>
                       <strong style={{ color: 'var(--text-dark)' }}>{pi.loanNo}</strong> &bull; Due: {pi.dueDateStr}
                       {pi.daysOverdue > 0 && (
-                        <span style={{ color: '#dc2626', fontWeight: 700, marginLeft: '6px' }}>
+                        <span style={{ color: 'var(--color-danger, #ef4444)', fontWeight: 700, marginLeft: '6px' }}>
                           ({pi.daysOverdue} days overdue)
                         </span>
                       )}
                     </div>
-                    <div style={{ fontWeight: 900, color: '#dc2626' }}>
+                    <div style={{ fontWeight: 900, color: 'var(--color-danger, #ef4444)' }}>
                       ₹{pi.totalDue.toLocaleString('en-IN')}
                     </div>
                   </div>
@@ -580,17 +581,17 @@ export const CustomerProfile: React.FC = () => {
 
             {/* FD Interest Payouts */}
             {pendingFDItems.length > 0 && (
-              <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
+              <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: 'var(--badge-warning-bg, rgba(245, 158, 11, 0.1))', border: '1px solid var(--badge-warning-border, rgba(245, 158, 11, 0.3))' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <strong style={{ color: '#9a3412', fontSize: '13px' }}>PENDING FD INTEREST PAYOUTS</strong>
+                  <strong style={{ color: 'var(--color-warning, #f59e0b)', fontSize: '13px' }}>PENDING FD INTEREST PAYOUTS</strong>
                   <span className="badge badge-warning" style={{ fontSize: '10px' }}>{pendingFDItems.length} Payout(s)</span>
                 </div>
                 {pendingFDItems.map((p, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < pendingFDItems.length - 1 ? '1px dashed #fdba74' : 'none', fontSize: '12.5px' }}>
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < pendingFDItems.length - 1 ? '1px dashed var(--border-subtle)' : 'none', fontSize: '12.5px' }}>
                     <div>
                       <strong style={{ color: 'var(--text-dark)' }}>{p.fdNo}</strong> &bull; Pending since: {p.payoutDate}
                     </div>
-                    <div style={{ fontWeight: 900, color: '#c2410c' }}>
+                    <div style={{ fontWeight: 900, color: 'var(--color-warning, #f59e0b)' }}>
                       ₹{p.interestDue.toLocaleString('en-IN')}
                     </div>
                   </div>
@@ -598,7 +599,7 @@ export const CustomerProfile: React.FC = () => {
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  style={{ width: '100%', marginTop: '10px', fontWeight: 800, fontSize: '12px', justifyContent: 'center', color: '#c2410c', borderColor: '#fdba74' }}
+                  style={{ width: '100%', marginTop: '10px', fontWeight: 800, fontSize: '12px', justifyContent: 'center', color: 'var(--color-warning, #f59e0b)', borderColor: 'var(--badge-warning-border, rgba(245, 158, 11, 0.3))' }}
                   onClick={() => setCurrentPage('interest-pending')}
                 >
                   <Landmark size={14} style={{ marginRight: '4px' }} /> Process FD Interest in Interest Pending &rarr;
@@ -645,7 +646,7 @@ export const CustomerProfile: React.FC = () => {
                 fontSize: '13px',
                 fontWeight: 700,
                 color: isActive ? 'var(--color-primary-dark, #163f35)' : 'var(--text-muted, #64748b)',
-                backgroundColor: isActive ? '#ffffff' : 'transparent',
+                backgroundColor: isActive ? 'var(--bg-card)' : 'transparent',
                 border: 'none',
                 borderBottom: isActive ? '2.5px solid var(--color-primary-accent, #059669)' : '2.5px solid transparent',
                 boxShadow: isActive ? '0 2px 6px rgba(0, 0, 0, 0.05)' : 'none',
@@ -684,7 +685,7 @@ export const CustomerProfile: React.FC = () => {
       {activeTab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
           {/* PERSONAL & CONTACT INFORMATION */}
-          <div className="card" style={{ padding: '22px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+          <div className="card" style={{ padding: '22px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <User size={18} color="var(--color-primary-accent, #059669)" />
@@ -743,7 +744,7 @@ export const CustomerProfile: React.FC = () => {
           </div>
 
           {/* KYC & ADDRESS VERIFICATION */}
-          <div className="card" style={{ padding: '22px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+          <div className="card" style={{ padding: '22px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <ShieldCheck size={18} color="var(--color-primary-accent, #059669)" />
@@ -819,7 +820,7 @@ export const CustomerProfile: React.FC = () => {
           SECTION 5: TAB 2 — LOANS (CARDS + TABLE)
           ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'loans' && (
-        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '14px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
@@ -865,7 +866,7 @@ export const CustomerProfile: React.FC = () => {
                       padding: '18px',
                       borderRadius: '12px',
                       border: isOverdue ? '2px solid #f87171' : '1px solid var(--border-subtle)',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'var(--bg-surface-secondary)',
                       boxShadow: 'var(--shadow-sm)',
                       display: 'flex',
                       flexDirection: 'column',
@@ -876,7 +877,7 @@ export const CustomerProfile: React.FC = () => {
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
-                          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>{l.loanType}</span>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>{l.loanTypeName || l.loanType}</span>
                           <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary-dark)' }}>{l.loanNo}</div>
                         </div>
                         <span
@@ -941,7 +942,7 @@ export const CustomerProfile: React.FC = () => {
           SECTION 6 & 7: TAB 3 — FIXED DEPOSITS (CARDS + TABLE + MODAL)
           ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'fixed-deposits' && (
-        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '14px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
@@ -1002,7 +1003,7 @@ export const CustomerProfile: React.FC = () => {
                       padding: '18px',
                       borderRadius: '12px',
                       border: fdPendingInterest > 0 ? '2px solid #fed7aa' : '1px solid var(--border-subtle)',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'var(--bg-surface-secondary)',
                       boxShadow: 'var(--shadow-sm)',
                       display: 'flex',
                       flexDirection: 'column',
@@ -1126,7 +1127,7 @@ export const CustomerProfile: React.FC = () => {
           TAB 4: PLEDGED COLLATERAL ITEMS
           ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'pledged-items' && (
-        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)' }}>
           <h3 style={{ margin: '0 0 14px 0', fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
             PLEDGED COLLATERAL INVENTORY
           </h3>
@@ -1171,7 +1172,7 @@ export const CustomerProfile: React.FC = () => {
           TAB 5: PAYMENTS & RECEIPTS
           ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'payments' && (
-        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
               PAYMENTS &amp; RECEIPTS
@@ -1222,7 +1223,7 @@ export const CustomerProfile: React.FC = () => {
           TAB 6: ACTIVITY TIMELINE
           ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'activity' && (
-        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: '#ffffff' }}>
+        <div className="card" style={{ padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)' }}>
           <h3 style={{ margin: '0 0 16px 0', fontSize: '17px', fontWeight: 800, color: 'var(--text-dark)' }}>
             CHRONOLOGICAL ACTIVITY TIMELINE
           </h3>
