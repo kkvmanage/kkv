@@ -32,7 +32,16 @@ export type NavPage =
   | 'notifications'
   | 'backup-restore'
   | 'admin-panel'
-  | 'settings';
+  | 'settings'
+  | 'rental'
+  | 'rental-dashboard'
+  | 'rental-complexes'
+  | 'rental-complex-detail'
+  | 'rental-shops'
+  | 'rental-shop-detail'
+  | 'rental-payments'
+  | 'rental-expenses'
+  | 'rental-reports';
 
 export type PurityCategory = 'GOLD' | 'SILVER' | 'OTHER';
 
@@ -160,12 +169,14 @@ export interface LoanTypeConfig {
   description?: string;
   active: boolean;
   showOnLoanIssue?: boolean;
+  useMasterDefaults?: boolean;
   cardFeeEnabled?: boolean;
   cardFee?: number;
   defaultMonthlyRate?: number;
   interestProfileId?: 'gold-bands' | 'silver-bands' | 'fixed-rate' | string;
   repaymentSystemId?: string;
   calculationStrategy?: CalculationStrategy;
+  configurationVersion?: number;
   sortOrder: number;
   createdAt?: string;
   updatedAt?: string;
@@ -205,6 +216,13 @@ export interface Loan {
   repaymentSystem: string;
   loanTypeId?: string;
   loanTypeName?: string;
+  loanTypeNameSnapshot?: string;
+  interestRateSnapshot?: number;
+  interestProfileSnapshot?: string;
+  cardFeeSnapshot?: number;
+  interestProfileIdSnapshot?: string;
+  interestProfileNameSnapshot?: string;
+  interestConfigurationSnapshot?: any;
   repaymentSystemId?: string;
   repaymentSystemName?: string;
   calculationStrategy?: CalculationStrategy;
@@ -216,6 +234,8 @@ export interface Loan {
   rateSource?: 'MASTER_CONTROL' | 'CUSTOM';
   rateEffectiveAt?: string;
   loanConfigVersion?: string;
+  configurationVersion?: number | string;
+  configurationSource?: string;
   amountBandId?: string;
   amountBandCondition?: 'Below' | 'Above';
   amountBandThreshold?: number;
@@ -258,6 +278,8 @@ export interface Loan {
   roadTaxExpiryDate?: string;
   permitExpiryDate?: string;
   fcExpiryDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Receipt {
@@ -367,6 +389,13 @@ export interface FixedDeposit {
   remarks?: string;
   items?: OrnamentItem[];
   photos?: string[];
+
+  // ── IMMUTABLE CONTRACTUAL SNAPSHOT FIELDS ──────────────────────────────
+  fdInterestRateSnapshot?: number;
+  fdTenureSnapshot?: number;
+  calculationMethodSnapshot?: string;
+  minimumAmountSnapshot?: number;
+  configurationVersion?: number;
 }
 
 export interface FDInterestPayout {
@@ -554,9 +583,15 @@ export interface MasterControlSettings {
   animationsEnabled?: boolean;
   performanceModeEnabled?: boolean;
   bulkFdDateChangeEnabled?: boolean;
+  configurationVersion?: number;
   fdInterestRate?: number;
   fdInterestRateEffectiveFrom?: string;
   fdInterestRateHistory?: FDRateHistoryItem[];
+  fdDefaultTenureMonths?: number;
+  fdMinimumAmount?: number;
+  fdMaximumAmount?: number;
+  fdRenewalPolicy?: 'MANUAL' | 'AUTO_RENEW_PRINCIPAL' | 'AUTO_RENEW_ALL' | string;
+  fdCalculationMethod?: 'MONTHLY_DIVIDEND' | 'QUARTERLY_COMPOUNDING' | 'CUMULATIVE_AT_MATURITY' | 'SIMPLE' | string;
 }
 
 export interface WhatsAppTemplates {
@@ -582,7 +617,7 @@ export interface DeviceInfo {
   isCurrent: boolean;
 }
 
-export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR';
+export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF';
 
 export interface UserPermissions {
   customers: boolean;
@@ -601,6 +636,7 @@ export interface UserPermissions {
   staffManagement: boolean;
   settings: boolean;
   permanentDelete: boolean;
+  rentalManagement?: boolean;
 }
 
 export interface UserProfile {

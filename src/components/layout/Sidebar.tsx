@@ -112,6 +112,8 @@ export const Sidebar: React.FC = () => {
       ? 'Admin'
       : userRole === 'MANAGER'
       ? 'Branch Manager'
+      : userRole === 'RENTAL_STAFF'
+      ? 'Rental Staff'
       : 'Operator';
 
   return (

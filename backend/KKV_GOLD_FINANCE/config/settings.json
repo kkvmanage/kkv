@@ -4,29 +4,81 @@
       "id": "gold-loan",
       "name": "Gold Loan",
       "description": "Standard gold ornament backed financing",
+      "defaultMonthlyRate": 2,
+      "cardFee": 75,
+      "cardFeeEnabled": true,
+      "interestProfileId": "gold-bands",
+      "repaymentSystemId": "monthly-interest-only",
       "active": true,
-      "sortOrder": 1
+      "showOnLoanIssue": true,
+      "configurationVersion": 1,
+      "sortOrder": 1,
+      "cardProcessingFee": 75,
+      "interestRate": 2,
+      "interestProfile": "Gold Monthly Interest Bands",
+      "interestProfileName": "Gold Monthly Interest Bands",
+      "status": "ACTIVE",
+      "issueEnabled": true
     },
     {
       "id": "silver-loan",
       "name": "Silver Loan",
       "description": "Silver article backed loan",
+      "defaultMonthlyRate": 3,
+      "cardFee": 60,
+      "cardFeeEnabled": true,
+      "interestProfileId": "silver-bands",
+      "repaymentSystemId": "monthly-interest-only",
       "active": true,
-      "sortOrder": 2
+      "showOnLoanIssue": true,
+      "configurationVersion": 1,
+      "sortOrder": 2,
+      "cardProcessingFee": 60,
+      "interestRate": 3,
+      "interestProfile": "Silver Monthly Interest Bands",
+      "interestProfileName": "Silver Monthly Interest Bands",
+      "status": "ACTIVE",
+      "issueEnabled": true
     },
     {
       "id": "pronote",
       "name": "Pronote",
       "description": "Promissory note unsecured credit",
+      "defaultMonthlyRate": 4,
+      "cardFee": 50,
+      "cardFeeEnabled": true,
+      "interestProfileId": "pronote-interest",
+      "repaymentSystemId": "monthly-interest-only",
       "active": true,
-      "sortOrder": 3
+      "showOnLoanIssue": true,
+      "configurationVersion": 1,
+      "sortOrder": 3,
+      "cardProcessingFee": 50,
+      "interestRate": 4,
+      "interestProfile": "Gold Monthly Interest Bands",
+      "interestProfileName": "Gold Monthly Interest Bands",
+      "status": "ACTIVE",
+      "issueEnabled": true
     },
     {
       "id": "hire-purchase",
       "name": "Hire Purchase",
       "description": "Vehicle and asset hire purchase financing",
+      "defaultMonthlyRate": 1.5,
+      "cardFee": 40,
+      "cardFeeEnabled": true,
+      "interestProfileId": "fixed-rate",
+      "repaymentSystemId": "emi",
       "active": true,
-      "sortOrder": 4
+      "showOnLoanIssue": true,
+      "configurationVersion": 1,
+      "sortOrder": 4,
+      "cardProcessingFee": 40,
+      "interestRate": 1.5,
+      "interestProfile": "Fixed Rate (1.5%/mo)",
+      "interestProfileName": "Fixed Rate (1.5%/mo)",
+      "status": "ACTIVE",
+      "issueEnabled": true
     }
   ],
   "repaymentSystems": [
@@ -55,15 +107,41 @@
       "sortOrder": 3
     }
   ],
-  "goldLoanMonthlyRate": 1.5,
+  "goldLoanMonthlyRate": 2,
   "silverLoanMonthlyRate": 2,
   "pronoteMonthlyRate": 15,
   "hirePurchaseMonthlyRate": 3,
-  "defaultCardFee": 10,
+  "defaultCardFee": 50,
   "overdueInterestRatePA": 24,
+  "overduePenaltyPerDayPercent": 3.6,
+  "graceDays": 3,
   "upiId": "yourbusiness@okhdfcbank",
   "upiPayeeName": "KKV GOLD FINANCE",
   "showOnLoanIssue": true,
+  "hireShowOnLoanIssue": true,
+  "silverShowOnLoanIssue": false,
+  "pronoteShowOnLoanIssue": false,
+  "pronoteRate": 15,
+  "goldCardFeeEnabled": false,
+  "goldCardFee": 25,
+  "silverCardFeeEnabled": false,
+  "silverCardFee": 30,
+  "pronoteCardFeeEnabled": false,
+  "pronoteCardFee": 35,
+  "hireCardFeeEnabled": false,
+  "hireCardFee": 40,
+  "overdueCalculationMethod": "Exact days — calculation based on actual days late",
+  "silverAmountBands": [
+    {
+      "id": "silver-band-1788445453323",
+      "condition": "Above",
+      "amount": 10000,
+      "baseRateMonthly": 2,
+      "penaltyAfterMonths": 6,
+      "penaltyStepUpMonthly": 0.1,
+      "penaltyCalculation": "From the start — stepped rate over the whole overc"
+    }
+  ],
   "amountBands": [
     {
       "id": "band-1",
@@ -84,15 +162,6 @@
       "penaltyCalculation": "From the start — stepped rate over the whole overc"
     }
   ],
-  "adminPassword": "admin123",
-  "managerPassword": "manager123",
-  "operatorPassword": "operator123",
-  "animationsEnabled": true,
-  "performanceModeEnabled": false,
-  "bulkFdDateChangeEnabled": true,
-  "lockersEnabled": true,
-  "overduePenaltyPerDayPercent": 3.6,
-  "graceDays": 3,
   "areas": [
     "Komarapalayam",
     "Main Market",
@@ -243,28 +312,31 @@
     "Main Branch",
     "Bypass Branch"
   ],
-  "silverShowOnLoanIssue": false,
-  "pronoteShowOnLoanIssue": false,
-  "pronoteRate": 15,
-  "goldCardFeeEnabled": false,
-  "goldCardFee": 25,
-  "silverCardFeeEnabled": false,
-  "silverCardFee": 30,
-  "pronoteCardFeeEnabled": false,
-  "pronoteCardFee": 35,
-  "hireCardFeeEnabled": false,
-  "hireCardFee": 40,
-  "overdueCalculationMethod": "Exact days — calculation based on actual days late",
-  "hireShowOnLoanIssue": true,
-  "silverAmountBands": [
+  "lockersEnabled": true,
+  "adminPassword": "admin123",
+  "managerPassword": "manager123",
+  "operatorPassword": "operator123",
+  "animationsEnabled": true,
+  "performanceModeEnabled": false,
+  "bulkFdDateChangeEnabled": true,
+  "goldRate22ct": 7000,
+  "configurationVersion": 13,
+  "fdInterestRate": 15,
+  "fdInterestRateEffectiveFrom": "01-08-2026",
+  "fdDefaultTenureMonths": 24,
+  "fdMinimumAmount": 10000,
+  "fdMaximumAmount": 10000000,
+  "fdRenewalPolicy": "AUTO_RENEW_PRINCIPAL_ONLY",
+  "fdCalculationMethod": "SIMPLE_MONTHLY",
+  "fdInterestRateHistory": [
     {
-      "id": "silver-band-1788445453323",
-      "condition": "Above",
-      "amount": 10000,
-      "baseRateMonthly": 2,
-      "penaltyAfterMonths": 6,
-      "penaltyStepUpMonthly": 0.1,
-      "penaltyCalculation": "From the start — stepped rate over the whole overc"
+      "id": "FD-RATE-001",
+      "rate": 12,
+      "previousRate": 10,
+      "effectiveFrom": "01-08-2026",
+      "changedBy": "Master Admin",
+      "changedAt": "2026-08-01T09:00:00.000Z",
+      "notes": "Initial Base Master FD Interest Rate"
     }
   ],
   "purityOptions": [
@@ -318,6 +390,5 @@
       "sortOrder": 6,
       "description": "Sterling Silver (92.5%)"
     }
-  ],
-  "goldRate22ct": 6400
+  ]
 }

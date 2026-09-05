@@ -96,6 +96,15 @@ export interface LoanTypeConfig {
   name: string;
   description?: string;
   active: boolean;
+  showOnLoanIssue?: boolean;
+  useMasterDefaults?: boolean;
+  cardFeeEnabled?: boolean;
+  cardFee?: number;
+  defaultMonthlyRate?: number;
+  interestProfileId?: 'gold-bands' | 'silver-bands' | 'fixed-rate' | string;
+  repaymentSystemId?: string;
+  calculationStrategy?: CalculationStrategy;
+  configurationVersion?: number;
   sortOrder: number;
   createdAt?: string;
   updatedAt?: string;
@@ -135,6 +144,23 @@ export interface Loan {
   repaymentSystem: string;
   loanTypeId?: string;
   loanTypeName?: string;
+  loanTypeNameSnapshot?: string;
+  interestRateSnapshot?: number;
+  interestProfileSnapshot?: string;
+  cardFeeSnapshot?: number;
+  interestProfileIdSnapshot?: string;
+  interestProfileNameSnapshot?: string;
+  interestConfigurationSnapshot?: any;
+  configurationVersion?: number | string;
+  configurationSource?: string;
+  rateEffectiveAt?: string;
+  loanConfigVersion?: string;
+  amountBandId?: string;
+  amountBandCondition?: 'Below' | 'Above';
+  amountBandThreshold?: number;
+  penaltyAfterMonths?: number;
+  penaltyStepUpMonthly?: number;
+  penaltyCalculation?: string;
   repaymentSystemId?: string;
   repaymentSystemName?: string;
   calculationStrategy?: CalculationStrategy;
@@ -151,6 +177,7 @@ export interface Loan {
   advanceInterestAmount: number;
   advanceInterestReceivingMethod?: 'Cash' | 'Bank' | 'Cash + Bank';
   cardFee: number;
+  cardFeeEnabled?: boolean;
   cardFeePaymentMode: 'Cash' | 'Bank';
   cardFeeBankMode?: string;
   items: OrnamentItem[];
@@ -163,6 +190,7 @@ export interface Loan {
   photos: string[];
   status: 'ACTIVE' | 'CLOSED' | 'PENDING' | 'OVERDUE';
   disbursedAmount: number;
+  netDisbursed?: number;
   outstandingPrincipal: number;
   accruedInterest: number;
   renewalDate: string;
@@ -171,6 +199,8 @@ export interface Loan {
   documentDriveIds?: string[];
   receiptDriveIds?: string[];
   driveFolderId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Receipt {
@@ -230,11 +260,22 @@ export interface FixedDeposit {
   depositDate: string;
   maturityDate: string;
   principal: number;
+  tenureMonths?: number;
   interestRatePA: number;
   receivingMethod: 'Cash' | 'Bank' | 'UPI';
   monthlyPayout: number;
   status: 'ACTIVE' | 'MATURED' | 'WITHDRAWN';
   parentCustomerName?: string;
+  nomineeName?: string;
+  nomineeRelation?: string;
+  remarks?: string;
+
+  // ── IMMUTABLE CONTRACTUAL SNAPSHOT FIELDS ──────────────────────────────
+  fdInterestRateSnapshot?: number;
+  fdTenureSnapshot?: number;
+  calculationMethodSnapshot?: string;
+  minimumAmountSnapshot?: number;
+  configurationVersion?: number;
 }
 
 export interface FDInterestPayout {
@@ -299,6 +340,9 @@ export interface FDRateHistoryItem {
 }
 
 export interface MasterControlSettings {
+  purityOptions?: any[];
+  goldRate22ct?: number;
+  configurationVersion?: number;
   loanTypes?: LoanTypeConfig[];
   repaymentSystems?: RepaymentSystemConfig[];
   goldLoanMonthlyRate: number;
@@ -343,6 +387,11 @@ export interface MasterControlSettings {
   fdInterestRate?: number;
   fdInterestRateEffectiveFrom?: string;
   fdInterestRateHistory?: FDRateHistoryItem[];
+  fdDefaultTenureMonths?: number;
+  fdMinimumAmount?: number;
+  fdMaximumAmount?: number;
+  fdRenewalPolicy?: 'MANUAL' | 'AUTO_RENEW_PRINCIPAL' | 'AUTO_RENEW_ALL' | string;
+  fdCalculationMethod?: 'MONTHLY_DIVIDEND' | 'QUARTERLY_COMPOUNDING' | 'CUMULATIVE_AT_MATURITY' | 'SIMPLE' | string;
 }
 
 export interface WhatsAppTemplates {
@@ -381,7 +430,7 @@ export interface Reminder {
   createdAt: string;
 }
 
-export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR';
+export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF' | 'RENTAL_ADMIN';
 
 export interface UserPermissions {
   customers: boolean;
@@ -400,6 +449,7 @@ export interface UserPermissions {
   staffManagement: boolean;
   settings: boolean;
   permanentDelete: boolean;
+  rental?: boolean;
 }
 
 export interface UserProfile {
@@ -409,6 +459,7 @@ export interface UserProfile {
   phone?: string;
   role: UserRole;
   isActive: boolean;
+  passwordHash?: string;
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;

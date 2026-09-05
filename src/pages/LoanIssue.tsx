@@ -525,6 +525,11 @@ export const LoanIssue: React.FC = () => {
 
     if (isSubmitting) return;
 
+    if (!selectedLoanTypeConfig || !selectedLoanTypeConfig.active || selectedLoanTypeConfig.showOnLoanIssue === false) {
+      showToast('Interest configuration is unavailable for this Loan Type. Please contact the administrator.', 'error');
+      return;
+    }
+
     if (!selectedCustomer) {
       showToast('Customer not found. Please select an existing customer before issuing a loan.', 'error');
       return;
@@ -861,6 +866,104 @@ export const LoanIssue: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {/* Centralized Configuration Preview Summary */}
+              {selectedLoanTypeConfig ? (
+                <div
+                  style={{
+                    backgroundColor: 'rgba(5, 150, 105, 0.05)',
+                    border: '1px solid rgba(5, 150, 105, 0.25)',
+                    borderRadius: '8px',
+                    padding: '14px 16px',
+                    marginTop: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px dashed rgba(5, 150, 105, 0.2)', paddingBottom: '6px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-primary-dark, #059669)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      ⚙️ LOAN CONFIGURATION
+                    </span>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#047857', backgroundColor: '#d1fae5', padding: '2px 8px', borderRadius: '4px' }}>
+                      🔒 Master Control Linked
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                      gap: '12px',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                        Loan Type
+                      </span>
+                      <strong style={{ fontSize: '13.5px', color: 'var(--text-dark, #0f172a)' }}>
+                        {selectedLoanTypeConfig.name}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                        Interest Rate
+                      </span>
+                      <strong style={{ fontSize: '13.5px', color: '#047857' }}>
+                        {interestRate}% per month
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                        Card Processing Fee
+                      </span>
+                      <strong style={{ fontSize: '13.5px', color: 'var(--color-primary-dark, #059669)' }}>
+                        {cardFeeEnabled ? `₹${cardFeeAmount}` : '₹0 (Disabled)'}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                        Interest Profile
+                      </span>
+                      <strong style={{ fontSize: '13.5px', color: '#1d4ed8' }}>
+                        {selectedLoanTypeConfig.interestProfileId === 'silver-bands'
+                          ? 'Silver Amount Bands'
+                          : selectedLoanTypeConfig.interestProfileId === 'pronote-interest'
+                          ? 'Pronote Interest'
+                          : selectedLoanTypeConfig.interestProfileId === 'fixed-rate'
+                          ? `Fixed Rate (${selectedLoanTypeConfig.defaultMonthlyRate || interestRate}%/mo)`
+                          : 'Gold Amount Bands'}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                        Repayment
+                      </span>
+                      <strong style={{ fontSize: '13.5px', color: '#7e22ce' }}>
+                        {selectedRepaymentConfig?.name || 'Monthly Interest Only'}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                        Configuration Version
+                      </span>
+                      <span
+                        className="badge badge-info"
+                        style={{ fontSize: '11.5px', fontWeight: 800, padding: '2px 8px' }}
+                      >
+                        V{selectedLoanTypeConfig.configurationVersion || 1}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ backgroundColor: '#fee2e2', border: '1px solid #f87171', borderRadius: '8px', padding: '12px 16px', marginTop: '12px', color: '#991b1b', fontSize: '12.5px', fontWeight: 700 }}>
+                  ⚠️ Interest configuration is missing for this Loan Type. Please contact the administrator.
+                </div>
+              )}
             </div>
           </div>
 

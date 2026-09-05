@@ -27,12 +27,20 @@ export const getLoanByNo = (req: Request, res: Response) => {
 };
 
 export const createLoan = async (req: Request, res: Response) => {
-  const newLoan = await loanService.create(req.body);
-  return res.status(201).json({
-    success: true,
-    message: 'Loan issued successfully',
-    data: newLoan
-  });
+  try {
+    const newLoan = await loanService.create(req.body);
+    return res.status(201).json({
+      success: true,
+      message: 'Loan issued successfully',
+      data: newLoan
+    });
+  } catch (err: any) {
+    console.error('[LoanController] createLoan error:', err);
+    return res.status(400).json({
+      success: false,
+      message: err.message || 'Failed to create loan'
+    });
+  }
 };
 
 export const updateLoan = (req: Request, res: Response) => {

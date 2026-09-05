@@ -141,7 +141,43 @@ const pageTitles: Record<NavPage, PageMetadata> = {
   },
   settings: {
     title: 'Settings',
-    subtitle: 'Branch configuration, 22ct gold rate valuation, and printer setup'
+    subtitle: 'Branch profile, printer setup, and staff access configuration'
+  },
+  rental: {
+    title: 'Rental Management',
+    subtitle: 'Commercial complexes, shop units, tenants, monthly rent collections, and expenses'
+  },
+  'rental-dashboard': {
+    title: 'Rental Dashboard',
+    subtitle: 'Commercial complexes, shop units, tenants, monthly rent collections, and expenses'
+  },
+  'rental-complexes': {
+    title: 'Complex Management',
+    subtitle: 'Manage commercial complexes, locations, active properties, and total shops'
+  },
+  'rental-complex-detail': {
+    title: 'Complex Details',
+    subtitle: 'Shop units performance, expected rents, collections, pending dues, and advances'
+  },
+  'rental-shops': {
+    title: 'Shops & Tenants',
+    subtitle: 'Commercial shop directory, tenant contact information, monthly rents, and status'
+  },
+  'rental-shop-detail': {
+    title: 'Shop Details & History',
+    subtitle: 'Tenant details, itemized rent payment ledger, and shop expense history'
+  },
+  'rental-payments': {
+    title: 'Rent Payments',
+    subtitle: 'Record rent collections, partial payments, advance adjustments, Cash and GPay split'
+  },
+  'rental-expenses': {
+    title: 'Rental Expenses',
+    subtitle: 'Property maintenance, utilities, repairs, cleaning, security, and complex expenses'
+  },
+  'rental-reports': {
+    title: 'Rental Reports',
+    subtitle: 'Monthly rent statements, expense ledgers, Cash vs GPay collections, and property performance'
   },
   notifications: {
     title: 'Notification Center',

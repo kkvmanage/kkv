@@ -30,16 +30,16 @@ import { getAnalytics, isSupported, Analytics } from 'firebase/analytics';
 import { UserProfile, UserPermissions, UserRole } from '../types';
 
 // ====================================================
-// OFFICIAL FIREBASE CONFIGURATION
+// OFFICIAL FIREBASE CONFIGURATION (otp-site-80c03)
 // ====================================================
 export const firebaseConfig = {
-  apiKey: "AIzaSyCJPtgnamoaA3l_sZLpj-yDTfxQXWlC2WU",
-  authDomain: "kkv-gold-f9994.firebaseapp.com",
-  projectId: "kkv-gold-f9994",
-  storageBucket: "kkv-gold-f9994.firebasestorage.app",
-  messagingSenderId: "72452164765",
-  appId: "1:72452164765:web:b3ad3d71d1dead1b25d874",
-  measurementId: "G-08FX5TX7VL"
+  apiKey: "AIzaSyDzBC4GLKXN3_lyh91B0NY4FcHH6x_hIEw",
+  authDomain: "otp-site-80c03.firebaseapp.com",
+  projectId: "otp-site-80c03",
+  storageBucket: "otp-site-80c03.firebasestorage.app",
+  messagingSenderId: "419034737047",
+  appId: "1:419034737047:web:136ccc97ec4d1275c8bcd2",
+  measurementId: "G-Y944D6CF9C"
 };
 
 // ====================================================
@@ -91,7 +91,8 @@ export const getDefaultPermissionsForRole = (role: UserRole): UserPermissions =>
         devices: true,
         staffManagement: true,
         settings: true,
-        permanentDelete: true
+        permanentDelete: true,
+        rentalManagement: true
       };
     case 'ADMIN':
       return {
@@ -110,7 +111,8 @@ export const getDefaultPermissionsForRole = (role: UserRole): UserPermissions =>
         devices: true,
         staffManagement: false,
         settings: false,
-        permanentDelete: false
+        permanentDelete: false,
+        rentalManagement: true
       };
     case 'MANAGER':
       return {
@@ -129,7 +131,28 @@ export const getDefaultPermissionsForRole = (role: UserRole): UserPermissions =>
         devices: false,
         staffManagement: false,
         settings: false,
-        permanentDelete: false
+        permanentDelete: false,
+        rentalManagement: false
+      };
+    case 'RENTAL_STAFF':
+      return {
+        customers: false,
+        loans: false,
+        loanReceipts: false,
+        pendingLoans: false,
+        fixedDeposits: false,
+        fdInterest: false,
+        fdWithdrawal: false,
+        notifications: false,
+        adminPanel: false,
+        masterControl: false,
+        fdInterestRates: false,
+        bulkFdDateChange: false,
+        devices: false,
+        staffManagement: false,
+        settings: false,
+        permanentDelete: false,
+        rentalManagement: true
       };
     case 'OPERATOR':
     default:
@@ -149,7 +172,8 @@ export const getDefaultPermissionsForRole = (role: UserRole): UserPermissions =>
         devices: false,
         staffManagement: false,
         settings: false,
-        permanentDelete: false
+        permanentDelete: false,
+        rentalManagement: false
       };
   }
 };

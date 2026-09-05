@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, UserRole, UserPermissions } from '../types';
 import { MASTER_ADMIN_EMAIL, getDefaultPermissionsForRole } from '../config/firebase';
+import { LoanConfigurationSection } from '../components/admin/LoanConfigurationSection';
 
 export const Settings: React.FC = () => {
   const {
@@ -38,7 +39,7 @@ export const Settings: React.FC = () => {
 
   const isMasterAdmin = userRole === 'MASTER_ADMIN' || userRole === 'ADMIN';
 
-  const [activeTab, setActiveTab] = useState<'branch' | 'financial' | 'security' | 'printer'>('branch');
+  const [activeTab, setActiveTab] = useState<'branch' | 'financial' | 'loan-types' | 'security' | 'printer'>('branch');
 
   const [branchName, setBranchName] = useState('KKV GOLD FINANCE - MAIN BRANCH');
   const [address, setAddress] = useState('104 G.S.T Road, Chennai - 600045');
@@ -50,8 +51,12 @@ export const Settings: React.FC = () => {
   const [defaultInterestRate, setDefaultInterestRate] = useState(() => String(masterControlSettings?.goldLoanMonthlyRate || 2.0));
   const [cardFeeAmount, setCardFeeAmount] = useState(() => String(masterControlSettings?.defaultCardFee || 10));
 
-  // FD Interest Rate State
+  // FD Master Defaults State
   const [fdRateInput, setFdRateInput] = useState(() => String(masterControlSettings?.fdInterestRate ?? 12));
+  const [fdTenureInput, setFdTenureInput] = useState(() => String(masterControlSettings?.fdDefaultTenureMonths ?? 12));
+  const [fdMinAmountInput, setFdMinAmountInput] = useState(() => String(masterControlSettings?.fdMinimumAmount ?? 5000));
+  const [fdRenewalPolicyInput, setFdRenewalPolicyInput] = useState(() => masterControlSettings?.fdRenewalPolicy || 'MANUAL');
+  const [fdCalculationMethodInput, setFdCalculationMethodInput] = useState(() => masterControlSettings?.fdCalculationMethod || 'MONTHLY_DIVIDEND');
   const [fdRateEffectiveDate, setFdRateEffectiveDate] = useState(() =>
     masterControlSettings?.fdInterestRateEffectiveFrom || new Date().toLocaleDateString('en-GB').replace(/\//g, '-')
   );
@@ -73,6 +78,18 @@ export const Settings: React.FC = () => {
     if (masterControlSettings?.fdInterestRate !== undefined) {
       setFdRateInput(String(masterControlSettings.fdInterestRate));
     }
+    if (masterControlSettings?.fdDefaultTenureMonths !== undefined) {
+      setFdTenureInput(String(masterControlSettings.fdDefaultTenureMonths));
+    }
+    if (masterControlSettings?.fdMinimumAmount !== undefined) {
+      setFdMinAmountInput(String(masterControlSettings.fdMinimumAmount));
+    }
+    if (masterControlSettings?.fdRenewalPolicy) {
+      setFdRenewalPolicyInput(masterControlSettings.fdRenewalPolicy);
+    }
+    if (masterControlSettings?.fdCalculationMethod) {
+      setFdCalculationMethodInput(masterControlSettings.fdCalculationMethod);
+    }
   }, [masterControlSettings]);
 
   // Staff Search & Filter State
@@ -84,7 +101,7 @@ export const Settings: React.FC = () => {
   // Add Staff Form State
   const [addName, setAddName] = useState('');
   const [addEmail, setAddEmail] = useState('');
-  const [addRole, setAddRole] = useState<'ADMIN' | 'MANAGER' | 'OPERATOR'>('OPERATOR');
+  const [addRole, setAddRole] = useState<'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF'>('OPERATOR');
   const [addPhone, setAddPhone] = useState('');
   const [addPassword, setAddPassword] = useState('');
   const [customPerms, setCustomPerms] = useState<UserPermissions>(getDefaultPermissionsForRole('OPERATOR'));
@@ -92,7 +109,7 @@ export const Settings: React.FC = () => {
   // Edit Staff State
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [editRole, setEditRole] = useState<'ADMIN' | 'MANAGER' | 'OPERATOR'>('OPERATOR');
+  const [editRole, setEditRole] = useState<'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF'>('OPERATOR');
   const [editPerms, setEditPerms] = useState<UserPermissions>(getDefaultPermissionsForRole('OPERATOR'));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -130,9 +147,14 @@ export const Settings: React.FC = () => {
     updateMasterControlSettings({
       goldRate22ct: rate,
       goldLoanMonthlyRate: loanRate,
-      defaultCardFee: fee
+      defaultCardFee: fee,
+      fdInterestRate: !isNaN(newFdRate) ? newFdRate : (masterControlSettings?.fdInterestRate ?? 12),
+      fdDefaultTenureMonths: Number(fdTenureInput) || 12,
+      fdMinimumAmount: Number(fdMinAmountInput) || 5000,
+      fdRenewalPolicy: fdRenewalPolicyInput,
+      fdCalculationMethod: fdCalculationMethodInput
     });
-    showToast('Gold rate & default lending parameters saved successfully!', 'success');
+    showToast('Master Control financial parameters saved successfully!', 'success');
   };
 
   const handleConfirmFdRateChange = () => {
@@ -144,11 +166,16 @@ export const Settings: React.FC = () => {
 
     const ok = updateFDInterestRate(numRate, fdRateEffectiveDate, fdRateNotes);
     if (ok) {
-      // Also save the gold and loan rate parameters
+      // Also save the gold, loan and FD parameters
       updateMasterControlSettings({
         goldRate22ct: Number(goldRate22ct) || 6400,
         goldLoanMonthlyRate: Number(defaultInterestRate) || 2.0,
-        defaultCardFee: Number(cardFeeAmount) || 10
+        defaultCardFee: Number(cardFeeAmount) || 10,
+        fdInterestRate: numRate,
+        fdDefaultTenureMonths: Number(fdTenureInput) || 12,
+        fdMinimumAmount: Number(fdMinAmountInput) || 5000,
+        fdRenewalPolicy: fdRenewalPolicyInput,
+        fdCalculationMethod: fdCalculationMethodInput
       });
       setShowFdRateConfirmModal(false);
       setFdRateNotes('');
@@ -240,13 +267,6 @@ export const Settings: React.FC = () => {
           <span>Branch Profile</span>
         </button>
         <button
-          className={`btn btn-sm ${activeTab === 'financial' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setActiveTab('financial')}
-        >
-          <Percent size={14} />
-          <span>Gold Rates &amp; Rates</span>
-        </button>
-        <button
           className={`btn btn-sm ${activeTab === 'printer' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('printer')}
         >
@@ -261,6 +281,13 @@ export const Settings: React.FC = () => {
           <span>Security &amp; Staff</span>
         </button>
       </div>
+
+      {/* ── LOAN TYPES TAB ── */}
+      {activeTab === 'loan-types' && (
+        <div>
+          <LoanConfigurationSection />
+        </div>
+      )}
 
       {/* ── 1. BRANCH PROFILE TAB ── */}
       {activeTab === 'branch' && (
@@ -340,24 +367,31 @@ export const Settings: React.FC = () => {
           <form onSubmit={handleSaveFinancial} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
               {/* Header */}
-              <div style={{ marginBottom: '22px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--text-dark)', letterSpacing: '0.01em' }}>
-                  GOLD RATES &amp; DEFAULT LENDING PARAMETERS
-                </h2>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Configure live gold valuation rates, default lending parameters, and Fixed Deposit default interest rates.
-                </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '22px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px' }}>
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--text-dark)', letterSpacing: '0.01em' }}>
+                    CENTRAL MASTER CONTROL
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+                    Authoritative global single source of truth for gold valuation, loan defaults, and Fixed Deposit parameters.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span className="badge badge-info" style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px' }}>
+                    Config Version: v{masterControlSettings?.configurationVersion || 1}
+                  </span>
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {/* ════════════════════════════════════════════════════════════════════════
-                    SECTION 1: GOLD VALUATION
+                    SECTION 1: GOLD & VALUATION
                     ════════════════════════════════════════════════════════════════════════ */}
                 <div style={{ padding: '18px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-secondary)', border: '1px solid var(--border-subtle)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                     <Coins size={18} color="var(--color-gold-primary, #dfb83d)" />
                     <h3 style={{ fontSize: '14px', fontWeight: 800, margin: 0, color: 'var(--text-dark)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                      GOLD VALUATION
+                      GOLD &amp; VALUATION
                     </h3>
                   </div>
 
@@ -378,7 +412,7 @@ export const Settings: React.FC = () => {
                       />
                     </div>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                      Used for gold/ornament market valuation and collateral calculations.
+                      Used for gold/ornament market valuation and collateral calculations across new Gold Loans.
                     </span>
                   </div>
                 </div>
@@ -410,7 +444,7 @@ export const Settings: React.FC = () => {
                         disabled={!isMasterAdmin}
                       />
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                        Default base interest percentage per month for standard Gold Loans.
+                        Default global base interest percentage per month for loans inheriting Master Control.
                       </span>
                     </div>
 
@@ -428,7 +462,7 @@ export const Settings: React.FC = () => {
                         disabled={!isMasterAdmin}
                       />
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                        Default card and passbook issuance fee.
+                        Default global card and passbook issuance processing fee.
                       </span>
                     </div>
                   </div>
@@ -453,7 +487,7 @@ export const Settings: React.FC = () => {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
                     <div className="form-group" style={{ margin: 0 }}>
                       <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>
                         DEFAULT FD INTEREST RATE (% P.A.) *
@@ -469,7 +503,87 @@ export const Settings: React.FC = () => {
                         disabled={!isMasterAdmin}
                       />
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                        Applies to NEW Fixed Deposits only. Existing Fixed Deposits retain their contractual interest rate.
+                        Default annual rate applied to NEW Fixed Deposits.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>
+                        DEFAULT FD TENURE (MONTHS) *
+                      </label>
+                      <input
+                        type="number"
+                        className="input-control"
+                        style={{ height: '38px', fontSize: '13.5px' }}
+                        value={fdTenureInput}
+                        onChange={(e) => setFdTenureInput(e.target.value)}
+                        min={1}
+                        max={120}
+                        required
+                        disabled={!isMasterAdmin}
+                      />
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                        Default deposit tenure for new deposit creation.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>
+                        MINIMUM FD AMOUNT (₹) *
+                      </label>
+                      <input
+                        type="number"
+                        className="input-control"
+                        style={{ height: '38px', fontSize: '13.5px' }}
+                        value={fdMinAmountInput}
+                        onChange={(e) => setFdMinAmountInput(e.target.value)}
+                        min={0}
+                        required
+                        disabled={!isMasterAdmin}
+                      />
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                        Minimum allowable deposit principal for new FD accounts.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '12px', fontWeight: 700 }}>
+                        RENEWAL POLICY
+                      </label>
+                      <select
+                        className="input-control"
+                        style={{ height: '38px', fontSize: '13px' }}
+                        value={fdRenewalPolicyInput}
+                        onChange={(e) => setFdRenewalPolicyInput(e.target.value)}
+                        disabled={!isMasterAdmin}
+                      >
+                        <option value="MANUAL">Manual Renewal on Maturity</option>
+                        <option value="AUTO_RENEW_PRINCIPAL">Auto-Renew Principal Only</option>
+                        <option value="AUTO_RENEW_ALL">Auto-Renew Principal + Interest</option>
+                      </select>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                        Default maturity rollover policy for Fixed Deposits.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '12px', fontWeight: 700 }}>
+                        PAYOUT / COMPOUNDING METHOD
+                      </label>
+                      <select
+                        className="input-control"
+                        style={{ height: '38px', fontSize: '13px' }}
+                        value={fdCalculationMethodInput}
+                        onChange={(e) => setFdCalculationMethodInput(e.target.value)}
+                        disabled={!isMasterAdmin}
+                      >
+                        <option value="MONTHLY_DIVIDEND">Monthly Dividend Payout</option>
+                        <option value="QUARTERLY_COMPOUNDING">Quarterly Compounding</option>
+                        <option value="CUMULATIVE_AT_MATURITY">Cumulative at Maturity</option>
+                        <option value="SIMPLE">Simple Interest</option>
+                      </select>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                        Default interest calculation schedule.
                       </span>
                     </div>
 
@@ -734,8 +848,8 @@ export const Settings: React.FC = () => {
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {(['ALL', 'ADMIN', 'MANAGER', 'OPERATOR'] as const).map((r) => (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {(['ALL', 'ADMIN', 'MANAGER', 'OPERATOR', 'RENTAL_STAFF'] as const).map((r) => (
                   <button
                     key={r}
                     type="button"
@@ -743,7 +857,7 @@ export const Settings: React.FC = () => {
                     style={{ fontSize: '11.5px', padding: '4px 12px', borderRadius: 'var(--radius-full)' }}
                     onClick={() => setStaffRoleFilter(r)}
                   >
-                    {r}
+                    {r === 'RENTAL_STAFF' ? 'RENTAL STAFF' : r}
                   </button>
                 ))}
               </div>
@@ -1000,6 +1114,7 @@ export const Settings: React.FC = () => {
                   <option value="OPERATOR">Operator (Standard Cash Counter / Entry)</option>
                   <option value="MANAGER">Manager (Approvals &amp; Reports)</option>
                   <option value="ADMIN">Administrator (Full Access)</option>
+                  <option value="RENTAL_STAFF">Rental Staff (Complex Rental Management Only)</option>
                 </select>
               </div>
               <div className="form-group">
@@ -1037,6 +1152,7 @@ export const Settings: React.FC = () => {
                   <option value="OPERATOR">Operator</option>
                   <option value="MANAGER">Manager</option>
                   <option value="ADMIN">Administrator</option>
+                  <option value="RENTAL_STAFF">Rental Staff (Complex Rental Management Only)</option>
                 </select>
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>

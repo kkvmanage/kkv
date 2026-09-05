@@ -1,0 +1,278 @@
+export type RentalStatus = 'ACTIVE' | 'INACTIVE';
+export type PaymentStatus = 'PAID' | 'PARTIAL' | 'PENDING' | 'UNPAID';
+export type PaymentMode = 'CASH' | 'GPAY' | 'BOTH';
+export type ExpenseCategory =
+  | 'Electricity'
+  | 'Maintenance'
+  | 'Cleaning'
+  | 'Plumbing'
+  | 'Repair'
+  | 'Water'
+  | 'Security'
+  | 'Transport'
+  | 'Other';
+
+export type SyncStatus = 'PENDING' | 'SYNCED' | 'FAILED';
+
+export interface RentalComplex {
+  id: string;
+  complexId: string; // CMP-0001
+  complexName: string;
+  location: string;
+  status: RentalStatus;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: SyncStatus;
+  lastSyncedAt?: string;
+  syncError?: string;
+}
+
+export interface RentalShop {
+  id: string;
+  shopId: string; // SHOP-0001
+  complexId: string; // CMP-0001
+  complexName?: string;
+  shopNumber: string;
+  shopName: string;
+  tenantName: string;
+  mobileNumber: string;
+  monthlyRent: number;
+  availableAdvance: number;
+  status: RentalStatus;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: SyncStatus;
+  lastSyncedAt?: string;
+  syncError?: string;
+}
+
+export interface RentalPayment {
+  id: string;
+  paymentId: string; // PAY-0001
+  complexId: string;
+  complexName?: string;
+  shopId: string;
+  shopNumber?: string;
+  shopName?: string;
+  tenantName?: string;
+  mobileNumber: string;
+  paymentMonth: string; // YYYY-MM e.g. "2026-09"
+  monthlyRent: number;
+  amountReceived: number;
+  cashAmount: number;
+  gpayAmount: number;
+  paymentMode: PaymentMode;
+  advanceUsed: number;
+  advanceGenerated: number;
+  balanceAfterPayment: number;
+  balance?: number;
+  paymentDate: string; // YYYY-MM-DD
+  paymentStatus: PaymentStatus;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  syncStatus?: SyncStatus;
+  lastSyncedAt?: string;
+  syncError?: string;
+}
+
+export interface RentalExpense {
+  id: string;
+  expenseId: string; // EXP-0001
+  complexId: string;
+  complexName?: string;
+  shopId?: string;
+  shopNumber?: string;
+  expenseDate: string; // YYYY-MM-DD
+  category: ExpenseCategory;
+  expenseReason: string;
+  expenseAmount: number;
+  paymentMode: PaymentMode;
+  cashAmount: number;
+  gpayAmount: number;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  syncStatus?: SyncStatus;
+  lastSyncedAt?: string;
+  syncError?: string;
+}
+
+export interface RentalDashboardData {
+  totalComplexes: number;
+  totalShops: number;
+  expectedMonthlyRent: number;
+  collectedThisMonth: number;
+  pendingRent: number;
+  availableAdvance: number;
+  todaysCollection: number;
+  todaysExpenses: number;
+  thisMonthExpenses: number;
+  netCollection: number;
+  recentPayments: RentalPayment[];
+  recentExpenses: RentalExpense[];
+  monthlyTrend: {
+    month: string;
+    expected: number;
+    collected: number;
+    pending: number;
+    expenses: number;
+    net: number;
+  }[];
+  complexStats: {
+    complexId: string;
+    complexName: string;
+    location: string;
+    totalShops: number;
+    expectedRent: number;
+    collected: number;
+    pending: number;
+    expenses: number;
+    net: number;
+  }[];
+  paymentModeSplit: {
+    cashTotal: number;
+    gpayTotal: number;
+    total: number;
+  };
+}
+
+export interface AdminRentalSummary {
+  month?: string;
+  source?: string;
+  version?: number;
+  lastSyncedAt?: string;
+  syncStatus?: 'SYNCED' | 'PENDING' | 'DELAYED' | 'FAILED' | 'NO_DATA';
+  syncStatusMessage?: string;
+  totalComplexes: number;
+  totalShops: number;
+  expectedMonthlyRent: number;
+  collectedThisMonth: number;
+  pendingRent: number;
+  availableAdvance?: number;
+  advanceAmount?: number;
+  totalExpenses: number;
+  netCollection: number;
+  todaysCollection?: number;
+  todaysExpenses?: number;
+  collectionRate?: number;
+  paymentModeSplit?: {
+    cashTotal: number;
+    gpayTotal: number;
+    total: number;
+    cashCount: number;
+    gpayCount: number;
+    bothCount: number;
+  };
+  complexPerformance: {
+    complexId: string;
+    complexName: string;
+    location?: string;
+    totalShops?: number;
+    expectedRent: number;
+    collected: number;
+    pending: number;
+    advance?: number;
+    expenses: number;
+    net?: number;
+    netCollection?: number;
+    collectionRate?: number;
+  }[];
+  complexBreakdown?: {
+    complexId: string;
+    complexName: string;
+    location?: string;
+    totalShops: number;
+    expectedRent: number;
+    collected: number;
+    pending: number;
+    advance?: number;
+    expenses: number;
+    netCollection: number;
+    collectionRate?: number;
+  }[];
+  pendingRentList?: {
+    shopId: string;
+    shopNumber: string;
+    shopName: string;
+    tenantName: string;
+    mobileNumber: string;
+    complexId: string;
+    complexName: string;
+    monthlyRent: number;
+    collectedThisMonth: number;
+    advanceUsed: number;
+    pendingBalance: number;
+    availableAdvance: number;
+    paymentStatus: string;
+  }[];
+  recentPayments?: {
+    paymentId: string;
+    complexId?: string;
+    complexName: string;
+    shopId?: string;
+    shopNumber: string;
+    tenantName: string;
+    mobileNumber?: string;
+    paymentMonth: string;
+    amountReceived: number;
+    cashAmount?: number;
+    gpayAmount?: number;
+    advanceUsed?: number;
+    balance?: number;
+    paymentMode: string;
+    paymentDate: string;
+    paymentStatus: string;
+    notes?: string;
+  }[];
+  recentExpenses?: {
+    expenseId: string;
+    complexId?: string;
+    complexName: string;
+    shopId?: string;
+    shopNumber?: string;
+    category: string;
+    expenseReason: string;
+    expenseAmount: number;
+    cashAmount?: number;
+    gpayAmount?: number;
+    paymentMode: string;
+    expenseDate: string;
+    notes?: string;
+  }[];
+}
+
+export interface MonthlyRentReportItem {
+  complexId: string;
+  complexName: string;
+  location: string;
+  totalShops: number;
+  expectedRent: number;
+  collected: number;
+  pending: number;
+  advance: number;
+  expenses: number;
+  netCollection: number;
+}
+
+export interface PaymentModeReportData {
+  cash: {
+    count: number;
+    total: number;
+  };
+  gpay: {
+    count: number;
+    total: number;
+  };
+  totalAmount: number;
+  totalTransactions: number;
+}
+
+export interface SyncSummary {
+  total: number;
+  pending: number;
+  synced: number;
+  failed: number;
+  isConfigured: boolean;
+  spreadsheetId?: string;
+}

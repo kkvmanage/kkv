@@ -20,6 +20,8 @@ client-2-*.json
 *.json
 *.key
 *.pem
+key
+key.json
 
 # Logs
 npm-debug.log*

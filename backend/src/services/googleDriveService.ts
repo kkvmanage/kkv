@@ -1,7 +1,10 @@
 import { google, drive_v3 } from 'googleapis';
+import { OAuth2Client } from 'google-auth-library';
 import { Readable } from 'stream';
+import crypto from 'crypto';
 import { env } from '../config/env.js';
 import { driveTokenService } from './drive/DriveTokenService.js';
+import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 
 export interface CustomerFolderStructure {
   customerFolderId: string;
@@ -24,109 +27,475 @@ export interface DriveFileUploadResult {
   folderId?: string;
 }
 
+export interface DriveFolderConfig {
+  rootFolderId: string;
+  rootFolderName: string;
+  backupsFolderId: string;
+  backupsFolderName: string;
+  fullBackupsFolderId: string;
+  fullBackupsFolderName: string;
+  emergencyBackupsFolderId?: string;
+  emergencyBackupsFolderName?: string;
+  lastVerifiedAt?: string;
+}
+
+export interface DriveHealthResult {
+  success: boolean;
+  configured: boolean;
+  authMode: 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE';
+  googleAccount: string;
+  rootFolder: string;
+  backupFolder: string;
+  fullBackupFolder: string;
+  rootFolderId?: string;
+  backupsFolderId?: string;
+  fullBackupsFolderId?: string;
+  driveAccessible: boolean;
+  folderAccessible: boolean;
+  folderName?: string;
+  folderIdConfigured: boolean;
+  writable?: boolean;
+  canUpload: boolean;
+  status: 'READY' | 'REAUTH_REQUIRED' | 'FOLDER_ACCESS_DENIED' | 'NOT_CONNECTED' | 'FAILED';
+  errorCode?: string;
+  message?: string;
+  connected?: boolean;
+}
+
+const FOLDER_CONFIG_FILE = 'drive_folder_config.json';
+
+function calculateSha256(buffer: Buffer): string {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
 export class GoogleDriveService {
-  private drive: drive_v3.Drive | null = null;
-  private oauth2Client: any = null;
-  private rootFolderId: string = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '15MY3DHoYCSccsIvh5j31lUOZ6ZrSYdlh').trim();
+  public drive: drive_v3.Drive | null = null;
+  private oauth2Client: OAuth2Client | null = null;
+  private authType: 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE' = 'NONE';
+  private principalEmail: string = '';
+  private rootFolderId: string = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
   private isDriveConfigured: boolean = false;
+  private folderConfigCache: DriveFolderConfig | null = null;
 
   constructor() {
     this.initGoogleDrive();
   }
 
+  /**
+   * Initializes Google Drive with OAuth 2.0 user authentication for personal My Drive.
+   * Service Account is supported ONLY if explicitly configured for Google Workspace Shared Drive.
+   */
   public initGoogleDrive(): boolean {
     try {
-      this.rootFolderId = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '15MY3DHoYCSccsIvh5j31lUOZ6ZrSYdlh').trim();
+      this.rootFolderId = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
 
       const clientId = env.GOOGLE_CLIENT_ID;
       const clientSecret = env.GOOGLE_CLIENT_SECRET;
-      const redirectUri = env.GOOGLE_REDIRECT_URI;
-
-      if (!clientId || !clientSecret) {
-        console.warn('[GoogleDriveService] ⚠️ OAuth Client ID and Secret not configured.');
-        this.isDriveConfigured = false;
-        this.drive = null;
-        return false;
-      }
-
-      this.oauth2Client = new google.auth.OAuth2(
-        clientId,
-        clientSecret,
-        redirectUri
-      );
-
+      const redirectUri = env.GOOGLE_DRIVE_OAUTH_REDIRECT_URI;
       const refreshToken = driveTokenService.getRefreshToken() || env.GOOGLE_REFRESH_TOKEN;
+      const isSharedDriveExplicit = process.env.GOOGLE_DRIVE_IS_SHARED_DRIVE === 'true';
 
-      if (refreshToken) {
-        this.oauth2Client.setCredentials({ refresh_token: refreshToken });
-        this.drive = google.drive({ version: 'v3', auth: this.oauth2Client });
-        this.isDriveConfigured = true;
-        console.log('[GoogleDriveService] ✅ Initialized Google Drive API via OAuth 2.0 Client');
-        console.log('[GoogleDriveService] 📁 Root Folder ID configured:', this.rootFolderId);
-        return true;
+      // 1. PRIMARY: Google OAuth 2.0 User Authentication (Personal My Drive)
+      if (clientId && clientSecret && refreshToken) {
+        try {
+          const oauthClient = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+          oauthClient.setCredentials({ refresh_token: refreshToken });
+
+          // Auto-persist new access tokens when refreshed
+          oauthClient.on('tokens', (tokens) => {
+            console.log('[GoogleDriveService] 🔄 Auto-refreshed OAuth access token from Google.');
+            driveTokenService.saveTokens({
+              refreshToken: tokens.refresh_token || refreshToken,
+              accessToken: tokens.access_token || undefined,
+              expiryDate: tokens.expiry_date || undefined
+            });
+          });
+
+          this.oauth2Client = oauthClient;
+          this.drive = google.drive({ version: 'v3', auth: oauthClient });
+          this.authType = 'OAUTH';
+          this.principalEmail = driveTokenService.getGoogleAccount() || env.GOOGLE_DRIVE_ACCOUNT_EMAIL || 'Authorized User';
+          this.isDriveConfigured = true;
+
+          console.log(`[GoogleDriveService] ✅ Initialized Google Drive API via OAuth 2.0 (${this.principalEmail})`);
+          return true;
+        } catch (oaErr: any) {
+          console.warn('[GoogleDriveService] ⚠️ OAuth client initialization error:', oaErr?.message || oaErr);
+        }
       }
 
-      console.warn('[GoogleDriveService] ⚠️ Google Drive OAuth refresh token not available.');
+      // 2. OPTIONAL ALTERNATIVE: Workspace Shared Drive with Service Account (ONLY when explicitly enabled)
+      const serviceEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+      const rawPrivateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+
+      if (isSharedDriveExplicit && serviceEmail && rawPrivateKey) {
+        try {
+          const privateKey = rawPrivateKey.replace(/\\n/g, '\n');
+          const jwtClient = new google.auth.JWT(
+            serviceEmail,
+            undefined,
+            privateKey,
+            ['https://www.googleapis.com/auth/drive']
+          );
+          this.drive = google.drive({ version: 'v3', auth: jwtClient });
+          this.authType = 'SERVICE_ACCOUNT';
+          this.principalEmail = serviceEmail;
+          this.isDriveConfigured = true;
+          console.log(`[GoogleDriveService] 🏢 Initialized Google Drive API via Workspace Shared Drive Service Account (${serviceEmail})`);
+          return true;
+        } catch (saErr: any) {
+          console.warn('[GoogleDriveService] ⚠️ Service Account initialization failed:', saErr?.message || saErr);
+        }
+      }
+
+      // 3. Not Connected
+      this.authType = 'NONE';
+      this.principalEmail = '';
       this.isDriveConfigured = false;
       this.drive = null;
+      this.oauth2Client = null;
+      console.log('[GoogleDriveService] ℹ️ Google Drive is not connected. User OAuth connection required in Settings.');
       return false;
-    } catch (err) {
-      console.error('[GoogleDriveService] ❌ Failed to initialize Google Drive client:', err);
+    } catch (err: any) {
+      console.error('[GoogleDriveService] ❌ Initialization failed:', err?.message || err);
+      this.authType = 'NONE';
+      this.principalEmail = '';
       this.isDriveConfigured = false;
       this.drive = null;
+      this.oauth2Client = null;
       return false;
     }
   }
 
   public isConnected(): boolean {
-    return this.isDriveConfigured && !!this.drive && (driveTokenService.hasRefreshToken() || !!env.GOOGLE_REFRESH_TOKEN);
+    return this.isDriveConfigured && !!this.drive;
   }
 
-  public getRootFolderId(): string {
-    return this.rootFolderId;
+  public getAuthType(): 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE' {
+    return this.authType;
   }
 
-  public async testRootFolderAccess(): Promise<{ accessible: boolean; folderName?: string; error?: string }> {
+  public getAuthMode(): 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE' {
+    return this.authType;
+  }
+
+  public getPrincipalEmail(): string {
+    return driveTokenService.getGoogleAccount() || this.principalEmail || env.GOOGLE_DRIVE_ACCOUNT_EMAIL || '';
+  }
+
+  public getConnectedAccount(): string {
+    return this.getPrincipalEmail();
+  }
+
+  public getRedirectUri(): string {
+    return env.GOOGLE_DRIVE_OAUTH_REDIRECT_URI;
+  }
+
+  public getOAuthClient(): OAuth2Client {
+    const clientId = env.GOOGLE_CLIENT_ID;
+    const clientSecret = env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = env.GOOGLE_DRIVE_OAUTH_REDIRECT_URI;
+
+    if (!clientId || !clientSecret) {
+      throw new Error('Google OAuth Client ID and Secret are not configured in environment.');
+    }
+
+    return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  }
+
+  /**
+   * Ensures active access token is valid before making Drive API calls.
+   * If token is expired, refreshes it automatically using the stored refresh token.
+   */
+  public async ensureValidAccessToken(): Promise<void> {
+    if (this.authType !== 'OAUTH' || !this.oauth2Client) {
+      return;
+    }
+
+    try {
+      await this.oauth2Client.getAccessToken();
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      console.error('[GoogleDriveService] ❌ OAuth token refresh failed:', errMsg);
+      if (
+        errMsg.includes('invalid_grant') ||
+        errMsg.includes('Token has been expired or revoked') ||
+        err?.code === 400 ||
+        err?.code === 401
+      ) {
+        throw new Error('GOOGLE_DRIVE_REAUTH_REQUIRED: Your Google Drive authorization has expired or was revoked. Please reconnect your Google account in Settings.');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Retrieves or loads cached folder configuration.
+   */
+  public getStoredFolderConfig(): DriveFolderConfig | null {
+    if (this.folderConfigCache) return this.folderConfigCache;
+    const stored = googleDriveRepository.readJson<DriveFolderConfig | null>(FOLDER_CONFIG_FILE, null);
+    if (stored && stored.rootFolderId && stored.fullBackupsFolderId) {
+      this.folderConfigCache = stored;
+      return stored;
+    }
+    return null;
+  }
+
+  public saveFolderConfig(config: DriveFolderConfig): void {
+    this.folderConfigCache = config;
+    googleDriveRepository.writeJson(FOLDER_CONFIG_FILE, config);
+    console.log(`[GoogleDriveService] 📁 Persisted single-destination backup folder structure:`, {
+      root: config.rootFolderName,
+      backups: config.backupsFolderName,
+      fullBackups: config.fullBackupsFolderName,
+      fullBackupsFolderId: config.fullBackupsFolderId
+    });
+  }
+
+  /**
+   * Directly verifies the configured KKV DB Google Drive target folder.
+   */
+  public async verifyTargetFolder(): Promise<{
+    folderId: string;
+    folderName: string;
+    isFolder: boolean;
+    isWritable: boolean;
+    isSharedDrive: boolean;
+  }> {
     if (!this.isConnected() || !this.drive) {
       this.initGoogleDrive();
       if (!this.isConnected() || !this.drive) {
-        return { accessible: false, error: 'Google Drive is not connected. Please connect your Google account first.' };
+        const err = new Error('Google Drive is not connected.');
+        (err as any).code = 'GOOGLE_DRIVE_NOT_CONNECTED';
+        throw err;
       }
     }
+
+    await this.ensureValidAccessToken();
+
+    const folderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim();
+
     try {
       const res = await this.drive.files.get({
-        fileId: this.rootFolderId,
-        fields: 'id, name, mimeType, trashed'
+        fileId: folderId,
+        fields: 'id, name, mimeType, trashed, capabilities, driveId',
+        supportsAllDrives: true
       });
-      if (res.data && !res.data.trashed) {
-        console.log(`[GoogleDriveService] ✅ Root folder access verified: "${res.data.name}" (${res.data.id})`);
-        return { accessible: true, folderName: res.data.name || undefined };
+
+      if (!res.data || res.data.trashed) {
+        const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: Configured KKV DB folder was not found or is in trash.');
+        (err as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
+        throw err;
       }
-      return { accessible: false, error: 'Root folder is in trash or unavailable.' };
-    } catch (err: any) {
-      const msg = err?.message || 'File not found';
-      console.error(`[GoogleDriveService] ❌ Root folder access failed (${this.rootFolderId}):`, msg);
+
+      const isFolder = res.data.mimeType === 'application/vnd.google-apps.folder';
+      if (!isFolder) {
+        const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: Configured Google Drive target is not a folder.');
+        (err as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
+        throw err;
+      }
+
+      const isWritable = Boolean(res.data.capabilities?.canAddChildren || res.data.capabilities?.canEdit);
+      const isSharedDrive = Boolean(res.data.driveId);
+
+      if (!isSharedDrive && this.authType === 'SERVICE_ACCOUNT') {
+        const err = new Error(
+          'GOOGLE_DRIVE_AUTH_MODE_INVALID: The configured KKV DB folder is in personal Google Drive. Use Google OAuth user authorization for this folder, or move the backup destination to a Google Workspace Shared Drive for Service Account upload.'
+        );
+        (err as any).code = 'GOOGLE_DRIVE_AUTH_MODE_INVALID';
+        throw err;
+      }
+
+      if (!isWritable) {
+        const err = new Error('GOOGLE_DRIVE_FOLDER_ACCESS_DENIED: The authenticated account does not have write permission in the KKV DB folder.');
+        (err as any).code = 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED';
+        throw err;
+      }
+
       return {
-        accessible: false,
-        error: `The configured Google Drive folder cannot be accessed by the authorized Google account.`
+        folderId: res.data.id || folderId,
+        folderName: res.data.name || 'KKV DB',
+        isFolder,
+        isWritable,
+        isSharedDrive
+      };
+    } catch (err: any) {
+      if ((err as any).code) throw err;
+      const status = err?.status || err?.code || err?.response?.status;
+      const msg = err?.message || String(err);
+      if (msg.includes('invalid_grant') || status === 401) {
+        const e = new Error('GOOGLE_DRIVE_REAUTH_REQUIRED: Google Drive authorization expired.');
+        (e as any).code = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
+        throw e;
+      }
+      if (status === 404) {
+        const e = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: The configured KKV DB folder was not found on Google Drive.');
+        (e as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
+        throw e;
+      }
+      if (status === 403) {
+        const e = new Error('GOOGLE_DRIVE_FOLDER_ACCESS_DENIED: Access denied to the configured KKV DB folder.');
+        (e as any).code = 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED';
+        throw e;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Resolves and verifies the single centralized backup destination:
+   * Google Drive -> KKV DB (1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv)
+   */
+  public async ensureBackupFolderHierarchy(): Promise<DriveFolderConfig> {
+    const target = await this.verifyTargetFolder();
+    const config: DriveFolderConfig = {
+      rootFolderId: target.folderId,
+      rootFolderName: target.folderName,
+      backupsFolderId: target.folderId,
+      backupsFolderName: target.folderName,
+      fullBackupsFolderId: target.folderId,
+      fullBackupsFolderName: target.folderName,
+      lastVerifiedAt: new Date().toISOString()
+    };
+    this.saveFolderConfig(config);
+    return config;
+  }
+
+  public getRootFolderId(): string {
+    const config = this.getStoredFolderConfig();
+    return config?.rootFolderId || (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim();
+  }
+
+  public getBackupsFolderId(): string {
+    return this.getRootFolderId();
+  }
+
+  public getFullBackupsFolderId(): string {
+    return this.getRootFolderId();
+  }
+
+  /**
+   * Diagnostic Health Check without exposing sensitive credentials.
+   */
+  public async getDriveHealth(): Promise<DriveHealthResult> {
+    const configured = this.isConnected();
+    const configuredFolderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim();
+
+    if (!configured || !this.drive) {
+      return {
+        success: false,
+        connected: false,
+        configured: false,
+        authMode: this.authType,
+        googleAccount: this.getPrincipalEmail(),
+        rootFolder: 'KKV DB',
+        backupFolder: 'KKV DB',
+        fullBackupFolder: 'KKV DB',
+        rootFolderId: configuredFolderId,
+        backupsFolderId: configuredFolderId,
+        fullBackupsFolderId: configuredFolderId,
+        driveAccessible: false,
+        folderAccessible: false,
+        folderName: 'KKV DB',
+        folderIdConfigured: !!configuredFolderId,
+        canUpload: false,
+        status: 'NOT_CONNECTED',
+        errorCode: 'GOOGLE_DRIVE_NOT_CONNECTED',
+        message: 'Google Drive is not connected. Please connect your Google account in Settings.'
+      };
+    }
+
+    try {
+      await this.ensureValidAccessToken();
+      const folder = await this.verifyTargetFolder();
+
+      return {
+        success: folder.isFolder && folder.isWritable,
+        connected: folder.isFolder && folder.isWritable,
+        configured: true,
+        authMode: this.authType,
+        googleAccount: this.getPrincipalEmail(),
+        rootFolder: folder.folderName,
+        backupFolder: folder.folderName,
+        fullBackupFolder: folder.folderName,
+        rootFolderId: folder.folderId,
+        backupsFolderId: folder.folderId,
+        fullBackupsFolderId: folder.folderId,
+        driveAccessible: true,
+        folderAccessible: folder.isFolder,
+        folderName: folder.folderName,
+        folderIdConfigured: true,
+        writable: folder.isWritable,
+        canUpload: folder.isFolder && folder.isWritable,
+        status: folder.isFolder && folder.isWritable ? 'READY' : 'FOLDER_ACCESS_DENIED',
+        message: folder.isFolder && folder.isWritable
+          ? 'Google Drive KKV DB backup destination is verified and ready.'
+          : 'Google Drive folder has restricted write permissions.'
+      };
+    } catch (err: any) {
+      const status = err?.status || err?.code || err?.response?.status;
+      const errMsg = err?.message || String(err);
+      let errorCode = (err as any).code || 'GOOGLE_DRIVE_API_UNAVAILABLE';
+      let statusStr: DriveHealthResult['status'] = 'FAILED';
+      let message = err?.message || 'Google Drive is temporarily unavailable.';
+
+      if (errorCode === 'GOOGLE_DRIVE_AUTH_MODE_INVALID') {
+        statusStr = 'FAILED';
+      } else if (errMsg.includes('GOOGLE_DRIVE_REAUTH_REQUIRED') || status === 401 || errMsg.includes('invalid_grant')) {
+        errorCode = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
+        statusStr = 'REAUTH_REQUIRED';
+        message = 'Google Drive authorization expired. Please reconnect your Google account in Settings.';
+      } else if (status === 404 || errorCode === 'GOOGLE_DRIVE_FOLDER_NOT_FOUND') {
+        errorCode = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
+        statusStr = 'FOLDER_ACCESS_DENIED';
+        message = 'The configured KKV DB backup folder was not found on Google Drive.';
+      } else if (status === 403 || errorCode === 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED') {
+        errorCode = 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED';
+        statusStr = 'FOLDER_ACCESS_DENIED';
+        message = 'The connected Google account does not have write access to the KKV DB folder.';
+      }
+
+      return {
+        success: false,
+        connected: false,
+        configured: true,
+        authMode: this.authType,
+        googleAccount: this.getPrincipalEmail(),
+        rootFolder: 'KKV DB',
+        backupFolder: 'KKV DB',
+        fullBackupFolder: 'KKV DB',
+        rootFolderId: configuredFolderId,
+        backupsFolderId: configuredFolderId,
+        fullBackupsFolderId: configuredFolderId,
+        driveAccessible: false,
+        folderAccessible: false,
+        folderName: 'KKV DB',
+        folderIdConfigured: true,
+        canUpload: false,
+        status: statusStr,
+        errorCode,
+        message
       };
     }
   }
 
   /**
-   * Dynamically search for or create a folder on Google Drive.
-   * Supports path splitting (e.g., "system/admins") and returns the REAL Google Drive folder ID.
+   * Search for or create a folder on Google Drive.
    */
   public async getOrCreateFolder(folderPath: string, parentId?: string): Promise<string> {
     if (!this.drive) {
-      throw new Error('[GoogleDriveService] Google Drive API is not initialized or connected.');
+      this.initGoogleDrive();
+      if (!this.drive) {
+        throw new Error('GOOGLE_DRIVE_NOT_CONNECTED: Google Drive is not connected.');
+      }
     }
 
-    let currentParent = (parentId || this.rootFolderId || '').trim();
+    await this.ensureValidAccessToken();
 
-    // Strict check: Never accept fake local fallback strings or folder names as Google Drive parent IDs
-    if (!currentParent || currentParent.startsWith('local_') || currentParent === 'KKV_GOLD_FINANCE') {
-      throw new Error(`[GoogleDriveService] Cannot search/create folder "${folderPath}" with invalid parent ID "${currentParent}".`);
+    let currentParent = (parentId || this.rootFolderId || '').trim();
+    if (!currentParent || currentParent.startsWith('local_') || currentParent === 'KKV DB') {
+      currentParent = this.rootFolderId;
     }
 
     const segments = folderPath.split('/').map(s => s.trim()).filter(Boolean);
@@ -134,10 +503,7 @@ export class GoogleDriveService {
       return currentParent;
     }
 
-    let currentPath = '';
     for (const segment of segments) {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      console.log(`[GoogleDriveService] Processing folder segment: "${currentPath}" (parent ID: ${currentParent})`);
       currentParent = await this.getOrCreateSingleSegment(segment, currentParent);
     }
 
@@ -146,49 +512,285 @@ export class GoogleDriveService {
 
   private async getOrCreateSingleSegment(folderName: string, parentFolderId: string): Promise<string> {
     if (!this.drive) {
-      throw new Error('[GoogleDriveService] Google Drive API is not initialized.');
+      throw new Error('GOOGLE_DRIVE_NOT_CONNECTED: Google Drive API is not initialized.');
     }
 
     const safeName = folderName.replace(/'/g, "\\'");
     try {
-      const query = `name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${parentFolderId}' in parents`;
+      const parentCondition = parentFolderId === 'root' ? `'root' in parents` : `'${parentFolderId}' in parents`;
+      const query = `name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and ${parentCondition}`;
 
       const res = await this.drive.files.list({
         q: query,
         fields: 'files(id, name)',
-        spaces: 'drive'
+        spaces: 'drive',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true
       });
 
       if (res.data.files && res.data.files.length > 0) {
-        const foundId = res.data.files[0].id!;
-        console.log(`[GoogleDriveService] Found existing Drive folder "${folderName}" -> ID: ${foundId}`);
-        return foundId;
+        return res.data.files[0].id!;
       }
 
-      // Create new folder under parentFolderId
-      const folderMetadata: drive_v3.Schema$File = {
-        name: folderName,
-        mimeType: 'application/vnd.google-apps.folder',
-        parents: [parentFolderId]
-      };
-
       const created = await this.drive.files.create({
-        requestBody: folderMetadata,
-        fields: 'id, name'
+        requestBody: {
+          name: folderName,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [parentFolderId]
+        },
+        fields: 'id, name',
+        supportsAllDrives: true
       });
 
-      const newId = created.data.id!;
-      console.log(`[GoogleDriveService] Created new Drive folder "${folderName}" -> ID: ${newId}`);
-      return newId;
+      return created.data.id!;
     } catch (err: any) {
-      console.error(`[GoogleDriveService] Error in getOrCreateSingleSegment for "${folderName}":`, err?.message || err);
-      throw new Error(`Failed to access or create Google Drive folder "${folderName}": ${err?.message || 'Drive API error'}`);
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('invalid_grant') || err?.code === 401) {
+        throw new Error('GOOGLE_DRIVE_REAUTH_REQUIRED: Google Drive authorization expired.');
+      }
+      throw new Error(`Failed to access or create Google Drive folder "${folderName}": ${errMsg}`);
     }
   }
 
-  // Ensure Customer Folders Structure under KKV_GOLD_FINANCE/Customers/
+  /**
+   * Uploads a backup archive directly into Full_System_Backups and verifies:
+   * 1. File exists
+   * 2. Parents includes fullBackupsFolderId
+   * 3. File size matches
+   * 4. Downloads and recalculates SHA-256
+   */
+  public async uploadBackupArchive(payload: {
+    buffer: Buffer;
+    fileName: string;
+    backupId?: string;
+    backupType?: 'FULL_BACKUP' | 'PRE_RESTORE_BACKUP' | 'RESTORED_STATE' | 'EMERGENCY_BACKUP' | 'PRE_WIPE_BACKUP';
+    sha256: string;
+    description?: string;
+  }): Promise<{
+    verified: boolean;
+    fileId: string;
+    fileName: string;
+    fileSize: number;
+    sha256: string;
+    folderId: string;
+    drivePath: string;
+    syncedAt: string;
+    uploadedAt: string;
+    backupType: string;
+  }> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        const err = new Error('Google Drive is not connected.');
+        (err as any).code = 'GOOGLE_DRIVE_NOT_CONNECTED';
+        throw err;
+      }
+    }
+
+    await this.ensureValidAccessToken();
+    const folderConfig = await this.ensureBackupFolderHierarchy();
+    const targetFolderId = folderConfig.fullBackupsFolderId;
+
+    if (!targetFolderId) {
+      const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: KKV DB folder ID is not established.');
+      (err as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
+      throw err;
+    }
+
+    const backupType = payload.backupType || 'FULL_BACKUP';
+    const drivePath = 'My Drive → KKV DB';
+
+    console.log(`[GoogleDriveService] ☁️ Uploading ${payload.fileName} (${payload.buffer.length} bytes) to KKV DB (${targetFolderId})...`);
+
+    try {
+      const bufferStream = new Readable();
+      bufferStream.push(payload.buffer);
+      bufferStream.push(null);
+
+      const fileMetadata: drive_v3.Schema$File = {
+        name: payload.fileName,
+        parents: [targetFolderId],
+        mimeType: 'application/zip',
+        description: payload.description || `KKV Gold Finance Backup Package (${backupType})`
+      };
+
+      const media = {
+        mimeType: 'application/zip',
+        body: bufferStream
+      };
+
+      const uploadRes = await this.drive.files.create({
+        requestBody: fileMetadata,
+        media,
+        fields: 'id, name, size, parents, mimeType, createdTime',
+        supportsAllDrives: true
+      });
+
+      const fileId = uploadRes.data.id;
+      if (!fileId) {
+        const err = new Error('Google Drive upload did not return a valid File ID.');
+        (err as any).code = 'GOOGLE_DRIVE_UPLOAD_FAILED';
+        throw err;
+      }
+
+      // Step 1: Verification - File existence, size & parent folder check
+      const getRes = await this.drive.files.get({
+        fileId,
+        fields: 'id, name, size, parents, trashed',
+        supportsAllDrives: true
+      });
+
+      if (getRes.data.trashed || !getRes.data.size || parseInt(getRes.data.size, 10) === 0) {
+        const err = new Error('Uploaded Google Drive file verification failed (file empty or trashed).');
+        (err as any).code = 'GOOGLE_DRIVE_VERIFICATION_FAILED';
+        throw err;
+      }
+
+      if (!getRes.data.parents || !getRes.data.parents.includes(targetFolderId)) {
+        const err = new Error(`Uploaded file parent folder verification failed. Expected folder: ${targetFolderId}, found: ${JSON.stringify(getRes.data.parents)}`);
+        (err as any).code = 'GOOGLE_DRIVE_VERIFICATION_FAILED';
+        throw err;
+      }
+
+      // Step 2: Verification - Download and round-trip SHA-256 check
+      const downloadRes = await this.drive.files.get(
+        { fileId, alt: 'media', supportsAllDrives: true },
+        { responseType: 'arraybuffer' }
+      );
+
+      const downloadedBuffer = Buffer.from(downloadRes.data as ArrayBuffer);
+      const downloadedSha = calculateSha256(downloadedBuffer);
+
+      if (downloadedSha !== payload.sha256) {
+        const err = new Error(`Google Drive SHA-256 verification mismatch. Local: ${payload.sha256}, Remote: ${downloadedSha}`);
+        (err as any).code = 'GOOGLE_DRIVE_VERIFICATION_FAILED';
+        throw err;
+      }
+
+      console.log(`[GoogleDriveService] ✅ Upload and round-trip SHA-256 verified for ${payload.fileName} in KKV DB.`);
+
+      const nowIso = new Date().toISOString();
+      return {
+        verified: true,
+        fileId,
+        fileName: payload.fileName,
+        fileSize: payload.buffer.length,
+        sha256: downloadedSha,
+        folderId: targetFolderId,
+        drivePath,
+        syncedAt: nowIso,
+        uploadedAt: nowIso,
+        backupType
+      };
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      console.error(`[GoogleDriveService] Upload failed for ${payload.fileName}:`, errMsg);
+
+      if (errMsg.includes('invalid_grant') || err?.code === 401) {
+        const e = new Error('GOOGLE_DRIVE_REAUTH_REQUIRED: Google Drive authorization expired. Please reconnect your account.');
+        (e as any).code = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
+        throw e;
+      }
+
+      if (errMsg.includes('storageQuotaExceeded') || errMsg.includes('quota') || (err?.code === 403 && errMsg.includes('storage'))) {
+        const e = new Error('GOOGLE_DRIVE_QUOTA_EXCEEDED: Google Drive storage quota exceeded.');
+        (e as any).code = 'GOOGLE_DRIVE_QUOTA_EXCEEDED';
+        throw e;
+      }
+
+      if ((err as any).code) throw err;
+      const e = new Error(`GOOGLE_DRIVE_UPLOAD_FAILED: ${errMsg}`);
+      (e as any).code = 'GOOGLE_DRIVE_UPLOAD_FAILED';
+      throw e;
+    }
+  }
+
+  /**
+   * Lists verified backup files located strictly inside KKV DB.
+   */
+  public async listFullBackups(): Promise<Array<{
+    fileId: string;
+    fileName: string;
+    createdTime: string;
+    sizeBytes: number;
+    drivePath: string;
+    status: string;
+    isZip: boolean;
+  }>> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        throw new Error('Google Drive is not connected.');
+      }
+    }
+
+    await this.ensureValidAccessToken();
+    const folderConfig = await this.ensureBackupFolderHierarchy();
+    const targetFolderId = folderConfig.fullBackupsFolderId;
+
+    const res = await this.drive.files.list({
+      q: `'${targetFolderId}' in parents and trashed = false`,
+      fields: 'files(id, name, size, createdTime, mimeType, description)',
+      orderBy: 'createdTime desc',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
+    });
+
+    const files = res.data.files || [];
+    return files.map(file => {
+      const isZip = (file.name || '').endsWith('.zip');
+      return {
+        fileId: file.id!,
+        fileName: file.name!,
+        createdTime: file.createdTime || new Date().toISOString(),
+        sizeBytes: file.size ? parseInt(file.size, 10) : 0,
+        drivePath: 'My Drive → KKV DB',
+        status: '✓ Verified Google Drive Backup',
+        isZip
+      };
+    });
+  }
+
+  /**
+   * Downloads a Drive file buffer by fileId.
+   */
+  public async downloadDriveFileBuffer(fileId: string): Promise<{ buffer: Buffer; name: string; size: number; mimeType: string }> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        throw new Error('Google Drive is not connected.');
+      }
+    }
+
+    await this.ensureValidAccessToken();
+
+    const meta = await this.drive.files.get({
+      fileId,
+      fields: 'id, name, size, mimeType, trashed',
+      supportsAllDrives: true
+    });
+
+    if (meta.data.trashed) {
+      throw new Error('Requested Google Drive file is in the trash.');
+    }
+
+    const downloadRes = await this.drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'arraybuffer' }
+    );
+
+    const buffer = Buffer.from(downloadRes.data as ArrayBuffer);
+    return {
+      buffer,
+      name: meta.data.name || `drive_backup_${fileId}.zip`,
+      size: buffer.length,
+      mimeType: meta.data.mimeType || 'application/zip'
+    };
+  }
+
+  // Ensure Customer Folders Structure
   public async ensureCustomerFolders(customerId: string): Promise<CustomerFolderStructure> {
-    const rootId = this.rootFolderId;
+    const rootId = this.getRootFolderId();
     const customersFolderId = await this.getOrCreateFolder('Customers', rootId);
     const customerFolderId = await this.getOrCreateFolder(customerId, customersFolderId);
 
@@ -202,9 +804,9 @@ export class GoogleDriveService {
     };
   }
 
-  // Ensure Loan Folders Structure under KKV_GOLD_FINANCE/Loans/
+  // Ensure Loan Folders Structure
   public async ensureLoanFolders(loanId: string): Promise<LoanFolderStructure> {
-    const rootId = this.rootFolderId;
+    const rootId = this.getRootFolderId();
     const loansFolderId = await this.getOrCreateFolder('Loans', rootId);
     const loanFolderId = await this.getOrCreateFolder(loanId, loansFolderId);
 
@@ -218,192 +820,179 @@ export class GoogleDriveService {
     };
   }
 
-  // Ensure Backups Folder Structure under KKV_GOLD_FINANCE/Backups/
-  public async ensureBackupsFolder(deviceId?: string): Promise<string> {
-    const rootId = this.rootFolderId;
-    if (!rootId) {
-      throw new Error('[GoogleDriveService] Root GOOGLE_DRIVE_FOLDER_ID is not configured.');
-    }
-
-    // 1. Get or create 'Backups' directly inside the root folder
-    const backupsFolderId = await this.getOrCreateFolder('Backups', rootId);
-
-    // 2. Get or create device folder ('Desktop' or 'Mobile') inside 'Backups'
-    const deviceName = deviceId
-      ? (deviceId.toLowerCase().includes('mobile') ? 'Mobile' : 'Desktop')
-      : 'Desktop';
-
-    const deviceFolderId = await this.getOrCreateFolder(deviceName, backupsFolderId);
-    return deviceFolderId;
-  }
-
-  // Upload File (from Buffer) to Google Drive
-  public async uploadFile(
-    file: { originalname: string; mimetype: string; buffer: Buffer },
-    parentFolderId?: string
-  ): Promise<DriveFileUploadResult> {
-    if (!this.drive) {
-      throw new Error('[GoogleDriveService] Cannot upload file: Google Drive API is not connected.');
-    }
-
-    const targetFolder = parentFolderId || this.rootFolderId;
-    if (targetFolder && targetFolder.startsWith('local_')) {
-      throw new Error(`[GoogleDriveService] Invalid parent folder ID "${targetFolder}" for file upload.`);
-    }
-
+  public async testRootFolderAccess(): Promise<{ accessible: boolean; error?: string; errorCode?: string }> {
     try {
-      const bufferStream = new Readable();
-      bufferStream.push(file.buffer);
-      bufferStream.push(null);
-
-      const fileMetadata: drive_v3.Schema$File = {
-        name: file.originalname,
-        parents: targetFolder ? [targetFolder] : undefined
-      };
-
-      const media = {
-        mimeType: file.mimetype,
-        body: bufferStream
-      };
-
-      const res = await this.drive.files.create({
-        requestBody: fileMetadata,
-        media,
-        fields: 'id, name, mimeType, webViewLink, webContentLink'
-      });
-
-      const fileId = res.data.id!;
-
-      // Attempt to grant public link read permission
-      try {
-        await this.drive.permissions.create({
-          fileId,
-          requestBody: {
-            role: 'reader',
-            type: 'anyone'
-          }
-        });
-      } catch {
-        // Ignore permission grant error if restricted
-      }
-
-      console.log(`[GoogleDriveService] Uploaded file "${file.originalname}" -> Drive File ID: ${fileId}`);
-
-      return {
-        fileId,
-        name: res.data.name || file.originalname,
-        mimeType: res.data.mimeType || file.mimetype,
-        webViewLink: res.data.webViewLink || undefined,
-        webContentLink: res.data.webContentLink || undefined,
-        folderId: targetFolder
-      };
-    } catch (err: any) {
-      console.error(`[GoogleDriveService] Error uploading file "${file.originalname}":`, err?.message || err);
-      throw err;
-    }
-  }
-
-  // Verify that a file physically exists on Google Drive
-  public async verifyFileExists(fileId: string): Promise<{ exists: boolean; name?: string; size?: number }> {
-    if (!this.drive) return { exists: false };
-    try {
-      const res = await this.drive.files.get({
-        fileId,
-        fields: 'id, name, size, mimeType, parents, trashed'
-      });
-      if (res.data && !res.data.trashed) {
+      const health = await this.getDriveHealth();
+      if (!health.success || !health.folderAccessible) {
         return {
-          exists: true,
-          name: res.data.name || undefined,
-          size: res.data.size ? parseInt(res.data.size, 10) : undefined
+          accessible: false,
+          errorCode: health.errorCode || 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED',
+          error: health.message || 'Configured Google Drive folder cannot be accessed.'
         };
       }
-      return { exists: false };
+      return { accessible: true };
     } catch (err: any) {
-      console.error(`[GoogleDriveService] Verification failed for Drive File ID ${fileId}:`, err?.message || err);
-      return { exists: false };
+      return {
+        accessible: false,
+        errorCode: 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED',
+        error: err?.message || 'Failed to access Google Drive root folder.'
+      };
     }
   }
 
-  // List Files in Folder
-  public async listFiles(folderId?: string, queryStr?: string): Promise<drive_v3.Schema$File[]> {
-    if (!this.drive) return [];
+  public async ensureBackupsFolder(_deviceId?: string): Promise<string> {
+    const folderConfig = await this.ensureBackupFolderHierarchy();
+    return folderConfig.fullBackupsFolderId;
+  }
 
+  public async uploadFile(
+    file: { originalname: string; mimetype?: string; buffer: Buffer },
+    folderId?: string
+  ): Promise<DriveFileUploadResult> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        throw new Error('GOOGLE_DRIVE_NOT_CONNECTED: Google Drive is not connected.');
+      }
+    }
+
+    await this.ensureValidAccessToken();
+
+    const targetFolderId = folderId || this.getRootFolderId();
+    const bufferStream = new Readable();
+    bufferStream.push(file.buffer);
+    bufferStream.push(null);
+
+    const fileMetadata: drive_v3.Schema$File = {
+      name: file.originalname,
+      parents: [targetFolderId]
+    };
+
+    const media = {
+      mimeType: file.mimetype || 'application/octet-stream',
+      body: bufferStream
+    };
+
+    const res = await this.drive.files.create({
+      requestBody: fileMetadata,
+      media,
+      fields: 'id, name, mimeType, webViewLink, webContentLink',
+      supportsAllDrives: true
+    });
+
+    return {
+      fileId: res.data.id!,
+      name: res.data.name!,
+      mimeType: res.data.mimeType!,
+      webViewLink: res.data.webViewLink || undefined,
+      webContentLink: res.data.webContentLink || undefined,
+      folderId: targetFolderId
+    };
+  }
+
+  public async listFiles(folderId?: string, query?: string): Promise<any[]> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) return [];
+    }
+
+    await this.ensureValidAccessToken();
+    const targetFolder = folderId || this.getRootFolderId();
+    let q = `'${targetFolder}' in parents and trashed = false`;
+    if (query) {
+      q = `${q} and (${query})`;
+    }
+    const res = await this.drive.files.list({
+      q,
+      fields: 'files(id, name, mimeType, size, createdTime, webViewLink, webContentLink)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
+    });
+
+    return res.data.files || [];
+  }
+
+  public async downloadFile(fileId: string): Promise<{ buffer: Buffer; stream: Readable; name: string; mimeType: string }> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) {
+        throw new Error('Google Drive is not connected.');
+      }
+    }
+
+    await this.ensureValidAccessToken();
+
+    const meta = await this.drive.files.get({
+      fileId,
+      fields: 'id, name, mimeType',
+      supportsAllDrives: true
+    });
+
+    const res = await this.drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'arraybuffer' }
+    );
+
+    const buffer = Buffer.from(res.data as ArrayBuffer);
+    const stream = new Readable();
+    stream.push(buffer);
+    stream.push(null);
+
+    return {
+      buffer,
+      stream,
+      name: meta.data.name || 'download',
+      mimeType: meta.data.mimeType || 'application/octet-stream'
+    };
+  }
+
+  public async deleteFile(fileId: string): Promise<boolean> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) return false;
+    }
+
+    await this.ensureValidAccessToken();
     try {
-      const targetFolder = folderId || this.rootFolderId;
-      let query = 'trashed = false';
-      if (targetFolder && !targetFolder.startsWith('local_')) {
-        query += ` and '${targetFolder}' in parents`;
-      }
-      if (queryStr) {
-        query += ` and name contains '${queryStr}'`;
-      }
-
-      const res = await this.drive.files.list({
-        q: query,
-        fields: 'files(id, name, mimeType, size, createdTime, webViewLink, webContentLink, iconLink, thumbnailLink)',
-        orderBy: 'createdTime desc'
-      });
-
-      return res.data.files || [];
-    } catch (err) {
-      console.error('[GoogleDriveService] Error listing files:', err);
-      return [];
+      await this.drive.files.delete({ fileId, supportsAllDrives: true });
+      return true;
+    } catch {
+      return false;
     }
   }
 
-  // Get File Metadata
-  public async getFileMetadata(fileId: string): Promise<drive_v3.Schema$File | null> {
-    if (!this.drive || fileId.startsWith('local_')) return null;
+  public async verifyFileExists(fileId: string): Promise<{ exists: boolean; fileId: string; name?: string }> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) return { exists: false, fileId };
+    }
 
+    await this.ensureValidAccessToken();
     try {
       const res = await this.drive.files.get({
         fileId,
-        fields: 'id, name, mimeType, size, createdTime, webViewLink, webContentLink, iconLink, thumbnailLink'
+        fields: 'id, name, trashed',
+        supportsAllDrives: true
       });
-      return res.data;
-    } catch (err) {
-      console.error(`[GoogleDriveService] Error fetching metadata for file ${fileId}:`, err);
-      return null;
+      const exists = !!(res.data && !res.data.trashed);
+      return { exists, fileId, name: res.data?.name || undefined };
+    } catch {
+      return { exists: false, fileId };
     }
   }
 
-  // Download File (Stream)
-  public async downloadFile(fileId: string): Promise<{ stream: any; mimeType: string; name: string }> {
-    if (!this.drive || fileId.startsWith('local_')) {
-      throw new Error('Google Drive API is not connected or file ID is invalid.');
-    }
-
-    try {
-      const meta = await this.getFileMetadata(fileId);
-      const res = await this.drive.files.get(
-        { fileId, alt: 'media' },
-        { responseType: 'stream' }
-      );
-
-      return {
-        stream: res.data,
-        mimeType: meta?.mimeType || 'application/octet-stream',
-        name: meta?.name || `file_${fileId}`
-      };
-    } catch (err) {
-      console.error(`[GoogleDriveService] Error downloading file ${fileId}:`, err);
-      throw err;
-    }
-  }
-
-  // Delete File
-  public async deleteFile(fileId: string): Promise<boolean> {
-    if (!this.drive || fileId.startsWith('local_')) return true;
-
-    try {
-      await this.drive.files.delete({ fileId });
-      console.log(`[GoogleDriveService] Deleted Drive file ${fileId}`);
-      return true;
-    } catch (err) {
-      console.error(`[GoogleDriveService] Error deleting Drive file ${fileId}:`, err);
-      return false;
-    }
+  /**
+   * Disconnects Google Drive by clearing local OAuth tokens.
+   */
+  public disconnect(): void {
+    driveTokenService.clearTokens();
+    this.drive = null;
+    this.oauth2Client = null;
+    this.authType = 'NONE';
+    this.principalEmail = '';
+    this.isDriveConfigured = false;
+    this.folderConfigCache = null;
+    console.log('[GoogleDriveService] 🔌 Disconnected Google Drive and cleared tokens.');
   }
 }
 

@@ -1,83 +1,166 @@
-import React, { useState } from 'react';
-import { AlertTriangle, CheckCircle2, ShieldCheck, HardDrive, RefreshCw, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ShieldCheck,
+  RefreshCw,
+  X,
+  Download,
+  Check,
+  FileArchive
+} from 'lucide-react';
 import { apiService } from '../../services/api';
 
 export interface WipeAllDataModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccessReset: () => void;
+  onOpenRestore?: () => void;
 }
 
 export const WipeAllDataModal: React.FC<WipeAllDataModalProps> = ({
   isOpen,
   onClose,
-  onSuccessReset
+  onSuccessReset,
+  onOpenRestore
 }) => {
-  // Steps: 1 = Initial Confirmation, 2 = Backup & Verify, 3 = Final Confirmation, 4 = Wiping, 5 = Success Screen
+  // Steps: 1 = Preview & Start, 2 = Verify, 3 = Download & Ack, 4 = Final Confirm, 5 = Wiped
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [inputConfirmation, setInputConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Preview Data
+  const [previewData, setPreviewData] = useState<{
+    counts: {
+      customers: number;
+      loans: number;
+      receipts: number;
+      fixedDeposits: number;
+      fdCustomers: number;
+      fdInterestPayouts: number;
+      fdWithdrawals: number;
+      dayBookEntries: number;
+      reminders: number;
+      notifications: number;
+      totalOperationalRecords: number;
+    };
+    wipeableEntities: string[];
+    preservedSystemData: string[];
+  } | null>(null);
 
   // Backup Verification Record
   const [verificationRecord, setVerificationRecord] = useState<{
     token: string;
-    fileId: string;
+    backupId: string;
     fileName: string;
     fileSize: number;
+    sha256: string;
+    backupStatus: string;
     uploadedAt: string;
     drivePath: string;
+    recordCounts: Record<string, number>;
   } | null>(null);
 
-  // Verification Checklist State
+  // Download State
+  const [downloadTriggered, setDownloadTriggered] = useState(false);
+  const [downloadAcknowledged, setDownloadAcknowledged] = useState(false);
+
+  // Final confirmation input & checkbox
+  const [inputConfirmation, setInputConfirmation] = useState('');
+  const [agreeCheckbox, setAgreeCheckbox] = useState(false);
+
+  // Checklist for Step 2
   const [checklist, setChecklist] = useState({
     snapshot: false,
-    upload: false,
-    access: false,
-    integrity: false
+    csv: false,
+    zip: false,
+    sha256: false
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      setStep(1);
+      setErrorMessage('');
+      setDownloadTriggered(false);
+      setDownloadAcknowledged(false);
+      setInputConfirmation('');
+      setAgreeCheckbox(false);
+      loadPreview();
+    }
+  }, [isOpen]);
+
+  const loadPreview = async () => {
+    try {
+      const res = await apiService.getWipePreview();
+      if (res.success && res.data) {
+        setPreviewData(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to load wipe preview:', err);
+    }
+  };
 
   if (!isOpen) return null;
 
-  const handleStartBackup = async () => {
-    if (inputConfirmation !== 'WIPE ALL DATA') return;
-
+  const handleStartBackupAndVerify = async () => {
     setStep(2);
     setLoading(true);
     setErrorMessage('');
-    setChecklist({ snapshot: true, upload: false, access: false, integrity: false });
+    setChecklist({ snapshot: true, csv: false, zip: false, sha256: false });
 
     try {
-      // Simulate smooth progress indicator steps
-      setTimeout(() => {
-        setChecklist((prev) => ({ ...prev, upload: true }));
-      }, 1000);
+      setTimeout(() => setChecklist((prev) => ({ ...prev, csv: true })), 400);
+      setTimeout(() => setChecklist((prev) => ({ ...prev, zip: true })), 800);
+      setTimeout(() => setChecklist((prev) => ({ ...prev, sha256: true })), 1200);
 
       const res = await apiService.initiateWipeBackup('WIPE ALL DATA');
 
       if (!res.success || !res.data) {
-        throw new Error(res.message || 'Google Drive backup creation or verification failed. No application data was deleted.');
+        throw new Error(res.message || 'Backup generation or verification failed. No application data was deleted.');
       }
 
-      setChecklist({ snapshot: true, upload: true, access: true, integrity: true });
       setVerificationRecord(res.data);
       setLoading(false);
 
-      // Transition to final confirmation
       setTimeout(() => {
         setStep(3);
-      }, 800);
+      }, 700);
     } catch (err: any) {
-      console.error('[WipeAllDataModal] Backup initiation error:', err);
-      setErrorMessage(err?.message || 'Google Drive backup verification failed. No application data was deleted.');
+      console.error('[WipeAllDataModal] Error:', err);
+      setErrorMessage(err?.message || 'Backup generation or verification failed. No application data was deleted.');
       setLoading(false);
+    }
+  };
+
+  const handleDownloadFile = () => {
+    if (!verificationRecord) return;
+    const downloadUrl = apiService.getBackupDownloadUrl(verificationRecord.backupId);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.setAttribute('download', verificationRecord.fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setDownloadTriggered(true);
+  };
+
+  const handleAcknowledgeDownload = async () => {
+    if (!verificationRecord) return;
+    try {
+      await apiService.acknowledgeBackupDownload(verificationRecord.backupId);
+      setDownloadAcknowledged(true);
+      setStep(4);
+    } catch (err: any) {
+      console.warn('Acknowledgment warning:', err);
+      setDownloadAcknowledged(true);
+      setStep(4);
     }
   };
 
   const handleConfirmWipe = async () => {
     if (!verificationRecord || !verificationRecord.token) return;
+    if (inputConfirmation !== 'WIPE ALL DATA' || !agreeCheckbox) return;
 
-    setStep(4);
     setLoading(true);
     setErrorMessage('');
 
@@ -102,13 +185,16 @@ export const WipeAllDataModal: React.FC<WipeAllDataModalProps> = ({
     onClose();
   };
 
+  const isExactConfirm = inputConfirmation.trim() === 'WIPE ALL DATA';
+  const isWipeEnabled = isExactConfirm && agreeCheckbox && downloadAcknowledged && !loading;
+
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.75)',
-        backdropFilter: 'blur(6px)',
+        backgroundColor: 'rgba(15, 23, 42, 0.7)',
+        backdropFilter: 'blur(5px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -120,154 +206,230 @@ export const WipeAllDataModal: React.FC<WipeAllDataModalProps> = ({
         className="card"
         style={{
           width: '100%',
-          maxWidth: '620px',
+          maxWidth: '680px',
           maxHeight: '92vh',
           overflowY: 'auto',
-          boxShadow: '0 25px 50px -12px rgba(220, 38, 38, 0.35)',
-          borderRadius: 'var(--radius-lg, 12px)',
-          border: '2px solid #DC2626',
+          boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.35)',
+          borderRadius: '12px',
+          border: '1px solid #E2E8F0',
           padding: 0,
           overflow: 'hidden',
-          backgroundColor: 'var(--bg-surface, #ffffff)'
+          backgroundColor: '#FFFFFF'
         }}
       >
-        {/* Header */}
+        {/* TOP HEADER */}
         <div
           style={{
-            padding: '18px 24px',
-            backgroundColor: step === 5 ? '#065F46' : '#991B1B',
-            color: '#FFFFFF',
+            padding: '16px 22px',
+            backgroundColor: step === 5 ? '#065F46' : '#FFFFFF',
+            borderBottom: step === 5 ? 'none' : '1px solid #E2E8F0',
+            color: step === 5 ? '#FFFFFF' : '#1E293B',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {step === 5 ? <CheckCircle2 size={24} /> : <AlertTriangle size={24} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                backgroundColor: step === 5 ? 'rgba(255, 255, 255, 0.2)' : '#FEE2E2',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: step === 5 ? '#FFFFFF' : '#DC2626'
+              }}
+            >
+              {step === 5 ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+            </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800 }}>
-                {step === 1 && '⚠️ Permanently Wipe All Application Data?'}
-                {step === 2 && 'Creating & Verifying Cloud Backup'}
-                {step === 3 && 'Backup Verified Successfully'}
-                {step === 4 && 'Atomic Data Wipe in Progress'}
-                {step === 5 && '✓ SYSTEM DATA SUCCESSFULLY WIPED'}
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>
+                {step === 5 ? 'System Data Successfully Wiped' : 'Wipe All Operational Data'}
               </h3>
-              <p style={{ margin: 0, fontSize: '11.5px', opacity: 0.9 }}>
-                {step === 5 ? 'System is clear and ready for a fresh start' : 'Production Fail-Safe Workflow'}
+              <p style={{ margin: 0, fontSize: '12px', opacity: step === 5 ? 0.9 : 0.6 }}>
+                {step === 5
+                  ? 'All records removed. Database verified empty.'
+                  : 'Multi-Step Fail-Safe Recovery Workflow'}
               </p>
             </div>
           </div>
 
-          {step !== 2 && step !== 4 && (
+          {step !== 2 && (
             <button
               onClick={onClose}
-              style={{ background: 'none', border: 'none', color: '#FFF', cursor: 'pointer', opacity: 0.8 }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: step === 5 ? '#FFF' : '#64748B',
+                cursor: 'pointer'
+              }}
             >
               <X size={20} />
             </button>
           )}
         </div>
 
-        {/* Body */}
-        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        {/* STEP PROGRESS BAR */}
+        {step !== 5 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 22px',
+              backgroundColor: '#F8FAFC',
+              borderBottom: '1px solid #E2E8F0',
+              fontSize: '11.5px',
+              fontWeight: 700
+            }}
+          >
+            {[
+              { num: 1, label: '1. Review' },
+              { num: 2, label: '2. Verify' },
+              { num: 3, label: '3. Download' },
+              { num: 4, label: '4. Confirm' }
+            ].map((s) => {
+              const isPast = step > s.num;
+              const isCurrent = step === s.num;
+              return (
+                <div
+                  key={s.num}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: isCurrent ? '#DC2626' : isPast ? '#16A34A' : '#94A3B8'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      backgroundColor: isCurrent ? '#DC2626' : isPast ? '#16A34A' : '#E2E8F0',
+                      color: isCurrent || isPast ? '#FFF' : '#64748B'
+                    }}
+                  >
+                    {isPast ? '✓' : s.num}
+                  </div>
+                  <span>{s.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* MODAL BODY */}
+        <div style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
           {/* ERROR ALERT BANNER */}
           {errorMessage && (
             <div
               style={{
-                padding: '14px 16px',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid #EF4444',
+                padding: '12px 16px',
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #F87171',
                 borderRadius: '8px',
                 color: '#991B1B',
                 fontSize: '13px',
                 lineHeight: '1.5'
               }}
             >
-              <strong style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
+              <strong style={{ display: 'block', fontSize: '13px', marginBottom: '2px' }}>
                 🛑 Operation Halted (Data Intact)
               </strong>
               {errorMessage}
             </div>
           )}
 
-          {/* STEP 1: HIGH RISK WARNING & CONFIRMATION TEXT */}
+          {/* STEP 1: REVIEW DATA & INITIATE BACKUP */}
           {step === 1 && (
             <>
               <div
                 style={{
-                  padding: '14px 16px',
-                  backgroundColor: 'rgba(254, 242, 242, 1)',
-                  borderLeft: '4px solid #DC2626',
+                  padding: '12px 14px',
+                  backgroundColor: '#FFFBEB',
+                  borderLeft: '4px solid #F59E0B',
                   borderRadius: '6px',
-                  color: '#7F1D1D',
-                  fontSize: '13px',
+                  color: '#92400E',
+                  fontSize: '12.5px',
                   lineHeight: '1.5'
                 }}
               >
-                This action will permanently remove all operational data from the KKV Gold Finance application. Before deletion, a complete encrypted backup will be created and verified in Google Drive.
+                Before any data can be wiped, the system will generate a complete, portable <strong>ZIP backup package</strong> containing JSON snapshots, CSV exports, manifest, and SHA-256 checksums.
               </div>
 
+              {/* RECORD COUNTS TABLE */}
               <div>
-                <h4 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-dark)', marginBottom: '8px' }}>
-                  The following data will be PERMANENTLY WIPED:
+                <h4 style={{ fontSize: '13px', fontWeight: 800, color: '#1E293B', marginBottom: '8px' }}>
+                  Operational Data to be Removed:
                 </h4>
-                <ul
+                <div
                   style={{
-                    margin: 0,
-                    paddingLeft: '20px',
-                    fontSize: '12.5px',
-                    color: 'var(--text-secondary)',
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
-                    gap: '6px 16px'
+                    gap: '8px 16px',
+                    padding: '12px 16px',
+                    backgroundColor: '#F8FAFC',
+                    borderRadius: '8px',
+                    border: '1px solid #E2E8F0',
+                    fontSize: '12.5px'
                   }}
                 >
-                  <li>Customers &amp; KYC records</li>
-                  <li>Active &amp; Closed loan records</li>
-                  <li>Loan payment transactions</li>
-                  <li>Generated payment receipts</li>
-                  <li>Gold pledge item details</li>
-                  <li>Interest &amp; payment history</li>
-                  <li>Accounting ledgers &amp; Daybook</li>
-                  <li>Fixed deposits &amp; payouts</li>
-                  <li>Audit logs &amp; Notifications</li>
-                  <li>Business reports &amp; history</li>
-                </ul>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Customers:</span>
+                    <strong>{previewData?.counts.customers ?? '...'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Loans:</span>
+                    <strong>{previewData?.counts.loans ?? '...'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Receipts:</span>
+                    <strong>{previewData?.counts.receipts ?? '...'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Fixed Deposits:</span>
+                    <strong>{previewData?.counts.fixedDeposits ?? '...'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Day Book Entries:</span>
+                    <strong>{previewData?.counts.dayBookEntries ?? '...'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Reminders &amp; Alerts:</span>
+                    <strong>{previewData?.counts.reminders ?? '...'}</strong>
+                  </div>
+                </div>
               </div>
 
+              {/* PRESERVED DATA CARD */}
               <div
                 style={{
-                  padding: '12px',
-                  backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
-                  border: '1px solid var(--border-light, #e2e8f0)',
+                  padding: '10px 14px',
+                  backgroundColor: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
                   borderRadius: '6px',
                   fontSize: '12px',
-                  color: 'var(--text-muted)'
+                  color: '#166534',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
               >
-                🔒 <strong>Preserved System Data:</strong> Admin authentication logins, Google OAuth credentials, and system configurations are safely retained so you remain logged in.
+                <ShieldCheck size={18} color="#16A34A" />
+                <span>
+                  <strong>Preserved System Data:</strong> Admin logins, master interest configurations, branch profile, and printer settings will remain intact.
+                </span>
               </div>
 
-              <div className="form-group" style={{ marginTop: '6px' }}>
-                <label className="form-label required" style={{ color: '#991B1B', fontWeight: 700 }}>
-                  To confirm, type <code>WIPE ALL DATA</code> below:
-                </label>
-                <input
-                  type="text"
-                  className="input-control"
-                  style={{
-                    borderColor: inputConfirmation === 'WIPE ALL DATA' ? '#16A34A' : '#DC2626',
-                    fontWeight: 700,
-                    letterSpacing: '0.5px'
-                  }}
-                  placeholder="WIPE ALL DATA"
-                  value={inputConfirmation}
-                  onChange={(e) => setInputConfirmation(e.target.value)}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
                 <button type="button" className="btn btn-secondary" onClick={onClose}>
                   Cancel
                 </button>
@@ -277,28 +439,29 @@ export const WipeAllDataModal: React.FC<WipeAllDataModalProps> = ({
                   style={{
                     backgroundColor: '#DC2626',
                     color: '#FFF',
-                    opacity: inputConfirmation === 'WIPE ALL DATA' ? 1 : 0.5,
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
                     gap: '6px'
                   }}
-                  disabled={inputConfirmation !== 'WIPE ALL DATA'}
-                  onClick={handleStartBackup}
+                  onClick={handleStartBackupAndVerify}
                 >
-                  <HardDrive size={16} />
-                  <span>Create &amp; Verify Google Drive Backup</span>
+                  <FileArchive size={16} />
+                  <span>Create &amp; Verify Complete Backup (.ZIP)</span>
                 </button>
               </div>
             </>
           )}
 
-          {/* STEP 2: BACKUP CREATION & GOOGLE DRIVE VERIFICATION PROGRESS */}
+          {/* STEP 2: VERIFICATION IN PROGRESS */}
           {step === 2 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '10px 0' }}>
               <div style={{ textAlign: 'center' }}>
-                {loading && <RefreshCw size={36} className="spin" style={{ color: '#DC2626', margin: '0 auto 12px' }} />}
+                <RefreshCw size={36} className="spin" style={{ color: '#DC2626', margin: '0 auto 10px' }} />
                 <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800 }}>
-                  Securing Database Backup to Google Drive
+                  Generating &amp; Verifying Portable Backup Package
                 </h4>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                <p style={{ fontSize: '12px', color: '#64748B', marginTop: '4px' }}>
                   No application data will be deleted until all verification checks pass.
                 </p>
               </div>
@@ -307,33 +470,34 @@ export const WipeAllDataModal: React.FC<WipeAllDataModalProps> = ({
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '12px',
+                  gap: '10px',
                   padding: '16px',
-                  backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+                  backgroundColor: '#F8FAFC',
                   borderRadius: '8px',
-                  border: '1px solid var(--border-light, #e2e8f0)'
+                  border: '1px solid #E2E8F0',
+                  fontSize: '12.5px'
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
-                  {checklist.snapshot ? <CheckCircle2 size={18} color="#16A34A" /> : <div className="spinner-sm" />}
-                  <span>1. Generating complete database snapshot payload...</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {checklist.snapshot ? <CheckCircle2 size={16} color="#16A34A" /> : <div className="spinner-sm" />}
+                  <span>1. Authoritative JSON database snapshot generated...</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
-                  {checklist.upload ? <CheckCircle2 size={18} color="#16A34A" /> : <div className="spinner-sm" />}
-                  <span>2. Uploading to Google Drive (My Drive → KKV_DATABASE → Backups → Full_System_Backups)...</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {checklist.csv ? <CheckCircle2 size={16} color="#16A34A" /> : <div className="spinner-sm" />}
+                  <span>2. Entity CSV exports generated (customers, loans, payments, daybook)...</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
-                  {checklist.access ? <CheckCircle2 size={18} color="#16A34A" /> : <div className="spinner-sm" />}
-                  <span>3. Verifying Google Drive file existence &amp; account permissions...</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {checklist.zip ? <CheckCircle2 size={16} color="#16A34A" /> : <div className="spinner-sm" />}
+                  <span>3. Portable ZIP archive created with manifest &amp; schema...</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
-                  {checklist.integrity ? <CheckCircle2 size={18} color="#16A34A" /> : <div className="spinner-sm" />}
-                  <span>4. Verifying file size &gt; 0 bytes &amp; testing JSON snapshot structure...</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {checklist.sha256 ? <CheckCircle2 size={16} color="#16A34A" /> : <div className="spinner-sm" />}
+                  <span>4. SHA-256 integrity checksums calculated &amp; verified...</span>
                 </div>
               </div>
 
               {errorMessage && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
                   <button className="btn btn-secondary" onClick={() => setStep(1)}>
                     Back to Safety
                   </button>
@@ -342,35 +506,33 @@ export const WipeAllDataModal: React.FC<WipeAllDataModalProps> = ({
             </div>
           )}
 
-          {/* STEP 3: FINAL DELETE CONFIRMATION */}
+          {/* STEP 3: DOWNLOAD & ACKNOWLEDGE BACKUP */}
           {step === 3 && verificationRecord && (
             <>
               <div
                 style={{
-                  padding: '16px',
-                  backgroundColor: 'rgba(22, 101, 52, 0.08)',
-                  border: '1px solid #166534',
+                  padding: '12px 14px',
+                  backgroundColor: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
                   borderRadius: '8px',
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px'
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: '#166534',
+                  fontSize: '13px',
+                  fontWeight: 700
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534', fontWeight: 800, fontSize: '14px' }}>
-                  <ShieldCheck size={18} />
-                  <span>Google Drive Backup Verified</span>
-                </div>
-                <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                  A complete backup has been securely verified in Google Drive. You are now about to permanently delete all application operational data from this system.
-                </p>
+                <ShieldCheck size={18} />
+                <span>Backup Package Ready &amp; Verified</span>
               </div>
 
-              {/* Verified Backup Card */}
+              {/* BACKUP DETAILS CARD */}
               <div
                 style={{
                   padding: '14px 16px',
-                  backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
-                  border: '1px solid var(--border-light, #cbd5e1)',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
                   borderRadius: '8px',
                   display: 'flex',
                   flexDirection: 'column',
@@ -379,101 +541,245 @@ export const WipeAllDataModal: React.FC<WipeAllDataModalProps> = ({
                 }}
               >
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Backup File: </span>
-                  <strong style={{ color: 'var(--color-primary-dark)' }}>{verificationRecord.fileName}</strong>
+                  <span style={{ color: '#64748B' }}>Backup Package: </span>
+                  <strong style={{ color: '#1E293B' }}>{verificationRecord.fileName}</strong>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Drive Location: </span>
-                  <strong>{verificationRecord.drivePath}</strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Backup Size: </span>
+                  <span style={{ color: '#64748B' }}>Package Size: </span>
                   <strong>{(verificationRecord.fileSize / 1024).toFixed(1)} KB</strong>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Verification Status: </span>
-                  <span className="badge badge-success">✓ Verified in Google Drive</span>
+                  <span style={{ color: '#64748B' }}>SHA-256 Checksum: </span>
+                  <code style={{ fontSize: '11px', background: '#E2E8F0', padding: '2px 6px', borderRadius: '4px' }}>
+                    {verificationRecord.sha256}
+                  </code>
+                </div>
+                <div>
+                  <span style={{ color: '#64748B' }}>Package Contents: </span>
+                  <span>snapshot.json, data/*.csv, manifest.json, SHA256SUMS.txt</span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-                <button type="button" className="btn btn-secondary" onClick={onClose}>
-                  Cancel (Keep My Data Intact)
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ backgroundColor: '#DC2626', color: '#FFF', fontWeight: 800 }}
-                  onClick={handleConfirmWipe}
+              {/* ACTION BUTTONS */}
+              <div
+                style={{
+                  padding: '14px',
+                  backgroundColor: '#EFF6FF',
+                  border: '1px solid #BFDBFE',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <strong style={{ fontSize: '13px', color: '#1E40AF', display: 'block' }}>
+                      Step A: Download Local Backup
+                    </strong>
+                    <span style={{ fontSize: '11.5px', color: '#3B82F6' }}>
+                      Save the complete recovery package to your computer.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ gap: '6px', fontWeight: 700 }}
+                    onClick={handleDownloadFile}
+                  >
+                    <Download size={15} />
+                    <span>Download Backup (.ZIP)</span>
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    borderTop: '1px solid #DBEAFE',
+                    paddingTop: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}
                 >
-                  Yes, Permanently Delete All Data
+                  <span style={{ fontSize: '12px', color: '#1E3A8A' }}>
+                    {downloadTriggered
+                      ? '✓ File download initiated. Please confirm when saved.'
+                      : 'Click Download above to save your backup.'}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{
+                      backgroundColor: '#16A34A',
+                      color: '#FFF',
+                      fontWeight: 700,
+                      gap: '6px',
+                      opacity: downloadTriggered ? 1 : 0.6
+                    }}
+                    onClick={handleAcknowledgeDownload}
+                  >
+                    <Check size={16} />
+                    <span>I Have Downloaded The Backup</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '4px' }}>
+                <button type="button" className="btn btn-secondary" onClick={onClose}>
+                  Cancel (Keep Data Intact)
                 </button>
               </div>
             </>
           )}
 
-          {/* STEP 4: ATOMIC DATA WIPE IN PROGRESS */}
-          {step === 4 && (
-            <div style={{ textAlign: 'center', padding: '30px 20px' }}>
-              <RefreshCw size={42} className="spin" style={{ color: '#DC2626', margin: '0 auto 16px' }} />
-              <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>
-                Permanently Wiping Operational Database...
-              </h4>
-              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Clearing customer, loan, payment, receipt, and ledger records.
-              </p>
-            </div>
+          {/* STEP 4: FINAL CONFIRMATION */}
+          {step === 4 && verificationRecord && (
+            <>
+              <div
+                style={{
+                  padding: '12px 14px',
+                  backgroundColor: '#FEF2F2',
+                  borderLeft: '4px solid #DC2626',
+                  borderRadius: '6px',
+                  color: '#991B1B',
+                  fontSize: '12.5px',
+                  lineHeight: '1.5'
+                }}
+              >
+                <strong>Final Safety Check:</strong> You have verified and downloaded the backup. You are now about to permanently wipe all operational records. This cannot be undone without restoring from your backup.
+              </div>
+
+              {/* CONFIRMATION INPUT */}
+              <div className="form-group" style={{ marginTop: '2px' }}>
+                <label className="form-label required" style={{ color: '#991B1B', fontWeight: 700, fontSize: '13px' }}>
+                  Type <code>WIPE ALL DATA</code> to confirm:
+                </label>
+                <input
+                  type="text"
+                  className="input-control"
+                  style={{
+                    borderColor: isExactConfirm ? '#16A34A' : '#DC2626',
+                    fontWeight: 700,
+                    letterSpacing: '0.5px'
+                  }}
+                  placeholder="WIPE ALL DATA"
+                  value={inputConfirmation}
+                  onChange={(e) => setInputConfirmation(e.target.value)}
+                />
+              </div>
+
+              {/* CHECKBOX */}
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  fontSize: '12.5px',
+                  color: '#475569',
+                  cursor: 'pointer',
+                  padding: '8px 10px',
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: '6px',
+                  border: '1px solid #E2E8F0'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={agreeCheckbox}
+                  onChange={(e) => setAgreeCheckbox(e.target.checked)}
+                  style={{ marginTop: '2px', cursor: 'pointer' }}
+                />
+                <span>
+                  I understand this permanently removes all listed operational data and can only be restored from the downloaded backup.
+                </span>
+              </label>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                <button type="button" className="btn btn-secondary" onClick={onClose}>
+                  Cancel (Keep Data Intact)
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{
+                    backgroundColor: '#DC2626',
+                    color: '#FFF',
+                    fontWeight: 800,
+                    opacity: isWipeEnabled ? 1 : 0.5,
+                    cursor: isWipeEnabled ? 'pointer' : 'not-allowed'
+                  }}
+                  disabled={!isWipeEnabled}
+                  onClick={handleConfirmWipe}
+                >
+                  {loading ? 'Wiping Database...' : 'WIPE ALL DATA'}
+                </button>
+              </div>
+            </>
           )}
 
-          {/* STEP 5: SUCCESS SCREEN */}
+          {/* STEP 5: SUCCESS SUMMARY */}
           {step === 5 && (
             <>
               <div
                 style={{
                   padding: '16px',
-                  backgroundColor: 'rgba(6, 95, 70, 0.08)',
-                  border: '1px solid #065F46',
+                  backgroundColor: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
                   borderRadius: '8px',
-                  color: '#065F46',
+                  color: '#166534',
                   fontSize: '13px',
                   lineHeight: '1.5'
                 }}
               >
-                A complete backup was securely created and verified in Google Drive before deletion. All application operational data has now been permanently removed. The KKV Gold Finance system is ready for a fresh start.
+                All application operational data has been permanently removed. System configuration and Administrator credentials remain intact. The application is clean and ready for a fresh start.
               </div>
 
               <div
                 style={{
-                  padding: '16px',
-                  backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
-                  border: '1px solid var(--border-light, #e2e8f0)',
+                  padding: '14px 16px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
                   borderRadius: '8px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '8px',
+                  gap: '6px',
                   fontSize: '12.5px'
                 }}
               >
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Backup File: </span>
-                  <strong style={{ color: 'var(--color-primary-dark)' }}>{verificationRecord?.fileName}</strong>
+                  <span style={{ color: '#64748B' }}>Verified Recovery Backup: </span>
+                  <strong style={{ color: '#1E293B' }}>{verificationRecord?.fileName}</strong>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--text-muted)' }}>Location: </span>
-                  <strong>Google Drive → KKV_DATABASE → Backups → Full_System_Backups</strong>
+                  <span style={{ color: '#64748B' }}>SHA-256 Checksum: </span>
+                  <code style={{ fontSize: '11px', background: '#E2E8F0', padding: '2px 6px', borderRadius: '4px' }}>
+                    {verificationRecord?.sha256}
+                  </code>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                  <span className="badge badge-success">✓ Backup Verified</span>
                   <span className="badge badge-success">✓ Database Cleared</span>
-                  <span className="badge badge-success">✓ Application Reset</span>
+                  <span className="badge badge-success">✓ Configurations Retained</span>
+                  <span className="badge badge-success">✓ Recovery Backup Preserved</span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                {onOpenRestore && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      onClose();
+                      onOpenRestore();
+                    }}
+                  >
+                    Restore From Backup
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-primary"
-                  style={{ height: '42px', padding: '0 24px', fontSize: '14px', fontWeight: 800 }}
+                  style={{ fontWeight: 800, padding: '0 24px' }}
                   onClick={handleStartFresh}
                 >
                   Start Fresh

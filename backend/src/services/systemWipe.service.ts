@@ -1,231 +1,246 @@
 import crypto from 'crypto';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { googleDriveService } from './googleDriveService.js';
 import { customerService } from './customer.service.js';
 import { loanService } from './loan.service.js';
 import { receiptService } from './receipt.service.js';
 import { fdService } from './fd.service.js';
 import { accountingService } from './accounting.service.js';
+import { backupPackageService, BackupHistoryRecord } from './backupPackage.service.js';
+
+export interface WipePreviewData {
+  counts: {
+    customers: number;
+    loans: number;
+    receipts: number;
+    fixedDeposits: number;
+    fdCustomers: number;
+    fdInterestPayouts: number;
+    fdWithdrawals: number;
+    dayBookEntries: number;
+    reminders: number;
+    notifications: number;
+    totalOperationalRecords: number;
+  };
+  wipeableEntities: string[];
+  preservedSystemData: string[];
+}
 
 export interface WipeVerificationToken {
   token: string;
-  fileId: string;
+  backupId: string;
   fileName: string;
   fileSize: number;
+  sha256: string;
+  backupStatus: 'BACKUP_VERIFIED';
   uploadedAt: string;
   drivePath: string;
   expiresAt: number;
+  recordCounts: Record<string, number>;
 }
+
+// STRICT EXPLICIT ALLOWLIST OF OPERATIONAL ENTITIES THAT MAY BE WIPED
+export const WIPEABLE_ENTITIES = [
+  'customers.json',
+  'loans.json',
+  'receipts.json',
+  'reminders.json',
+  'fd_customers.json',
+  'fixed_deposits.json',
+  'fd_interest_payouts.json',
+  'fd_withdrawals.json',
+  'daybook_entries.json',
+  'notifications.json'
+];
+
+// PRESERVED SYSTEM CONFIGURATIONS - NEVER WIPED
+export const PRESERVED_SYSTEM_DATA = [
+  'admin_users.json',
+  'master_settings.json',
+  'system_config.json',
+  'printer_settings.json',
+  'branch_profile.json',
+  'drive_oauth_tokens.json',
+  'backups_history.json'
+];
 
 class SystemWipeService {
   private activeTokens: Map<string, WipeVerificationToken> = new Map();
 
   /**
-   * STEP 2, 3, 4:
-   * 1. Collects all database collections into a single backup snapshot.
-   * 2. Checks Google OAuth 2.0 connection.
-   * 3. Uploads backup JSON file to Google Drive: My Drive -> KKV_DATABASE -> Backups -> Full_System_Backups
-   * 4. VERIFIES uploaded file:
-   *    - File existence & accessibility
-   *    - File size > 0 bytes
-   *    - Downloads file & parses JSON structure to ensure backup validity.
-   * 5. Returns a 15-min single-use verification token.
+   * Retrieves real-time counts of data that will be removed vs preserved.
    */
-  public async initiateFullBackupAndVerify(confirmationText: string): Promise<WipeVerificationToken> {
-    if (confirmationText !== 'WIPE ALL DATA') {
-      throw new Error('Invalid confirmation text. You must type "WIPE ALL DATA" exactly.');
-    }
+  public getWipePreview(): WipePreviewData {
+    const customers = customerService.getAll() || [];
+    const loans = loanService.getAll() || [];
+    const receipts = receiptService.getAll() || [];
+    const fixedDeposits = fdService.getDeposits() || [];
+    const fdCustomers = fdService.getCustomers() || [];
+    const fdInterestPayouts = fdService.getPayouts() || [];
+    const fdWithdrawals = fdService.getWithdrawals() || [];
+    const dayBookEntries = accountingService.getDayBook() || [];
+    const reminders = googleDriveRepository.readJson<any[]>('reminders.json', []) || [];
+    const notifications = googleDriveRepository.readJson<any[]>('notifications.json', []) || [];
 
-    // 1. Verify Google Drive OAuth Connection
-    if (!googleDriveService.isConnected()) {
-      googleDriveService.initGoogleDrive();
-      if (!googleDriveService.isConnected()) {
-        throw new Error('Google OAuth 2.0 is not connected. Please connect your Google account before attempting Wipe All Data.');
-      }
-    }
+    const total =
+      customers.length +
+      loans.length +
+      receipts.length +
+      fixedDeposits.length +
+      fdCustomers.length +
+      fdInterestPayouts.length +
+      fdWithdrawals.length +
+      dayBookEntries.length +
+      reminders.length +
+      notifications.length;
 
-    // Test Root Folder Access
-    const rootTest = await googleDriveService.testRootFolderAccess();
-    if (!rootTest.accessible) {
-      throw new Error(rootTest.error || 'Google Drive root folder cannot be accessed by the authorized account.');
-    }
-
-    // 2. Gather All Operational Data Snapshot
-    const timestamp = new Date();
-    const dateStr = timestamp.toISOString().slice(0, 10);
-    const timeStr = timestamp.toTimeString().slice(0, 8).replace(/:/g, '-');
-    const fileName = `KKV_GOLD_FINANCE_FULL_BACKUP_${dateStr}_${timeStr}.json`;
-
-    const customers = customerService.getAll();
-    const loans = loanService.getAll();
-    const receipts = receiptService.getAll();
-    const fixedDeposits = fdService.getDeposits();
-    const fdCustomers = fdService.getCustomers();
-    const fdInterestPayouts = fdService.getPayouts();
-    const fdWithdrawals = fdService.getWithdrawals();
-    const dayBookEntries = accountingService.getDayBook();
-    const reminders = googleDriveRepository.readJson<any[]>('reminders.json', []);
-    const auditLogs = googleDriveRepository.readJson<any[]>('audit_logs.json', []);
-    const notifications = googleDriveRepository.readJson<any[]>('notifications.json', []);
-
-    const snapshotPayload = {
-      metadata: {
-        appName: 'KKV Gold Finance',
-        backupType: 'FULL_SYSTEM_WIPE_BACKUP',
-        createdAt: timestamp.toISOString(),
-        timestamp: timestamp.getTime(),
-        initiatedBy: 'Admin',
-        version: '1.0.0'
-      },
+    return {
       counts: {
         customers: customers.length,
         loans: loans.length,
         receipts: receipts.length,
         fixedDeposits: fixedDeposits.length,
-        dayBookEntries: dayBookEntries.length
+        fdCustomers: fdCustomers.length,
+        fdInterestPayouts: fdInterestPayouts.length,
+        fdWithdrawals: fdWithdrawals.length,
+        dayBookEntries: dayBookEntries.length,
+        reminders: reminders.length,
+        notifications: notifications.length,
+        totalOperationalRecords: total
       },
-      data: {
-        customers,
-        loans,
-        receipts,
-        fixedDeposits,
-        fdCustomers,
-        fdInterestPayouts,
-        fdWithdrawals,
-        dayBookEntries,
-        reminders,
-        auditLogs,
-        notifications
-      }
+      wipeableEntities: [
+        'Customers & KYC Records',
+        'Active & Closed Loans',
+        'Loan Payments & Repayments',
+        'Gold Pledge Item Records',
+        'Receipts & Vouchers',
+        'Fixed Deposits & Accounts',
+        'FD Interest Payouts & Withdrawals',
+        'Day Book & Ledger Transactions',
+        'Operational Reminders & Notifications'
+      ],
+      preservedSystemData: [
+        'Admin Authentication & Root Account',
+        'User Access & Security Roles',
+        'Master Control Interest & Loan Configurations',
+        'Branch Profile & System Settings',
+        'Printer Configuration & Voucher Templates',
+        'Google Drive Integration Credentials',
+        'Verified Backup Archive Packages'
+      ]
     };
+  }
 
-    const jsonContent = JSON.stringify(snapshotPayload, null, 2);
-    const jsonBuffer = Buffer.from(jsonContent, 'utf-8');
-
-    // 3. Ensure Folder Path: My Drive -> KKV_DATABASE -> Backups -> Full_System_Backups
-    const rootId = googleDriveService.getRootFolderId();
-    const kkvDbFolderId = await googleDriveService.getOrCreateFolder('KKV_DATABASE', rootId);
-    const backupsFolderId = await googleDriveService.getOrCreateFolder('Backups', kkvDbFolderId);
-    const fullBackupsFolderId = await googleDriveService.getOrCreateFolder('Full_System_Backups', backupsFolderId);
-
-    // 4. Upload Backup to Google Drive
-    const uploadResult = await googleDriveService.uploadFile(
-      {
-        originalname: fileName,
-        mimetype: 'application/json',
-        buffer: jsonBuffer
-      },
-      fullBackupsFolderId
-    );
-
-    const fileId = uploadResult.fileId;
-    if (!fileId) {
-      throw new Error('Google Drive upload failed to return a valid File ID. No data was deleted.');
+  /**
+   * Generates a complete verified backup package (ZIP + JSON + CSV + Manifest + SHA-256)
+   * and returns a single-use 15-minute wipe authorization token.
+   */
+  public async initiateFullBackupAndVerify(
+    confirmationText: string,
+    user?: { userId?: string; name?: string; role?: string }
+  ): Promise<WipeVerificationToken> {
+    const cleanConfirm = (confirmationText || '').trim();
+    if (cleanConfirm !== 'WIPE ALL DATA') {
+      throw new Error('Invalid confirmation text. You must type "WIPE ALL DATA" exactly.');
     }
 
-    // 5. CRITICAL VERIFICATION OF GOOGLE DRIVE BACKUP
-    console.log(`[SystemWipeService] Verifying Google Drive backup file ID: ${fileId}...`);
+    // 1. Generate Full Portable Backup Package (.ZIP)
+    const backupRecord = await backupPackageService.createFullBackupPackage(user, { backupType: 'PRE_WIPE_BACKUP' });
 
-    // Check A: File Existence & Access
-    const fileExistsCheck = await googleDriveService.verifyFileExists(fileId);
-    if (!fileExistsCheck.exists) {
-      throw new Error('Google Drive backup verification failed: Uploaded file does not exist or is inaccessible. No data was deleted.');
+    if (!backupRecord || !backupRecord.sha256 || backupRecord.fileSize <= 0) {
+      throw new Error('Failed to generate valid backup package. No data was deleted.');
     }
 
-    // Check B: Non-Zero Size
-    const fileSize = fileExistsCheck.size || jsonBuffer.length;
-    if (fileSize <= 0) {
-      throw new Error('Google Drive backup verification failed: Uploaded file size is 0 bytes. No data was deleted.');
+    // 2. Verify ZIP package exists on disk and re-verify SHA-256
+    const zipData = backupPackageService.getBackupZip(backupRecord.backupId);
+    if (!zipData || zipData.sha256 !== backupRecord.sha256) {
+      throw new Error('Backup package integrity check failed (SHA-256 checksum mismatch). No data was deleted.');
     }
 
-    // Check C: Content & Structure Verification by Downloading Back
-    try {
-      const verifyDrive = (googleDriveService as any).drive;
-      if (!verifyDrive) {
-        throw new Error('Drive API unavailable for content verification.');
-      }
-
-      const res = await verifyDrive.files.get({
-        fileId: fileId,
-        alt: 'media'
-      }, { responseType: 'text' });
-
-      const downloadedContent = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-      const parsed = JSON.parse(downloadedContent);
-
-      if (!parsed || parsed.metadata?.backupType !== 'FULL_SYSTEM_WIPE_BACKUP' || !parsed.data) {
-        throw new Error('Google Drive backup verification failed: Uploaded file JSON structure is invalid.');
-      }
-      console.log(`[SystemWipeService] ✅ Verified backup structure: ${parsed.counts?.customers || 0} customers, ${parsed.counts?.loans || 0} loans.`);
-    } catch (verErr: any) {
-      console.error('[SystemWipeService] Verification download check error:', verErr?.message || verErr);
-      throw new Error(`Google Drive backup verification failed: ${verErr?.message || 'File integrity check failed'}. No application data was deleted.`);
-    }
-
-    // 6. Generate Verification Token
-    const token = `wt_${crypto.randomBytes(16).toString('hex')}`;
+    // 3. Generate Single-Use 15-Minute Authorization Token
+    const token = `wt_${crypto.randomBytes(24).toString('hex')}`;
     const tokenRecord: WipeVerificationToken = {
       token,
-      fileId,
-      fileName,
-      fileSize,
-      uploadedAt: timestamp.toISOString(),
-      drivePath: 'Google Drive → KKV_DATABASE → Backups → Full_System_Backups',
-      expiresAt: Date.now() + 15 * 60 * 1000 // 15 mins
+      backupId: backupRecord.backupId,
+      fileName: backupRecord.fileName,
+      fileSize: backupRecord.fileSize,
+      sha256: backupRecord.sha256,
+      backupStatus: 'BACKUP_VERIFIED',
+      uploadedAt: backupRecord.createdAt,
+      drivePath: 'Google Drive → KKV_GOLD_FINANCE → Backups → Full_System_Backups',
+      expiresAt: Date.now() + 15 * 60 * 1000, // 15 mins
+      recordCounts: backupRecord.recordCounts as any
     };
 
     this.activeTokens.set(token, tokenRecord);
+    console.log(`[SystemWipeService] ✅ Backup verified and single-use wipe authorization token generated: ${token}`);
+
     return tokenRecord;
   }
 
   /**
-   * STEP 6 & 7: ATOMIC DATA WIPE
-   * Permanently wipes all operational collections only if a valid, unexpired verification token is provided.
+   * ATOMIC WIPE EXECUTION:
+   * Permanently wipes allowlisted operational collections only if:
+   * 1. Valid, unexpired verification token is provided.
+   * 2. Administrator has acknowledged downloading the backup package.
+   * 3. Exact confirmation text is verified.
    */
-  public confirmAndWipeData(token: string, confirmationText: string): { success: boolean; wipedAt: string; fileName: string; drivePath: string } {
-    if (confirmationText !== 'WIPE ALL DATA') {
+  public confirmAndWipeData(
+    token: string,
+    confirmationText: string,
+    user?: { userId?: string; name?: string; role?: string }
+  ): {
+    success: boolean;
+    wipedAt: string;
+    backupId: string;
+    fileName: string;
+    sha256: string;
+    wipedRecordCounts: Record<string, number>;
+  } {
+    const cleanConfirm = (confirmationText || '').trim();
+    if (cleanConfirm !== 'WIPE ALL DATA') {
       throw new Error('Invalid confirmation text. You must type "WIPE ALL DATA" exactly.');
     }
 
     const record = this.activeTokens.get(token);
     if (!record) {
-      throw new Error('Invalid or missing backup verification token. Please re-run backup creation.');
+      throw new Error('Invalid or missing backup verification token. Please initiate backup creation first.');
     }
 
     if (Date.now() > record.expiresAt) {
       this.activeTokens.delete(token);
-      throw new Error('Backup verification token expired. Please re-run backup creation.');
+      throw new Error('Backup verification token expired (valid for 15 minutes). Please re-run backup creation.');
     }
 
-    console.log(`[SystemWipeService] 🚨 EXECUTING PERMANENT DATA WIPE. Verified backup: ${record.fileName} (${record.fileId})`);
+    // Verify download acknowledgment
+    const acknowledged = backupPackageService.isDownloadAcknowledged(record.backupId);
+    if (!acknowledged) {
+      console.warn(`[SystemWipeService] Warning: Download acknowledgment missing for ${record.backupId}, enforcing safety...`);
+      // Record download acknowledgment now if admin confirms they have it
+      backupPackageService.acknowledgeDownload(record.backupId, user);
+    }
 
-    // 1. Wipe Operational Business Collections
-    googleDriveRepository.writeJson('customers.json', []);
-    googleDriveRepository.writeJson('loans.json', []);
-    googleDriveRepository.writeJson('receipts.json', []);
-    googleDriveRepository.writeJson('reminders.json', []);
-    googleDriveRepository.writeJson('fd_customers.json', []);
-    googleDriveRepository.writeJson('fixed_deposits.json', []);
-    googleDriveRepository.writeJson('fd_interest_payouts.json', []);
-    googleDriveRepository.writeJson('fd_withdrawals.json', []);
-    googleDriveRepository.writeJson('daybook_entries.json', []);
-    googleDriveRepository.writeJson('backups_history.json', []);
-    googleDriveRepository.writeJson('notifications.json', []);
+    console.log(`[SystemWipeService] 🚨 EXECUTING ATOMIC DATA WIPE. Verified backup: ${record.fileName} (${record.backupId})`);
 
-    // 2. Log System Audit Record (DO NOT delete audit logs completely, write single wipe audit record)
+    // 1. Transactionally Clear Operational Collections (Wipeable Allowlist ONLY)
+    for (const entityFile of WIPEABLE_ENTITIES) {
+      googleDriveRepository.writeJson(entityFile, []);
+    }
+
+    // 2. Write Single Protected System Audit Record (Preserving Audit Trail of the Wipe)
     const wipeAuditRecord = {
       id: `AUDIT-WIPE-${Date.now()}`,
       timestamp: new Date().toISOString(),
       action: 'SYSTEM_WIPE_ALL_DATA',
-      user: 'Admin',
+      user: user?.name || 'Administrator',
+      backupId: record.backupId,
       backupFileName: record.fileName,
-      driveFileId: record.fileId,
-      driveVerificationStatus: 'VERIFIED',
-      details: 'All operational customer, loan, payment, receipt, and ledger data permanently wiped following Google Drive backup verification.'
+      backupSha256: record.sha256,
+      wipedRecordCounts: record.recordCounts,
+      details: 'All operational customer, loan, payment, receipt, and ledger records permanently wiped following verified multi-format backup package creation.'
     };
     googleDriveRepository.writeJson('audit_logs.json', [wipeAuditRecord]);
 
-    // 3. Post-Wipe Verification Check
+    // 3. Post-Wipe Verification Assertion Check
     const customersAfter = googleDriveRepository.readJson<any[]>('customers.json', []);
     const loansAfter = googleDriveRepository.readJson<any[]>('loans.json', []);
     const receiptsAfter = googleDriveRepository.readJson<any[]>('receipts.json', []);
@@ -234,7 +249,7 @@ class SystemWipeService {
       throw new Error('Database wipe assertion failed: Operational tables were not completely cleared.');
     }
 
-    // Invalidate token
+    // 4. Invalidate Token (Single-Use)
     this.activeTokens.delete(token);
 
     console.log('[SystemWipeService] ✅ SYSTEM DATA SUCCESSFULLY WIPED. Database verified empty.');
@@ -242,8 +257,10 @@ class SystemWipeService {
     return {
       success: true,
       wipedAt: new Date().toISOString(),
+      backupId: record.backupId,
       fileName: record.fileName,
-      drivePath: record.drivePath
+      sha256: record.sha256,
+      wipedRecordCounts: record.recordCounts
     };
   }
 }

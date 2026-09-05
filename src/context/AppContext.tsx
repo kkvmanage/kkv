@@ -119,8 +119,8 @@ export const defaultLoanTypes: LoanTypeConfig[] = [
     active: true,
     showOnLoanIssue: true,
     cardFeeEnabled: true,
-    cardFee: 25,
-    defaultMonthlyRate: 1.5,
+    cardFee: 75,
+    defaultMonthlyRate: 2.0,
     interestProfileId: 'gold-bands',
     repaymentSystemId: 'monthly-interest-only',
     calculationStrategy: 'MONTHLY_INTEREST_ONLY',
@@ -133,8 +133,8 @@ export const defaultLoanTypes: LoanTypeConfig[] = [
     active: true,
     showOnLoanIssue: true,
     cardFeeEnabled: true,
-    cardFee: 30,
-    defaultMonthlyRate: 2.0,
+    cardFee: 60,
+    defaultMonthlyRate: 3.0,
     interestProfileId: 'silver-bands',
     repaymentSystemId: 'monthly-interest-only',
     calculationStrategy: 'MONTHLY_INTEREST_ONLY',
@@ -147,9 +147,9 @@ export const defaultLoanTypes: LoanTypeConfig[] = [
     active: true,
     showOnLoanIssue: true,
     cardFeeEnabled: true,
-    cardFee: 35,
-    defaultMonthlyRate: 1.0,
-    interestProfileId: 'fixed-rate',
+    cardFee: 50,
+    defaultMonthlyRate: 4.0,
+    interestProfileId: 'pronote-interest',
     repaymentSystemId: 'monthly-interest-only',
     calculationStrategy: 'MONTHLY_INTEREST_ONLY',
     sortOrder: 3
@@ -162,7 +162,7 @@ export const defaultLoanTypes: LoanTypeConfig[] = [
     showOnLoanIssue: true,
     cardFeeEnabled: true,
     cardFee: 40,
-    defaultMonthlyRate: 1.0,
+    defaultMonthlyRate: 1.5,
     interestProfileId: 'fixed-rate',
     repaymentSystemId: 'emi',
     calculationStrategy: 'EMI',
@@ -289,8 +289,14 @@ const defaultMasterSettings: MasterControlSettings = {
   ],
   showrooms: ['Main Branch', 'Bypass Branch'],
   lockersEnabled: false,
+  configurationVersion: 1,
   fdInterestRate: 12,
   fdInterestRateEffectiveFrom: '01-08-2026',
+  fdDefaultTenureMonths: 12,
+  fdMinimumAmount: 5000,
+  fdMaximumAmount: 10000000,
+  fdRenewalPolicy: 'MANUAL',
+  fdCalculationMethod: 'MONTHLY_DIVIDEND',
   fdInterestRateHistory: [
     {
       id: 'FD-RATE-001',
@@ -344,7 +350,7 @@ interface AppContextType {
   // Staff & RBAC Management
   staffList: UserProfile[];
   fetchStaffList: () => Promise<void>;
-  createStaffAccount: (data: { email: string; displayName: string; role: 'ADMIN' | 'MANAGER' | 'OPERATOR'; phone?: string; permissions?: Partial<UserPermissions>; password?: string }) => Promise<{ success: boolean; message?: string }>;
+  createStaffAccount: (data: { email: string; displayName: string; role: 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF' | UserRole; phone?: string; permissions?: Partial<UserPermissions>; password?: string }) => Promise<{ success: boolean; message?: string }>;
   updateStaffProfile: (uid: string, updates: any) => Promise<{ success: boolean; message?: string }>;
   toggleStaffStatus: (uid: string, isActive: boolean) => Promise<{ success: boolean; message?: string }>;
   revokeStaffSessions: (uid: string) => Promise<{ success: boolean; message?: string }>;
@@ -375,6 +381,7 @@ interface AppContextType {
     description?: string;
     active?: boolean;
     showOnLoanIssue?: boolean;
+    useMasterDefaults?: boolean;
     cardFeeEnabled?: boolean;
     cardFee?: number;
     defaultMonthlyRate?: number;
@@ -693,6 +700,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (userRole === 'MASTER_ADMIN' || currentUser.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) {
       return true;
     }
+    if (userRole === 'RENTAL_STAFF') {
+      return key === 'rentalManagement';
+    }
+    if (userRole === 'ADMIN' && key === 'rentalManagement') {
+      return true;
+    }
     return Boolean(currentUser.permissions?.[key]);
   };
 
@@ -725,7 +738,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const createStaffAccount = async (data: {
     email: string;
     displayName: string;
-    role: 'ADMIN' | 'MANAGER' | 'OPERATOR';
+    role: 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF' | UserRole;
     phone?: string;
     permissions?: Partial<UserPermissions>;
     password?: string;
@@ -885,7 +898,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (foundStaff.role === 'ADMIN' && (password === (masterControlSettings.adminPassword || 'admin123') || password === 'admin')) valid = true;
         if (foundStaff.role === 'MANAGER' && (password === (masterControlSettings.managerPassword || 'manager123') || password === 'manager')) valid = true;
         if (foundStaff.role === 'OPERATOR' && (password === (masterControlSettings.operatorPassword || 'operator123') || password === '1234' || password === 'operator')) valid = true;
-
+        if (foundStaff.role === 'RENTAL_STAFF' && (password === (masterControlSettings.operatorPassword || 'rental123') || password === '1234' || password === 'rental' || password === 'rental123')) valid = true;
         if (!valid) {
           setAuthLoading(false);
           return { success: false, message: 'Invalid credentials for staff account.' };
@@ -899,6 +912,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setCurrentUser(updatedProfile);
         setUserRole(foundStaff.role);
+        if (foundStaff.role === 'RENTAL_STAFF') {
+          setCurrentPage('rental-dashboard');
+        }
         showToast(`Signed in as ${foundStaff.displayName} (${foundStaff.role})`, 'success');
         setAuthLoading(false);
         return { success: true };
@@ -1196,11 +1212,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateMasterControlSettings = (newSetts: Partial<MasterControlSettings>) => {
     setMasterControlSettings(prev => {
-      const updated = { ...prev, ...newSetts };
+      const isFinancialChanged =
+        (newSetts.goldRate22ct !== undefined && newSetts.goldRate22ct !== prev.goldRate22ct) ||
+        (newSetts.goldLoanMonthlyRate !== undefined && newSetts.goldLoanMonthlyRate !== prev.goldLoanMonthlyRate) ||
+        (newSetts.silverLoanMonthlyRate !== undefined && newSetts.silverLoanMonthlyRate !== prev.silverLoanMonthlyRate) ||
+        (newSetts.pronoteMonthlyRate !== undefined && newSetts.pronoteMonthlyRate !== prev.pronoteMonthlyRate) ||
+        (newSetts.hirePurchaseMonthlyRate !== undefined && newSetts.hirePurchaseMonthlyRate !== prev.hirePurchaseMonthlyRate) ||
+        (newSetts.defaultCardFee !== undefined && newSetts.defaultCardFee !== prev.defaultCardFee) ||
+        (newSetts.fdInterestRate !== undefined && newSetts.fdInterestRate !== prev.fdInterestRate) ||
+        (newSetts.fdDefaultTenureMonths !== undefined && newSetts.fdDefaultTenureMonths !== prev.fdDefaultTenureMonths) ||
+        (newSetts.fdMinimumAmount !== undefined && newSetts.fdMinimumAmount !== prev.fdMinimumAmount) ||
+        (newSetts.fdRenewalPolicy !== undefined && newSetts.fdRenewalPolicy !== prev.fdRenewalPolicy) ||
+        (newSetts.fdCalculationMethod !== undefined && newSetts.fdCalculationMethod !== prev.fdCalculationMethod);
+
+      const nextVersion = isFinancialChanged
+        ? (prev.configurationVersion || 1) + 1
+        : (newSetts.configurationVersion || prev.configurationVersion || 1);
+
+      const updated: MasterControlSettings = { ...prev, ...newSetts, configurationVersion: nextVersion };
       apiService.updateMasterSettings(updated).catch(e => console.error(e));
       return updated;
     });
-    showToast('Master Control settings saved!', 'success');
+    logMasterConfigAudit('MASTER_CONFIG_UPDATED', 'master_control', 'Updated Master Control global financial parameters');
+    showToast('Master Control settings saved successfully!', 'success');
   };
 
   const logMasterConfigAudit = (action: string, entityId: string, details?: string) => {
@@ -1222,6 +1256,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     description?: string;
     active?: boolean;
     showOnLoanIssue?: boolean;
+    useMasterDefaults?: boolean;
     cardFeeEnabled?: boolean;
     cardFee?: number;
     defaultMonthlyRate?: number;
@@ -1262,6 +1297,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       description: config.description?.trim() || undefined,
       active: config.active ?? true,
       showOnLoanIssue: config.showOnLoanIssue ?? true,
+      useMasterDefaults: config.useMasterDefaults !== false,
       cardFeeEnabled: config.cardFeeEnabled ?? true,
       cardFee: config.cardFee !== undefined ? config.cardFee : 25,
       defaultMonthlyRate: config.defaultMonthlyRate !== undefined ? config.defaultMonthlyRate : 1.5,
@@ -1269,6 +1305,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       repaymentSystemId: config.repaymentSystemId || 'monthly-interest-only',
       calculationStrategy: config.calculationStrategy || 'MONTHLY_INTEREST_ONLY',
       sortOrder: maxSort + 1,
+      configurationVersion: 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -1314,6 +1351,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const updated = currentList.map(t => {
       if (t.id !== id) return t;
+      const nextVersion = (t.configurationVersion || 1) + 1;
       return {
         ...t,
         name: updates.name !== undefined ? updates.name.trim() : t.name,
@@ -1326,6 +1364,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         interestProfileId: updates.interestProfileId !== undefined ? updates.interestProfileId : t.interestProfileId,
         repaymentSystemId: updates.repaymentSystemId !== undefined ? updates.repaymentSystemId : t.repaymentSystemId,
         calculationStrategy: updates.calculationStrategy !== undefined ? updates.calculationStrategy : t.calculationStrategy,
+        configurationVersion: nextVersion,
         updatedAt: new Date().toISOString()
       };
     });
@@ -2035,7 +2074,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `FD-${Date.now()}`,
       fdNo,
       remainingPrincipal: fdData.remainingPrincipal ?? fdData.principal,
-      totalWithdrawnPrincipal: fdData.totalWithdrawnPrincipal ?? 0
+      totalWithdrawnPrincipal: fdData.totalWithdrawnPrincipal ?? 0,
+
+      // ── IMMUTABLE CONTRACTUAL SNAPSHOT FIELDS ──────────────────────────────
+      fdInterestRateSnapshot: fdData.fdInterestRateSnapshot ?? fdData.interestRatePA,
+      fdTenureSnapshot: fdData.fdTenureSnapshot ?? fdData.tenureMonths ?? (masterControlSettings.fdDefaultTenureMonths ?? 12),
+      calculationMethodSnapshot: fdData.calculationMethodSnapshot ?? (masterControlSettings.fdCalculationMethod || 'MONTHLY_DIVIDEND'),
+      minimumAmountSnapshot: fdData.minimumAmountSnapshot ?? (masterControlSettings.fdMinimumAmount ?? 5000),
+      configurationVersion: fdData.configurationVersion ?? (masterControlSettings.configurationVersion || 1)
     };
 
     setFixedDeposits((prev) => [newFd, ...prev]);

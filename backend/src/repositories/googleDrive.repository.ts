@@ -1,7 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { driveStorageService } from '../services/drive/DriveStorageService.js';
-import { driveService } from '../services/drive/DriveService.js';
 
 export class GoogleDriveRepository {
   private baseDir: string;
@@ -25,7 +23,7 @@ export class GoogleDriveRepository {
   }
 
   public checkConnection(): boolean {
-    return driveService.isConnected() || fs.existsSync(this.baseDir);
+    return fs.existsSync(this.baseDir);
   }
 
   public readJson<T>(filename: string, fallback: T): T {
@@ -54,7 +52,9 @@ export class GoogleDriveRepository {
       fs.renameSync(tempPath, filePath);
 
       // Async sync to driveStorageService
-      driveStorageService.createFile('config', filename, data).catch(() => {});
+      import('../services/drive/DriveStorageService.js')
+        .then(({ driveStorageService }) => driveStorageService.createFile('config', filename, data))
+        .catch(() => {});
       return true;
     } catch (err) {
       console.error(`[GoogleDriveRepository] Error writing file ${filename}:`, err);
@@ -68,7 +68,9 @@ export class GoogleDriveRepository {
       const filename = `backup_${timestamp}.json`;
       const filePath = path.join(this.backupsDir, filename);
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-      driveStorageService.createFile('backups', filename, data).catch(() => {});
+      import('../services/drive/DriveStorageService.js')
+        .then(({ driveStorageService }) => driveStorageService.createFile('backups', filename, data))
+        .catch(() => {});
       return filename;
     } catch (err) {
       console.error('[GoogleDriveRepository] Error creating backup:', err);

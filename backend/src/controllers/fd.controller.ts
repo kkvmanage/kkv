@@ -27,12 +27,19 @@ export const getFixedDeposits = (req: Request, res: Response) => {
 };
 
 export const createFixedDeposit = (req: Request, res: Response) => {
-  const newFD = fdService.createDeposit(req.body);
-  return res.status(201).json({
-    success: true,
-    message: 'Fixed Deposit created',
-    data: newFD
-  });
+  try {
+    const newFD = fdService.createDeposit(req.body);
+    return res.status(201).json({
+      success: true,
+      message: 'Fixed Deposit created',
+      data: newFD
+    });
+  } catch (err: any) {
+    return res.status(400).json({
+      success: false,
+      message: err.message || 'Failed to create Fixed Deposit'
+    });
+  }
 };
 
 export const payFDInterest = (req: Request, res: Response) => {

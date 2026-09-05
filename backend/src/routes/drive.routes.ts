@@ -7,9 +7,11 @@ const router = Router();
 // OAuth Authentication Flow
 router.get('/connect', driveController.connect);
 router.get('/callback', driveController.callback);
+router.post('/disconnect', driveController.disconnect);
 
-// Drive status
+// Drive status & diagnostics
 router.get('/status', driveController.getStatus);
+router.get('/oauth-config', driveController.getOAuthConfig);
 
 // Generic drive file operations
 router.post('/upload', upload.single('file'), driveController.uploadFile);

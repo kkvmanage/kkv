@@ -168,33 +168,37 @@ export const getApplicableInterestRate = (
     (lt) => lt.id.toLowerCase() === key || lt.name.toLowerCase() === key
   );
 
-  if (matchedLoanType?.interestProfileId === 'fixed-rate' && typeof matchedLoanType.defaultMonthlyRate === 'number') {
+  // 1. Amount Bands Profile (when principal is entered > 0 and profile uses amount bands)
+  if (
+    principal > 0 &&
+    (matchedLoanType?.interestProfileId === 'gold-bands' ||
+     matchedLoanType?.interestProfileId === 'silver-bands' ||
+     !matchedLoanType?.interestProfileId)
+  ) {
+    const matchedBand = getApplicableInterestBand(principal, loanTypeNameOrId, settings);
+    if (matchedBand && typeof matchedBand.baseRateMonthly === 'number' && matchedBand.baseRateMonthly > 0) {
+      return matchedBand.baseRateMonthly;
+    }
+  }
+
+  // 2. Explicit Configured Default Monthly Rate on the Loan Type itself
+  if (matchedLoanType && typeof matchedLoanType.defaultMonthlyRate === 'number' && matchedLoanType.defaultMonthlyRate > 0) {
     return matchedLoanType.defaultMonthlyRate;
   }
 
-  const matchedBand = getApplicableInterestBand(principal, loanTypeNameOrId, settings);
-  if (matchedBand && typeof matchedBand.baseRateMonthly === 'number') {
-    return matchedBand.baseRateMonthly;
+  // 3. Fallback based on product category if loanType rate is undefined
+  if (matchedLoanType?.interestProfileId === 'silver-bands' || key.includes('silver')) {
+    return settings?.silverLoanMonthlyRate ?? 3.0;
   }
-
-  if (matchedLoanType && typeof matchedLoanType.defaultMonthlyRate === 'number') {
-    return matchedLoanType.defaultMonthlyRate;
-  }
-
-  if (key.includes('silver')) {
-    return settings?.silverLoanMonthlyRate ?? 2.0;
-  }
-  if (key.includes('pronote')) {
-    if (settings?.pronoteMonthlyRate !== undefined) return settings.pronoteMonthlyRate;
-    if (settings?.pronoteRate !== undefined) return settings.pronoteRate;
-    return 1.0;
+  if (key.includes('pronote') || matchedLoanType?.interestProfileId === 'pronote-interest') {
+    return settings?.pronoteMonthlyRate ?? settings?.pronoteRate ?? 4.0;
   }
   if (key.includes('hire') || key.includes('purchase')) {
-    return settings?.hirePurchaseMonthlyRate ?? 1.0;
+    return settings?.hirePurchaseMonthlyRate ?? 1.5;
   }
 
-  // Default Gold Loan
-  return settings?.goldLoanMonthlyRate ?? 1.5;
+  // Default Gold Loan Master Rate
+  return settings?.goldLoanMonthlyRate ?? 2.0;
 };
 
 /**

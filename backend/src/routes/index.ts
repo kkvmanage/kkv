@@ -15,8 +15,20 @@ import searchRoutes from './search.routes.js';
 import locationRoutes from './location.routes.js';
 import sessionRoutes from './session.routes.js';
 import staffRoutes from './staff.routes.js';
+import configRoutes from './config.routes.js';
+import rentalRoutes from '../modules/rental/routes/rental.routes.js';
+import { driveController } from '../controllers/drive.controller.js';
 
 const router = Router();
+
+// Canonical Google OAuth 2.0 Drive Auth Routes (must precede /auth catch-all routes)
+router.get('/auth/google-drive/start', driveController.connect);
+router.get('/auth/google-drive/connect', driveController.connect);
+router.get('/auth/google-drive/callback', driveController.callback);
+router.get('/auth/google-drive', driveController.connect);
+router.get('/auth/google', driveController.connect);
+router.get('/auth/google/callback', driveController.callback);
+router.get('/google-drive/callback', driveController.callback);
 
 router.use('/health', healthRoutes);
 router.use('/search', searchRoutes);
@@ -37,5 +49,9 @@ router.use('/telegram', telegramRoutes);
 router.use('/reminders', reminderRoutes);
 router.use('/sessions', sessionRoutes);
 router.use('/staff', staffRoutes);
+router.use('/auth', staffRoutes);
+router.use('/config', configRoutes);
+router.use('/loan-types', configRoutes);
+router.use('/rental', rentalRoutes);
 
 export default router;

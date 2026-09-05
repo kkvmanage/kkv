@@ -19,6 +19,9 @@ import {
   compareFDDates,
   getAllPendingFDInterestPeriods
 } from '../utils/fdInterestUtils';
+import { rentalApi } from '../modules/rental/services/rentalApi';
+import { AdminRentalSummary } from '../modules/rental/types/rental.types';
+import { RentalAdminView } from '../modules/rental/components/RentalAdminView';
 
 export const AdminPanel: React.FC = () => {
   const [showWipeModal, setShowWipeModal] = useState(false);
@@ -60,7 +63,7 @@ export const AdminPanel: React.FC = () => {
     revokeOtherSessionsExceptCurrent
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'bulk-fd' | 'devices'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'bulk-fd' | 'devices' | 'rental'>('overview');
   const [custSubTab, setCustSubTab] = useState<'active' | 'deleted'>('active');
   const [adminCustSearch, setAdminCustSearch] = useState('');
   const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
@@ -72,6 +75,37 @@ export const AdminPanel: React.FC = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [masterSubTab, setMasterSubTab] = useState<'rates' | 'loan-config' | 'purity' | 'operations' | 'messaging' | 'security' | 'danger'>('rates');
   const [ratesSubChip, setRatesSubChip] = useState<'gold' | 'silver' | 'pronote' | 'hire' | 'card' | 'overdue' | 'upi'>('gold');
+
+  // ── Rental Management Summary State (Section 28 & 29) ───────────────────────
+  const [rentalSummary, setRentalSummary] = useState<AdminRentalSummary | null>(null);
+  const [rentalSummaryLoading, setRentalSummaryLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    const fetchRentalSummary = async () => {
+      setRentalSummaryLoading(true);
+      try {
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch('http://localhost:8080/api/admin/rental-summary', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        }).then(r => r.json()).catch(() => null);
+
+        if (res?.success && res.data) {
+          setRentalSummary(res.data);
+        } else {
+          // Fallback to rentalApi if direct endpoint is unavailable
+          const fallbackRes = await rentalApi.getAdminSummary().catch(() => null);
+          if (fallbackRes?.success && fallbackRes.data) {
+            setRentalSummary(fallbackRes.data);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load rental admin summary:', err);
+      } finally {
+        setRentalSummaryLoading(false);
+      }
+    };
+    fetchRentalSummary();
+  }, [activeTab]);
 
   // ── Devices & Active Sessions State ─────────────────────────────────────────
   const [deviceFilter, setDeviceFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE' | 'CURRENT' | 'MOBILE' | 'DESKTOP'>('ALL');
@@ -502,6 +536,7 @@ export const AdminPanel: React.FC = () => {
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'customers', label: 'Customer Management' },
+          { key: 'rental', label: 'Complex Rental' },
           masterControlSettings?.bulkFdDateChangeEnabled && { key: 'bulk-fd', label: 'Bulk FD Date Change' },
           { key: 'devices', label: 'Devices' }
         ].filter((x): x is { key: string; label: string } => !!x).map((t) => (
@@ -693,8 +728,88 @@ export const AdminPanel: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* COMPLEX RENTAL MANAGEMENT OVERVIEW (LIVE PRIMARY DB) */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', letterSpacing: '0.05em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🏢 COMPLEX RENTAL MANAGEMENT (LIVE LEDGER)</span>
+                {rentalSummaryLoading && <RefreshCw size={12} className="spin-animation" />}
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => window.open('http://localhost:5174', '_blank')}
+                style={{ fontSize: '12px', height: '28px', padding: '0 12px', gap: '5px' }}
+                title="Open Standalone Rental Staff Portal (Port 5174)"
+              >
+                <span>Rental Staff Portal (Port 5174) ↗</span>
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }}>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">TOTAL COMPLEXES</span>
+                  <span className="stat-card-value">{rentalSummary?.totalComplexes ?? 0}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.12)', color: '#176B52' }}><Building2 size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">TOTAL SHOPS</span>
+                  <span className="stat-card-value">{rentalSummary?.totalShops ?? 0}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(13, 148, 136, 0.12)', color: '#0D9488' }}><Building2 size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">EXPECTED RENT</span>
+                  <span className="stat-card-value">₹{(rentalSummary?.expectedMonthlyRent || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(201, 162, 39, 0.15)', color: '#B48909' }}><DollarSign size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">COLLECTED THIS MONTH</span>
+                  <span className="stat-card-value" style={{ color: '#059669' }}>₹{(rentalSummary?.collectedThisMonth || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.14)', color: '#059669' }}><CheckCircle2 size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">PENDING RENT</span>
+                  <span className="stat-card-value" style={{ color: '#dc2626' }}>₹{(rentalSummary?.pendingRent || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#dc2626' }}><AlertTriangle size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">AVAILABLE ADVANCE</span>
+                  <span className="stat-card-value" style={{ color: '#2563eb' }}>₹{(rentalSummary?.advanceAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(37, 99, 235, 0.12)', color: '#2563eb' }}><Wallet size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">TOTAL EXPENSES</span>
+                  <span className="stat-card-value" style={{ color: '#d97706' }}>₹{(rentalSummary?.totalExpenses || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(217, 119, 6, 0.12)', color: '#d97706' }}><DollarSign size={20} /></div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-info">
+                  <span className="stat-card-label">NET RENTAL COLLECTION</span>
+                  <span className="stat-card-value" style={{ color: '#176B52', fontWeight: 800 }}>₹{(rentalSummary?.netCollection || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="stat-card-icon" style={{ backgroundColor: 'rgba(23, 107, 82, 0.15)', color: '#176B52' }}><CheckCircle2 size={20} /></div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
+
+      {/* Complex Rental Tab Content (Synchronized Read-Only Live Ledger) */}
+      {activeTab === 'rental' && <RentalAdminView />}
 
       {/* Customer Management Tab Content */}
       {activeTab === 'customers' && (() => {
@@ -3166,6 +3281,7 @@ export const AdminPanel: React.FC = () => {
           resetAllData();
           setMasterControlOpen(false);
         }}
+        onOpenRestore={() => setShowRestoreModal(true)}
       />
 
       {/* Hidden Fail-Safe System Restore Modal */}

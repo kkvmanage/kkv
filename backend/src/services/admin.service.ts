@@ -7,10 +7,62 @@ const TG_FILE = 'telegram_settings.json';
 
 const defaultMasterSettings: MasterControlSettings = {
   loanTypes: [
-    { id: 'gold-loan', name: 'Gold Loan', description: 'Standard gold ornament backed financing', active: true, sortOrder: 1 },
-    { id: 'silver-loan', name: 'Silver Loan', description: 'Silver article backed loan', active: true, sortOrder: 2 },
-    { id: 'pronote', name: 'Pronote', description: 'Promissory note unsecured credit', active: true, sortOrder: 3 },
-    { id: 'hire-purchase', name: 'Hire Purchase', description: 'Vehicle and asset hire purchase financing', active: true, sortOrder: 4 }
+    {
+      id: 'gold-loan',
+      name: 'Gold Loan',
+      description: 'Standard gold ornament backed financing',
+      defaultMonthlyRate: 2.0,
+      cardFee: 75,
+      cardFeeEnabled: true,
+      interestProfileId: 'gold-bands',
+      repaymentSystemId: 'monthly-interest-only',
+      active: true,
+      showOnLoanIssue: true,
+      configurationVersion: 1,
+      sortOrder: 1
+    },
+    {
+      id: 'silver-loan',
+      name: 'Silver Loan',
+      description: 'Silver article backed loan',
+      defaultMonthlyRate: 3.0,
+      cardFee: 60,
+      cardFeeEnabled: true,
+      interestProfileId: 'silver-bands',
+      repaymentSystemId: 'monthly-interest-only',
+      active: true,
+      showOnLoanIssue: true,
+      configurationVersion: 1,
+      sortOrder: 2
+    },
+    {
+      id: 'pronote',
+      name: 'Pronote',
+      description: 'Promissory note unsecured credit',
+      defaultMonthlyRate: 4.0,
+      cardFee: 50,
+      cardFeeEnabled: true,
+      interestProfileId: 'pronote-interest',
+      repaymentSystemId: 'monthly-interest-only',
+      active: true,
+      showOnLoanIssue: true,
+      configurationVersion: 1,
+      sortOrder: 3
+    },
+    {
+      id: 'hire-purchase',
+      name: 'Hire Purchase',
+      description: 'Vehicle and asset hire purchase financing',
+      defaultMonthlyRate: 1.5,
+      cardFee: 40,
+      cardFeeEnabled: true,
+      interestProfileId: 'fixed-rate',
+      repaymentSystemId: 'emi',
+      active: true,
+      showOnLoanIssue: true,
+      configurationVersion: 1,
+      sortOrder: 4
+    }
   ],
   repaymentSystems: [
     { id: 'monthly-interest-only', name: 'Monthly Interest Only', description: 'Monthly interest due; principal remains until closure', calculationStrategy: 'MONTHLY_INTEREST_ONLY', active: true, sortOrder: 1 },
@@ -101,8 +153,15 @@ const defaultMasterSettings: MasterControlSettings = {
   animationsEnabled: true,
   performanceModeEnabled: false,
   bulkFdDateChangeEnabled: true,
+  goldRate22ct: 6400,
+  configurationVersion: 1,
   fdInterestRate: 12,
   fdInterestRateEffectiveFrom: '01-08-2026',
+  fdDefaultTenureMonths: 12,
+  fdMinimumAmount: 5000,
+  fdMaximumAmount: 10000000,
+  fdRenewalPolicy: 'MANUAL',
+  fdCalculationMethod: 'MONTHLY_DIVIDEND',
   fdInterestRateHistory: [
     {
       id: 'FD-RATE-001',
@@ -132,12 +191,57 @@ const defaultTelegramConfig: TelegramConfig = {
 
 export class AdminService {
   public getMasterSettings(): MasterControlSettings {
-    return googleDriveRepository.readJson<MasterControlSettings>(SETTINGS_FILE, defaultMasterSettings);
+    const raw = googleDriveRepository.readJson<MasterControlSettings>(SETTINGS_FILE, defaultMasterSettings);
+    const mergedLoanTypes = (raw.loanTypes && raw.loanTypes.length > 0 ? raw.loanTypes : defaultMasterSettings.loanTypes || []).map((lt) => {
+      const defaultMatch = defaultMasterSettings.loanTypes?.find((d) => d.id === lt.id);
+      return {
+        ...defaultMatch,
+        ...lt,
+        defaultMonthlyRate: lt.defaultMonthlyRate !== undefined ? lt.defaultMonthlyRate : (defaultMatch?.defaultMonthlyRate ?? 2.0),
+        cardFee: lt.cardFee !== undefined ? lt.cardFee : (defaultMatch?.cardFee ?? 50),
+        cardFeeEnabled: lt.cardFeeEnabled !== undefined ? lt.cardFeeEnabled : (defaultMatch?.cardFeeEnabled ?? true),
+        interestProfileId: lt.interestProfileId || defaultMatch?.interestProfileId || 'gold-bands',
+        repaymentSystemId: lt.repaymentSystemId || defaultMatch?.repaymentSystemId || 'monthly-interest-only',
+        active: lt.active !== undefined ? lt.active : (defaultMatch?.active ?? true),
+        showOnLoanIssue: lt.showOnLoanIssue !== undefined ? lt.showOnLoanIssue : (defaultMatch?.showOnLoanIssue ?? true),
+        configurationVersion: lt.configurationVersion || defaultMatch?.configurationVersion || 1
+      };
+    });
+
+    return {
+      ...defaultMasterSettings,
+      ...raw,
+      loanTypes: mergedLoanTypes
+    };
   }
 
   public updateMasterSettings(data: Partial<MasterControlSettings>): MasterControlSettings {
     const current = this.getMasterSettings();
-    const updated = { ...current, ...data };
+
+    // Check if financial defaults have been updated
+    const isFinancialChanged =
+      (data.goldRate22ct !== undefined && data.goldRate22ct !== current.goldRate22ct) ||
+      (data.goldLoanMonthlyRate !== undefined && data.goldLoanMonthlyRate !== current.goldLoanMonthlyRate) ||
+      (data.silverLoanMonthlyRate !== undefined && data.silverLoanMonthlyRate !== current.silverLoanMonthlyRate) ||
+      (data.pronoteMonthlyRate !== undefined && data.pronoteMonthlyRate !== current.pronoteMonthlyRate) ||
+      (data.hirePurchaseMonthlyRate !== undefined && data.hirePurchaseMonthlyRate !== current.hirePurchaseMonthlyRate) ||
+      (data.defaultCardFee !== undefined && data.defaultCardFee !== current.defaultCardFee) ||
+      (data.fdInterestRate !== undefined && data.fdInterestRate !== current.fdInterestRate) ||
+      (data.fdDefaultTenureMonths !== undefined && data.fdDefaultTenureMonths !== current.fdDefaultTenureMonths) ||
+      (data.fdMinimumAmount !== undefined && data.fdMinimumAmount !== current.fdMinimumAmount) ||
+      (data.fdRenewalPolicy !== undefined && data.fdRenewalPolicy !== current.fdRenewalPolicy) ||
+      (data.fdCalculationMethod !== undefined && data.fdCalculationMethod !== current.fdCalculationMethod);
+
+    const nextVersion = isFinancialChanged
+      ? (current.configurationVersion || 1) + 1
+      : (data.configurationVersion || current.configurationVersion || 1);
+
+    const updated: MasterControlSettings = {
+      ...current,
+      ...data,
+      configurationVersion: nextVersion
+    };
+
     googleDriveRepository.writeJson(SETTINGS_FILE, updated);
     return updated;
   }

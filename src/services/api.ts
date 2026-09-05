@@ -334,7 +334,168 @@ export const apiService = {
     });
   },
 
+  // Google Drive Health & OAuth Management
+  async getDriveHealth(): Promise<{
+    success: boolean;
+    configured: boolean;
+    authType: 'SERVICE_ACCOUNT' | 'OAUTH' | 'NONE';
+    googlePrincipal: string;
+    googleAccount?: string;
+    driveAccessible: boolean;
+    folderAccessible: boolean;
+    folderName?: string;
+    folderIdConfigured: boolean;
+    writable?: boolean;
+    canUpload?: boolean;
+    errorCode?: string;
+    message?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/backup/drive-health`);
+      const json = await res.json();
+      return json;
+    } catch (err: any) {
+      return {
+        success: false,
+        configured: false,
+        authType: 'NONE',
+        googlePrincipal: '',
+        driveAccessible: false,
+        folderAccessible: false,
+        folderIdConfigured: false,
+        errorCode: 'NETWORK_ERROR',
+        message: err?.message || 'Failed to connect to backend for Drive health check'
+      };
+    }
+  },
+
+  async getGoogleDriveAuthUrl(): Promise<{ success: boolean; url?: string; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/google-drive/start?json=true`);
+      const json = await res.json();
+      return json;
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to initiate Google OAuth.' };
+    }
+  },
+
+  async disconnectGoogleDrive(): Promise<{ success: boolean; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/drive/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return json;
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to disconnect Google Drive.' };
+    }
+  },
+
+  // Production Backup Package Management
+  async createBackupPackage(): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/backup/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Network error during backup creation.' };
+    }
+  },
+
+  async getBackupHistory(): Promise<{ success: boolean; data?: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/backup/history`);
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data || []
+      };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to load backup history.' };
+    }
+  },
+
+  getBackupDownloadUrl(backupId: string): string {
+    return `${API_BASE_URL}/admin/backup/${encodeURIComponent(backupId)}/download`;
+  },
+
+  async acknowledgeBackupDownload(backupId: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/backup/${encodeURIComponent(backupId)}/acknowledge-download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to acknowledge download.' };
+    }
+  },
+
+  async uploadBackupToDrive(backupId: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/backup/${encodeURIComponent(backupId)}/upload-to-drive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to upload backup to Google Drive.' };
+    }
+  },
+
   // Wipe All Data Integration
+  async getWipePreview(): Promise<{
+    success: boolean;
+    data?: {
+      counts: {
+        customers: number;
+        loans: number;
+        receipts: number;
+        fixedDeposits: number;
+        fdCustomers: number;
+        fdInterestPayouts: number;
+        fdWithdrawals: number;
+        dayBookEntries: number;
+        reminders: number;
+        notifications: number;
+        totalOperationalRecords: number;
+      };
+      wipeableEntities: string[];
+      preservedSystemData: string[];
+    };
+    message?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/wipe-all-data/preview`);
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to fetch wipe preview.' };
+    }
+  },
+
   async initiateWipeBackup(confirmationText: string): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
       const res = await fetch(`${API_BASE_URL}/admin/wipe-all-data/initiate`, {
@@ -371,7 +532,7 @@ export const apiService = {
     }
   },
 
-  // Hidden System Restore Integration
+  // System Restore Integration
   async getRestoreBackups(): Promise<{ success: boolean; data?: any[]; message?: string }> {
     try {
       const res = await fetch(`${API_BASE_URL}/admin/system/backups`);
@@ -386,13 +547,32 @@ export const apiService = {
     }
   },
 
-  async validateRestoreBackup(fileId: string): Promise<{ success: boolean; data?: any; message?: string }> {
+  async validateRestoreBackup(payload: {
+    fileId?: string;
+    backupId?: string;
+    file?: File;
+    jsonString?: string;
+  }): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/system/restore/validate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId })
-      });
+      let res: Response;
+      if (payload.file) {
+        const formData = new FormData();
+        formData.append('backupFile', payload.file);
+        res = await fetch(`${API_BASE_URL}/admin/system/restore/validate`, {
+          method: 'POST',
+          body: formData
+        });
+      } else {
+        res = await fetch(`${API_BASE_URL}/admin/system/restore/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileId: payload.fileId,
+            backupId: payload.backupId,
+            jsonString: payload.jsonString
+          })
+        });
+      }
       const json = await res.json();
       return {
         success: res.ok && json.success,
@@ -404,7 +584,7 @@ export const apiService = {
     }
   },
 
-  async executeSystemRestore(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string }> {
+  async executeSystemRestore(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string; restore?: any; googleDrive?: any; recordCounts?: any }> {
     try {
       const res = await fetch(`${API_BASE_URL}/admin/system/restore`, {
         method: 'POST',
@@ -415,10 +595,44 @@ export const apiService = {
       return {
         success: res.ok && json.success,
         data: json.data,
-        message: json.message
+        message: json.message,
+        restore: json.restore,
+        googleDrive: json.googleDrive,
+        recordCounts: json.recordCounts
       };
     } catch (err: any) {
-      return { success: false, message: err?.message || 'Network error during system restore.' };
+      return { success: false, message: err?.message || 'Network error during restore execution.' };
+    }
+  },
+
+  async getRestoreHistory(): Promise<{ success: boolean; data: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/system/restore/history`);
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data || [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to load restore history.' };
+    }
+  },
+
+  async retryRestoreDriveSync(restoreId: string): Promise<{ success: boolean; data?: any; message?: string; errorCode?: string; restore?: any; googleDrive?: any; recordCounts?: any }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/system/restore/${restoreId}/sync-drive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return {
+        success: res.ok && json.success,
+        data: json.data,
+        message: json.message,
+        errorCode: json.errorCode || json.error?.code,
+        restore: json.restore,
+        googleDrive: json.googleDrive,
+        recordCounts: json.recordCounts
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to sync restore to Google Drive.' };
     }
   },
 

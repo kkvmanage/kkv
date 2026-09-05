@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { FixedDeposit, FDCustomer, FDInterestPayout, FDWithdrawal, DayBookEntry } from '../types/index.js';
 import { accountingService } from './accounting.service.js';
+import { adminService } from './admin.service.js';
 
 const FD_CUST_FILE = 'fd_customers.json';
 const FD_DEPOSITS_FILE = 'fixed_deposits.json';
@@ -36,7 +37,11 @@ const initialDeposits: FixedDeposit[] = [
     interestRatePA: 12,
     receivingMethod: 'Cash',
     monthlyPayout: 2000,
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    fdInterestRateSnapshot: 12,
+    fdTenureSnapshot: 12,
+    calculationMethodSnapshot: 'MONTHLY_DIVIDEND',
+    configurationVersion: 1
   }
 ];
 
@@ -66,8 +71,22 @@ export class FDService {
     const nextNo = deposits.length + 1;
     const fdNo = `FD-${nextNo.toString().padStart(2, '0')}`;
 
+    // ── MASTER CONTROL RESOLUTION (SINGLE SOURCE OF TRUTH) ────────────────────
+    const masterSettings = adminService.getMasterSettings();
+    const serverRatePA = data.interestRatePA !== undefined && !isNaN(Number(data.interestRatePA))
+      ? Number(data.interestRatePA)
+      : (masterSettings.fdInterestRate ?? 12);
+    const serverTenureMonths = data.tenureMonths !== undefined && !isNaN(Number(data.tenureMonths))
+      ? Number(data.tenureMonths)
+      : (masterSettings.fdDefaultTenureMonths ?? 12);
+    const minAmount = masterSettings.fdMinimumAmount ?? 0;
+
+    if (minAmount > 0 && (Number(data.principal) || 0) < minAmount) {
+      throw new Error(`Minimum Fixed Deposit principal amount is ₹${minAmount.toLocaleString('en-IN')}`);
+    }
+
     const principal = new Decimal(data.principal || 0);
-    const ratePA = new Decimal(data.interestRatePA || 0);
+    const ratePA = new Decimal(serverRatePA);
     // Monthly payout = (Principal * RatePA) / (12 * 100)
     const monthlyPayout = principal.times(ratePA).dividedBy(1200).toDecimalPlaces(2).toNumber();
 
@@ -75,7 +94,17 @@ export class FDService {
       ...data,
       id: `FD-${Date.now()}`,
       fdNo,
-      monthlyPayout
+      principal: principal.toNumber(),
+      interestRatePA: serverRatePA,
+      tenureMonths: serverTenureMonths,
+      monthlyPayout,
+
+      // ── IMMUTABLE CONTRACTUAL SNAPSHOT FIELDS ──────────────────────────────
+      fdInterestRateSnapshot: serverRatePA,
+      fdTenureSnapshot: serverTenureMonths,
+      calculationMethodSnapshot: masterSettings.fdCalculationMethod || 'MONTHLY_DIVIDEND',
+      minimumAmountSnapshot: minAmount,
+      configurationVersion: masterSettings.configurationVersion || 1
     };
 
     deposits.unshift(newFD);

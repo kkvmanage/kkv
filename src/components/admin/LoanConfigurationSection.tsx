@@ -19,6 +19,21 @@ import {
   Trash2
 } from 'lucide-react';
 
+export const formatInterestProfileLabel = (id?: string): string => {
+  switch (id) {
+    case 'gold-bands':
+      return 'Gold Amount Bands';
+    case 'silver-bands':
+      return 'Silver Amount Bands';
+    case 'pronote-interest':
+      return 'Pronote Interest';
+    case 'fixed-rate':
+      return 'Fixed Rate';
+    default:
+      return id ? id.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Standard Rate';
+  }
+};
+
 export const LoanConfigurationSection: React.FC = () => {
   const {
     masterControlSettings,
@@ -54,9 +69,9 @@ export const LoanConfigurationSection: React.FC = () => {
   const [typeActive, setTypeActive] = useState(true);
   const [typeShowOnIssue, setTypeShowOnIssue] = useState(true);
   const [typeCardFeeEnabled, setTypeCardFeeEnabled] = useState(true);
-  const [typeCardFeeAmount, setTypeCardFeeAmount] = useState<number>(25);
-  const [typeInterestProfile, setTypeInterestProfile] = useState<'gold-bands' | 'silver-bands' | 'fixed-rate'>('gold-bands');
-  const [typeDefaultMonthlyRate, setTypeDefaultMonthlyRate] = useState<number>(1.5);
+  const [typeCardFeeAmount, setTypeCardFeeAmount] = useState<number>(50);
+  const [typeInterestProfile, setTypeInterestProfile] = useState<'gold-bands' | 'silver-bands' | 'pronote-interest' | 'fixed-rate'>('gold-bands');
+  const [typeDefaultMonthlyRate, setTypeDefaultMonthlyRate] = useState<number>(2.0);
   const [typeRepaymentSystemId, setTypeRepaymentSystemId] = useState<string>('monthly-interest-only');
 
   // Repayment System Modal States
@@ -101,9 +116,9 @@ export const LoanConfigurationSection: React.FC = () => {
     setTypeActive(true);
     setTypeShowOnIssue(true);
     setTypeCardFeeEnabled(true);
-    setTypeCardFeeAmount(25);
+    setTypeCardFeeAmount(50);
     setTypeInterestProfile('gold-bands');
-    setTypeDefaultMonthlyRate(1.5);
+    setTypeDefaultMonthlyRate(2.0);
     setTypeRepaymentSystemId(repaymentSystems[0]?.id || 'monthly-interest-only');
     setFormError('');
     setIsAddTypeModalOpen(true);
@@ -116,9 +131,9 @@ export const LoanConfigurationSection: React.FC = () => {
     setTypeActive(item.active);
     setTypeShowOnIssue(item.showOnLoanIssue ?? true);
     setTypeCardFeeEnabled(item.cardFeeEnabled ?? true);
-    setTypeCardFeeAmount(item.cardFee ?? 25);
+    setTypeCardFeeAmount(item.cardFee ?? 50);
     setTypeInterestProfile((item.interestProfileId as any) || 'gold-bands');
-    setTypeDefaultMonthlyRate(item.defaultMonthlyRate ?? 1.5);
+    setTypeDefaultMonthlyRate(item.defaultMonthlyRate ?? 2.0);
     setTypeRepaymentSystemId(item.repaymentSystemId || repaymentSystems[0]?.id || 'monthly-interest-only');
     setFormError('');
   };
@@ -133,6 +148,12 @@ export const LoanConfigurationSection: React.FC = () => {
       return;
     }
 
+    const rateNum = Number(typeDefaultMonthlyRate);
+    if (!typeDefaultMonthlyRate || isNaN(rateNum) || rateNum <= 0) {
+      setFormError('Default Rate % / Month is required and must be greater than 0.');
+      return;
+    }
+
     const selectedRepay = repaymentSystems.find((r) => r.id === typeRepaymentSystemId);
     const resolvedStrategy = selectedRepay?.calculationStrategy || 'MONTHLY_INTEREST_ONLY';
 
@@ -142,10 +163,11 @@ export const LoanConfigurationSection: React.FC = () => {
         description: typeDescription,
         active: typeActive,
         showOnLoanIssue: typeShowOnIssue,
+        useMasterDefaults: false,
         cardFeeEnabled: typeCardFeeEnabled,
         cardFee: Number(typeCardFeeAmount) || 0,
         interestProfileId: typeInterestProfile,
-        defaultMonthlyRate: Number(typeDefaultMonthlyRate) || 1.5,
+        defaultMonthlyRate: rateNum,
         repaymentSystemId: typeRepaymentSystemId,
         calculationStrategy: resolvedStrategy
       });
@@ -160,10 +182,11 @@ export const LoanConfigurationSection: React.FC = () => {
         description: typeDescription,
         active: typeActive,
         showOnLoanIssue: typeShowOnIssue,
+        useMasterDefaults: false,
         cardFeeEnabled: typeCardFeeEnabled,
         cardFee: Number(typeCardFeeAmount) || 0,
         interestProfileId: typeInterestProfile,
-        defaultMonthlyRate: Number(typeDefaultMonthlyRate) || 1.5,
+        defaultMonthlyRate: rateNum,
         repaymentSystemId: typeRepaymentSystemId,
         calculationStrategy: resolvedStrategy
       });
@@ -438,8 +461,8 @@ export const LoanConfigurationSection: React.FC = () => {
                             fontWeight: 800,
                             padding: '2px 7px',
                             borderRadius: '4px',
-                            backgroundColor: item.showOnLoanIssue !== false ? '#e0f2fe' : '#f1f5f9',
-                            color: item.showOnLoanIssue !== false ? '#0369a1' : '#64748b'
+                            backgroundColor: item.showOnLoanIssue !== false ? '#f1f5f9' : '#f1f5f9',
+                            color: item.showOnLoanIssue !== false ? '#334155' : '#94a3b8'
                           }}
                         >
                           {item.showOnLoanIssue !== false ? 'ISSUE: ON' : 'ISSUE: OFF'}
@@ -471,10 +494,10 @@ export const LoanConfigurationSection: React.FC = () => {
                         }}
                       >
                         <CreditCard size={13} />
-                        <span>Card Fee: {item.cardFeeEnabled !== false ? `₹${item.cardFee ?? 25}` : 'OFF'}</span>
+                        <span>Card Fee: {item.cardFeeEnabled !== false ? `₹${item.cardFee ?? 50}` : 'OFF'}</span>
                       </div>
 
-                      {/* Interest Profile Badge */}
+                      {/* Interest Rate Badge */}
                       <div
                         style={{
                           display: 'flex',
@@ -490,11 +513,26 @@ export const LoanConfigurationSection: React.FC = () => {
                         }}
                       >
                         <Percent size={13} />
-                        <span>
-                          {item.interestProfileId === 'fixed-rate'
-                            ? `Fixed Rate (${item.defaultMonthlyRate ?? 1.5}%/mo)`
-                            : formatInterestProfileLabel(item.interestProfileId)}
-                        </span>
+                        <span>Interest: {item.defaultMonthlyRate ?? 2}% / Month</span>
+                      </div>
+
+                      {/* Interest Profile Badge */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          backgroundColor: '#f8fafc',
+                          color: '#475569',
+                          border: '1px solid #cbd5e1',
+                          padding: '3px 8px',
+                          borderRadius: '6px'
+                        }}
+                      >
+                        <Layers size={13} />
+                        <span>Profile: {formatInterestProfileLabel(item.interestProfileId)}</span>
                       </div>
 
                       {/* Repayment System */}
@@ -514,9 +552,19 @@ export const LoanConfigurationSection: React.FC = () => {
                           }}
                         >
                           <Calculator size={13} />
-                          <span>{repay.name}</span>
+                          <span>Repayment: {repay.name}</span>
                         </div>
                       )}
+                    </div>
+
+                    {/* Version & Last Updated info */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', fontSize: '11px', color: 'var(--text-muted, #64748b)', borderTop: '1px dashed var(--border-light, #f1f5f9)', paddingTop: '6px' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-primary-dark, #059669)' }}>
+                        Config Version: V{item.configurationVersion || 1}
+                      </span>
+                      <span>
+                        Updated: {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('en-GB') : 'Initial'}
+                      </span>
                     </div>
                   </div>
 
@@ -774,6 +822,27 @@ export const LoanConfigurationSection: React.FC = () => {
               </button>
             </div>
 
+            {editingType && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                  border: '1px solid rgba(234, 179, 8, 0.35)',
+                  borderRadius: '6px',
+                  padding: '10px 14px',
+                  marginBottom: '14px',
+                  fontSize: '12px',
+                  color: '#854d0e',
+                  lineHeight: '1.45'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <strong>⚠️ Configuration Change Notice:</strong>
+                  <span style={{ fontWeight: 800 }}>Current Version: V{editingType.configurationVersion || 1}</span>
+                </div>
+                Changes will apply to NEW loans. Existing loans will retain their saved contractual configuration.
+              </div>
+            )}
+
             {formError && (
               <div
                 style={{
@@ -882,7 +951,7 @@ export const LoanConfigurationSection: React.FC = () => {
                       value={typeCardFeeAmount}
                       disabled={!typeCardFeeEnabled}
                       onChange={(e) => setTypeCardFeeAmount(Number(e.target.value))}
-                      placeholder="e.g. 25"
+                      placeholder="e.g. 50"
                       min={0}
                     />
                   </div>
@@ -897,7 +966,7 @@ export const LoanConfigurationSection: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
-                    <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>INTEREST PROFILE</label>
+                    <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>INTEREST PROFILE *</label>
                     <select
                       className="input-control"
                       value={typeInterestProfile}
@@ -905,25 +974,27 @@ export const LoanConfigurationSection: React.FC = () => {
                     >
                       <option value="gold-bands">Gold Amount Bands</option>
                       <option value="silver-bands">Silver Amount Bands</option>
+                      <option value="pronote-interest">Pronote Interest</option>
                       <option value="fixed-rate">Fixed Monthly Rate (%/mo)</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>DEFAULT RATE %/MO</label>
+                    <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>DEFAULT RATE % / MONTH *</label>
                     <input
                       type="number"
                       step="0.05"
                       className="input-control"
                       value={typeDefaultMonthlyRate}
                       onChange={(e) => setTypeDefaultMonthlyRate(Number(e.target.value))}
-                      placeholder="1.5"
+                      placeholder="2.0"
+                      required
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>REPAYMENT SYSTEM</label>
+                  <label className="form-label" style={{ fontSize: '11px', fontWeight: 700 }}>REPAYMENT SYSTEM *</label>
                   <select
                     className="input-control"
                     value={typeRepaymentSystemId}

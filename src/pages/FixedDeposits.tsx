@@ -116,19 +116,22 @@ export const FixedDeposits: React.FC = () => {
   const [depositDate, setDepositDate] = useState<string>(new Date().toLocaleDateString('en-GB').replace(/\//g, '-'));
   const [principal, setPrincipal] = useState<number | ''>(200000);
   const [interestRatePA, setInterestRatePA] = useState<number | ''>(masterControlSettings?.fdInterestRate ?? 12);
-  const [tenureMonths, setTenureMonths] = useState<number | ''>(12);
+  const [tenureMonths, setTenureMonths] = useState<number | ''>(masterControlSettings?.fdDefaultTenureMonths ?? 12);
   const [payoutFrequency, setPayoutFrequency] = useState<string>('Monthly');
   const [receivingMethod, setReceivingMethod] = useState<'Cash' | 'Bank' | 'UPI'>('Cash');
   const [nomineeName, setNomineeName] = useState<string>('');
   const [nomineeRelation, setNomineeRelation] = useState<string>('');
   const [remarks, setRemarks] = useState<string>('');
 
-  // Sync interestRatePA with master rate when master rate changes
+  // Sync interestRatePA and tenureMonths with master settings when they change
   useEffect(() => {
     if (masterControlSettings?.fdInterestRate !== undefined) {
       setInterestRatePA(masterControlSettings.fdInterestRate);
     }
-  }, [masterControlSettings?.fdInterestRate]);
+    if (masterControlSettings?.fdDefaultTenureMonths !== undefined) {
+      setTenureMonths(masterControlSettings.fdDefaultTenureMonths);
+    }
+  }, [masterControlSettings?.fdInterestRate, masterControlSettings?.fdDefaultTenureMonths]);
 
   // Register display filter state
   const [displaySearchText, setDisplaySearchText] = useState<string>('');
@@ -382,6 +385,12 @@ export const FixedDeposits: React.FC = () => {
 
     if (!numericPrincipal || numericPrincipal <= 0) {
       showToast('Please enter a valid principal deposit amount greater than zero.', 'error');
+      return;
+    }
+
+    const minAmount = masterControlSettings?.fdMinimumAmount ?? 5000;
+    if (numericPrincipal < minAmount) {
+      showToast(`Minimum Fixed Deposit principal amount is ₹${minAmount.toLocaleString('en-IN')}.`, 'error');
       return;
     }
 
@@ -695,7 +704,7 @@ export const FixedDeposits: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <label className="form-label required">INTEREST RATE (% P.A.)</label>
                     <span className="badge badge-success" style={{ fontSize: '10px' }}>
-                      Master Rate: {(masterControlSettings?.fdInterestRate ?? 12).toFixed(2)}%
+                      Master Rate: {(masterControlSettings?.fdInterestRate ?? 12).toFixed(2)}% p.a.
                     </span>
                   </div>
                   <input
@@ -707,14 +716,19 @@ export const FixedDeposits: React.FC = () => {
                     onChange={(e) => setInterestRatePA(Number(e.target.value) || 0)}
                   />
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', display: 'block' }}>
-                    Default Master Admin Rate · Rate is frozen into contract upon issuance
+                    Inherited from Master Control · Min Deposit: ₹{(masterControlSettings?.fdMinimumAmount ?? 5000).toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
 
               <div className="grid-2">
                 <div className="form-group">
-                  <label className="form-label required">TENURE (MONTHS)</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="form-label required">TENURE (MONTHS)</label>
+                    <span className="badge badge-info" style={{ fontSize: '10px' }}>
+                      Master Default: {masterControlSettings?.fdDefaultTenureMonths ?? 12} Mos
+                    </span>
+                  </div>
                   <input
                     type="number"
                     className="input-control"

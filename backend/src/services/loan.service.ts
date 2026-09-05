@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { googleDriveService } from './googleDriveService.js';
-import { Loan, Receipt, DayBookEntry } from '../types/index.js';
+import { Loan, Receipt, LoanTypeConfig } from '../types/index.js';
 import { customerService } from './customer.service.js';
 import { receiptService } from './receipt.service.js';
 import { accountingService } from './accounting.service.js';
@@ -24,8 +24,16 @@ const initialLoans: Loan[] = [
     customerCurrentAddress: '123 Market Street, Main Town',
     customerPermanentAddress: '123 Market Street, Main Town',
     date: '25/08/2026',
-    loanType: 'GOLD LOAN',
-    repaymentSystem: 'Monthly interest only',
+    loanType: 'Gold Loan',
+    loanTypeId: 'gold-loan',
+    loanTypeName: 'Gold Loan',
+    loanTypeNameSnapshot: 'Gold Loan',
+    cardFeeSnapshot: 25,
+    interestProfileIdSnapshot: 'gold-bands',
+    interestProfileNameSnapshot: 'Gold Monthly Interest Bands',
+    configurationVersion: 1,
+    repaymentSystem: 'Monthly Interest Only',
+    repaymentSystemId: 'monthly-interest-only',
     area: 'Main Town',
     showroom: 'Main Branch',
     principal: 100000,
@@ -36,7 +44,8 @@ const initialLoans: Loan[] = [
     deductAdvanceInterest: false,
     advanceDays: 30,
     advanceInterestAmount: 1500,
-    cardFee: 10,
+    cardFee: 25,
+    cardFeeEnabled: true,
     cardFeePaymentMode: 'Cash',
     items: [
       {
@@ -83,18 +92,18 @@ export class LoanService {
   public calculateFinancials(principal: number, interestRatePercent: number, items: any[], marketRatePerGram: number = 6000) {
     const decPrincipal = new Decimal(principal || 0);
     const decRate = new Decimal(interestRatePercent || 0);
-    
+
     // Monthly interest = (Principal * InterestRatePercent) / 100
     const monthlyInterest = decPrincipal.times(decRate).dividedBy(100).toDecimalPlaces(2).toNumber();
-    
+
     let totalGross = new Decimal(0);
     let totalNet = new Decimal(0);
-    
+
     items.forEach((it) => {
       totalGross = totalGross.plus(new Decimal(it.grossWeight || 0));
       totalNet = totalNet.plus(new Decimal(it.netWeight || 0));
     });
-    
+
     const marketValue = totalNet.times(marketRatePerGram).toDecimalPlaces(2).toNumber();
     const ltv = marketValue > 0 ? decPrincipal.times(100).dividedBy(marketValue).toDecimalPlaces(2).toNumber() : 0;
 
@@ -105,25 +114,6 @@ export class LoanService {
       marketValue,
       ltv
     };
-  }
-
-  public getApplicableInterestRate(principal: number): number {
-    const masterSettings = adminService.getMasterSettings();
-    const bands = masterSettings?.amountBands || [];
-    if (bands.length > 0 && principal > 0) {
-      const sorted = [...bands].sort((a, b) => a.amount - b.amount);
-      for (const b of sorted) {
-        if (b.condition === 'Below' && principal <= b.amount) {
-          return b.baseRateMonthly;
-        }
-        if (b.condition === 'Above' && principal > b.amount) {
-          return b.baseRateMonthly;
-        }
-      }
-      const match = sorted.find((b) => principal <= b.amount) || sorted[sorted.length - 1];
-      if (match) return match.baseRateMonthly;
-    }
-    return masterSettings?.goldLoanMonthlyRate || 1.5;
   }
 
   public async create(loanData: Omit<Loan, 'id' | 'loanNo'> & { loanNo?: string }): Promise<Loan> {
@@ -147,29 +137,119 @@ export class LoanService {
       console.warn('[LoanService] Drive folder setup warning:', e);
     }
 
-    // Automatically determine & enforce rate from Master Control settings
-    const interestRate = this.getApplicableInterestRate(loanData.principal);
-    const calc = this.calculateFinancials(loanData.principal, interestRate, loanData.items || []);
+    const effectivePrincipal = Number(loanData.principal ?? (loanData as any).principalAmount ?? (loanData as any).loanAmount ?? 0);
+
+    // ── MASTER CONTROL RESOLUTION (SINGLE SOURCE OF TRUTH) ────────────────────
+    const masterSettings = adminService.getMasterSettings();
+    const loanTypes: LoanTypeConfig[] = masterSettings.loanTypes || [];
+
+    const reqTypeId = (loanData.loanTypeId || loanData.loanType || '').toLowerCase().trim();
+    if (!reqTypeId) {
+      throw new Error('Loan Type is required.');
+    }
+
+    const matchedType = loanTypes.find(
+      (t) => t.id.toLowerCase() === reqTypeId || t.name.toLowerCase() === reqTypeId
+    );
+
+    if (!matchedType) {
+      throw new Error(`Loan type "${loanData.loanTypeId || loanData.loanType}" was not found in Master Control configuration.`);
+    }
+
+    if (!matchedType.active) {
+      throw new Error(`Loan type "${matchedType.name}" is currently disabled in Master Control.`);
+    }
+
+    if (matchedType.showOnLoanIssue === false) {
+      throw new Error(`Loan type "${matchedType.name}" is not enabled for new loan issuance in Master Control.`);
+    }
+
+    // Enforce server-authoritative Card Fee
+    const serverCardFee = matchedType.cardFee !== undefined
+      ? matchedType.cardFee
+      : (masterSettings.defaultCardFee || 25);
+    const serverCardFeeEnabled = matchedType.cardFeeEnabled !== undefined
+      ? Boolean(matchedType.cardFeeEnabled)
+      : true;
+    const configVersion = matchedType.configurationVersion || 1;
+
+    // Server-authoritative Interest Rate resolution per product configuration
+    let interestRate = matchedType.defaultMonthlyRate !== undefined ? matchedType.defaultMonthlyRate : 2.0;
+    let interestProfileName = 'Gold Amount Bands';
+    let amountBandId: string | undefined;
+
+    if (matchedType.interestProfileId === 'pronote-interest') {
+      interestProfileName = 'Pronote Interest';
+      interestRate = matchedType.defaultMonthlyRate !== undefined ? matchedType.defaultMonthlyRate : 4.0;
+    } else if (matchedType.interestProfileId === 'fixed-rate') {
+      interestProfileName = `Fixed Rate (${interestRate}%/mo)`;
+      interestRate = matchedType.defaultMonthlyRate !== undefined ? matchedType.defaultMonthlyRate : 1.5;
+    } else if (matchedType.interestProfileId === 'silver-bands') {
+      interestProfileName = 'Silver Amount Bands';
+      interestRate = matchedType.defaultMonthlyRate !== undefined ? matchedType.defaultMonthlyRate : 3.0;
+    } else if (matchedType.interestProfileId === 'gold-bands') {
+      interestProfileName = 'Gold Amount Bands';
+      interestRate = matchedType.defaultMonthlyRate !== undefined ? matchedType.defaultMonthlyRate : 2.0;
+    } else if (typeof matchedType.defaultMonthlyRate === 'number' && matchedType.defaultMonthlyRate > 0) {
+      interestRate = matchedType.defaultMonthlyRate;
+      interestProfileName = matchedType.name;
+    }
+
+    const calc = this.calculateFinancials(effectivePrincipal, interestRate, loanData.items || []);
+
+    const effectiveCardFee = serverCardFeeEnabled ? serverCardFee : 0;
+    const advanceInterest = loanData.deductAdvanceInterest
+      ? (loanData.advanceInterestAmount || 0)
+      : 0;
+    const netDisbursed = new Decimal(effectivePrincipal).minus(advanceInterest).minus(effectiveCardFee).toNumber();
 
     const newLoan: Loan = {
       ...loanData,
+      principal: effectivePrincipal,
       id,
       loanNo,
+      loanType: matchedType ? matchedType.name : loanData.loanType,
+      loanTypeId: matchedType ? matchedType.id : (loanData.loanTypeId || 'gold-loan'),
+      loanTypeName: matchedType ? matchedType.name : (loanData.loanTypeName || loanData.loanType),
+
+      // ── IMMUTABLE CONTRACTUAL SNAPSHOT FIELDS ──────────────────────────────
+      loanTypeNameSnapshot: matchedType ? matchedType.name : loanData.loanType,
+      interestRateSnapshot: interestRate,
+      interestProfileSnapshot: interestProfileName,
+      cardFeeSnapshot: serverCardFee,
+      interestProfileIdSnapshot: matchedType?.interestProfileId || 'gold-bands',
+      interestProfileNameSnapshot: interestProfileName,
+      interestConfigurationSnapshot: {
+        interestRate,
+        interestRateUnit: 'MONTHLY',
+        rateSource: 'MASTER_CONTROL',
+        amountBandId
+      },
+      configurationVersion: configVersion,
+      configurationSource: matchedType.useMasterDefaults !== false ? 'MASTER_INHERITED' : 'CUSTOM_OVERRIDE',
+      rateEffectiveAt: loanData.date || new Date().toISOString(),
+
       interestRate,
+      cardFee: serverCardFee,
+      cardFeeEnabled: serverCardFeeEnabled,
       monthlyInterest: calc.monthlyInterest,
       totalGrossWeight: calc.totalGrossWeight,
       totalNetWeight: calc.totalNetWeight,
       marketValue: calc.marketValue,
       ltv: calc.ltv,
-      disbursedAmount: loanData.principal,
-      outstandingPrincipal: loanData.principal,
+      disbursedAmount: netDisbursed,
+      netDisbursed,
+      outstandingPrincipal: effectivePrincipal,
       accruedInterest: calc.monthlyInterest,
       status: 'ACTIVE',
-      lastInterestPaidDate: loanData.date,
+      date: loanData.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
+      lastInterestPaidDate: loanData.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
       nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
       driveFolderId,
       documentDriveIds: [],
-      receiptDriveIds: []
+      receiptDriveIds: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     loans.unshift(newLoan);
@@ -179,48 +259,56 @@ export class LoanService {
     const customer = customerService.getById(newLoan.customerId);
     if (customer) {
       customerService.update(customer.id, {
-        activeLoansCount: customer.activeLoansCount + 1,
-        totalBorrowed: new Decimal(customer.totalBorrowed).plus(newLoan.principal).toNumber()
+        activeLoansCount: (customer.activeLoansCount || 0) + 1,
+        totalBorrowed: new Decimal(customer.totalBorrowed || 0).plus(effectivePrincipal).toNumber()
       });
     }
 
     // Create New Loan Receipt
-    receiptService.create({
-      receiptNo: 0,
-      loanId: newLoan.id,
-      loanNo: newLoan.loanNo,
-      customerId: newLoan.customerId,
-      customerName: newLoan.customerName,
-      kind: 'NEW LOAN',
-      loanType: newLoan.loanType,
-      amount: newLoan.principal,
-      principalComponent: newLoan.principal,
-      interestComponent: 0,
-      paymentMode: newLoan.bankMode === 'Cash' ? 'Cash' : 'UPI',
-      date: newLoan.date,
-      notes: 'New Loan Disbursement'
-    });
+    try {
+      receiptService.create({
+        receiptNo: 0,
+        loanId: newLoan.id,
+        loanNo: newLoan.loanNo,
+        customerId: newLoan.customerId,
+        customerName: newLoan.customerName,
+        kind: 'NEW LOAN',
+        loanType: newLoan.loanType,
+        amount: effectivePrincipal,
+        principalComponent: effectivePrincipal,
+        interestComponent: 0,
+        paymentMode: newLoan.bankMode === 'Cash' ? 'Cash' : 'UPI',
+        date: newLoan.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
+        notes: 'New Loan Disbursement'
+      });
+    } catch (e) {
+      console.warn('[LoanService] Receipt creation note:', e);
+    }
 
     // Create DayBook Entry
-    const isCash = newLoan.bankMode === 'Cash';
-    const isSplit = newLoan.bankMode === 'Split';
-    const cashDisbursed = isCash ? newLoan.principal : isSplit ? newLoan.cashAmount : 0;
-    const bankDisbursed = isCash ? 0 : isSplit ? newLoan.bankAmount : newLoan.principal;
+    try {
+      const isCash = newLoan.bankMode === 'Cash';
+      const isSplit = newLoan.bankMode === 'Split';
+      const cashDisbursed = isCash ? effectivePrincipal : isSplit ? (newLoan.cashAmount || 0) : 0;
+      const bankDisbursed = isCash ? 0 : isSplit ? (newLoan.bankAmount || 0) : effectivePrincipal;
 
-    accountingService.addEntry({
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      billNo: loanNo,
-      particulars: `Loan Disbursement (${loanNo}) - ${newLoan.customerName}`,
-      accountHead: 'Gold Loan Portfolio',
-      mode: isCash ? 'Cash' : newLoan.bankMode === 'UPI' ? 'UPI' : 'Bank',
-      cashIn: 0,
-      cashOut: cashDisbursed,
-      bankIn: 0,
-      bankOut: bankDisbursed,
-      customerName: newLoan.customerName,
-      loanNo,
-      date: newLoan.date
-    });
+      accountingService.addEntry({
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        billNo: loanNo,
+        particulars: `Loan Disbursement (${loanNo}) - ${newLoan.customerName}`,
+        accountHead: 'Gold Loan Portfolio',
+        mode: isCash ? 'Cash' : newLoan.bankMode === 'UPI' ? 'UPI' : 'Bank',
+        cashIn: 0,
+        cashOut: cashDisbursed,
+        bankIn: 0,
+        bankOut: bankDisbursed,
+        customerName: newLoan.customerName,
+        loanNo,
+        date: newLoan.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '-')
+      });
+    } catch (e) {
+      console.warn('[LoanService] Accounting entry note:', e);
+    }
 
     return newLoan;
   }
@@ -256,4 +344,3 @@ export class LoanService {
 }
 
 export const loanService = new LoanService();
-
