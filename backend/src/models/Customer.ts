@@ -1,16 +1,26 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ICustomerPhoto {
+  fileId: string;
+  fileName?: string;
   url: string;
-  publicId: string;
+  mimeType?: string;
+  fileSize?: number;
+  uploadedAt?: Date;
+  publicId?: string; // alias for legacy/backward compatibility
 }
 
 export interface IKYCDocument {
   documentType: string;
   documentNumber?: string;
   documentName?: string;
+  fileId: string;
+  fileName?: string;
   url: string;
-  publicId: string;
+  mimeType?: string;
+  fileSize?: number;
+  uploadedAt?: Date;
+  publicId?: string; // alias for legacy/backward compatibility
   resourceType?: string;
 }
 
@@ -77,7 +87,12 @@ export interface ICustomer extends Document {
 
 const CustomerPhotoSchema = new Schema<ICustomerPhoto>(
   {
+    fileId: { type: String, default: '' },
+    fileName: { type: String, default: 'customer-photo.jpg' },
     url: { type: String, default: '' },
+    mimeType: { type: String, default: 'image/jpeg' },
+    fileSize: { type: Number, default: 0 },
+    uploadedAt: { type: Date, default: Date.now },
     publicId: { type: String, default: '' }
   },
   { _id: false }
@@ -88,8 +103,13 @@ const KYCDocumentSchema = new Schema<IKYCDocument>(
     documentType: { type: String, required: true },
     documentNumber: { type: String, default: '' },
     documentName: { type: String, default: '' },
+    fileId: { type: String, required: true },
+    fileName: { type: String, default: '' },
     url: { type: String, required: true },
-    publicId: { type: String, required: true },
+    mimeType: { type: String, default: 'image/jpeg' },
+    fileSize: { type: Number, default: 0 },
+    uploadedAt: { type: Date, default: Date.now },
+    publicId: { type: String, default: '' },
     resourceType: { type: String, default: 'image' }
   },
   { _id: true, timestamps: true }
@@ -98,6 +118,7 @@ const KYCDocumentSchema = new Schema<IKYCDocument>(
 const StructuredAddressSchema = new Schema<IStructuredAddress>(
   {
     houseNumber: { type: String, default: '' },
+
     street: { type: String, default: '' },
     locality: { type: String, default: '' },
     city: { type: String, default: '' },

@@ -595,7 +595,7 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
             )}
           </div>
 
-          {/* ATTACHED KYC DOCUMENTS (CLOUDINARY) */}
+          {/* ATTACHED KYC DOCUMENTS (GOOGLE DRIVE) */}
           {customer.kycDocuments && customer.kycDocuments.length > 0 && (
             <div>
               <h4
@@ -619,10 +619,10 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
                 {customer.kycDocuments.map((doc, idx) => {
-                  const isPdf = doc.resourceType === 'raw' || doc.url.endsWith('.pdf');
+                  const isPdf = doc.resourceType === 'raw' || doc.url?.endsWith('.pdf');
                   return (
                     <a
-                      key={`kyc-doc-${doc.publicId || idx}`}
+                      key={`kyc-doc-${doc.fileId || doc.publicId || idx}`}
                       href={doc.url}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -674,7 +674,7 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
                           {doc.documentName || `${doc.documentType} Doc`}
                         </p>
                         <span style={{ fontSize: '11px', color: 'var(--color-primary-dark)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <span>View on Cloudinary</span>
+                          <span>View on Google Drive</span>
                           <ExternalLink size={10} />
                         </span>
                       </div>
@@ -683,6 +683,7 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
                 })}
               </div>
             </div>
+
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════

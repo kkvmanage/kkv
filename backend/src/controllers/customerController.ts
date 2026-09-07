@@ -1,13 +1,10 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import { CustomerModel, ICustomer, IKYCDocument } from '../models/Customer.js';
-import {
-  uploadBufferToCloudinary,
-  deleteFromCloudinary,
-  getKycDocFolder,
-  isCloudinaryConfigured
-} from '../config/cloudinary.js';
+import { CustomerModel, ICustomer, IKYCDocument, ICustomerPhoto } from '../models/Customer.js';
+import { googleDriveService } from '../services/googleDriveService.js';
 import { generateCustomerId } from '../utils/customerIdGenerator.js';
+import { ensureMongoConnected, isMongoConnected } from '../config/database.js';
+
 
 export interface CreateCustomerRequest {
   fullName: string;
@@ -30,11 +27,6 @@ export interface CreateCustomerRequest {
   docName?: string;
   customerPhoto?: string;
   status?: 'VERIFIED' | 'PENDING' | 'BLOCKED';
-}
-
-export interface CloudinaryAssetRef {
-  publicId: string;
-  resourceType: 'image' | 'raw' | 'video';
 }
 
 /**
@@ -99,42 +91,57 @@ function dataUriToBuffer(dataUri: string): { buffer: Buffer; mimeType: string } 
 }
 
 /**
- * Helper to rollback/clean up uploaded Cloudinary assets when an error occurs
+ * Helper to rollback/clean up uploaded Google Drive files when an error occurs
  */
-async function rollbackCloudinaryAssets(assets: CloudinaryAssetRef[]) {
-  if (!assets || assets.length === 0) return;
-  console.log(`[Cloudinary Rollback] Cleaning up ${assets.length} uploaded assets...`);
-  for (const asset of assets) {
+async function rollbackDriveFiles(fileIds: string[]) {
+  if (!fileIds || fileIds.length === 0) return;
+  console.log(`[GoogleDrive Rollback] Cleaning up ${fileIds.length} uploaded files...`);
+  for (const fileId of fileIds) {
     try {
-      await deleteFromCloudinary(asset.publicId, asset.resourceType);
+      await googleDriveService.deleteFile(fileId);
     } catch (err) {
-      console.warn(`[Cloudinary Rollback] Failed to delete ${asset.publicId}:`, err);
+      console.warn(`[GoogleDrive Rollback] Failed to delete file ${fileId}:`, err);
     }
   }
 }
 
 /**
  * POST /api/customers
- * Permanent MongoDB creation with Cloudinary uploads for photo and KYC documents.
- * Full transaction rollback on failure to prevent orphaned Cloudinary assets.
+ * Permanent MongoDB creation with Google Drive file uploads for photo and KYC documents.
+ * Full transaction rollback on failure to prevent orphaned Google Drive files.
  */
 export const createCustomer = async (req: Request, res: Response) => {
-  const uploadedAssets: CloudinaryAssetRef[] = [];
+  const uploadedDriveFileIds: string[] = [];
 
   try {
-    // Ensure MongoDB connection is ready
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'Database is currently unavailable. Permanent MongoDB connection is required.',
-        error: { code: 'DATABASE_DISCONNECTED' }
-      });
+    // 1. Ensure MongoDB connection is ready
+    if (!isMongoConnected()) {
+      await ensureMongoConnected();
+      if (!isMongoConnected()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Database is currently unavailable. Permanent MongoDB connection is required.',
+          error: { code: 'DATABASE_DISCONNECTED' }
+        });
+      }
+    }
+
+    // 2. Ensure Google Drive is connected
+    if (!googleDriveService.isConnected()) {
+      googleDriveService.initGoogleDrive(true);
+      if (!googleDriveService.isConnected()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Google Drive storage is unavailable. Please connect Google Drive and try again.',
+          error: { code: 'GOOGLE_DRIVE_NOT_CONNECTED' }
+        });
+      }
     }
 
     const body = req.body || {};
     const files = (req.files as { [fieldname: string]: Express.Multer.File[] }) || {};
 
-    // 1. Extract and normalize fields
+    // 3. Extract and normalize fields
     const fullName = (body.fullName || body.name || '').trim();
     const rawPhoneNumber = (body.phoneNumber || body.phone || '').trim();
     const gender = body.gender || 'Male';
@@ -160,7 +167,7 @@ export const createCustomer = async (req: Request, res: Response) => {
     const extraPan = (body.extraPan || '').trim();
     const docName = (body.docName || '').trim();
 
-    // 2. Validation
+    // 4. Validation
     if (!fullName) {
       return res.status(400).json({
         success: false,
@@ -197,61 +204,82 @@ export const createCustomer = async (req: Request, res: Response) => {
       });
     }
 
-    // 3. Generate unique sequential Customer ID (KKV-2026-000001)
+    // 5. Generate unique sequential Customer ID (KKV-2026-000001)
     const { customerId, sequenceNumber } = await generateCustomerId('KKV-2026');
 
-    // 4. Upload Customer Photo to Cloudinary
-    let customerPhotoData = { url: '', publicId: '' };
+    // 6. Upload Customer Photo to Google Drive (Photos folder)
+    let customerPhotoData: ICustomerPhoto = {
+      fileId: '',
+      fileName: 'customer-photo.jpg',
+      url: '',
+      mimeType: 'image/jpeg',
+      fileSize: 0,
+      uploadedAt: new Date(),
+      publicId: ''
+    };
+
     const photoFile = files['customerPhoto']?.[0];
 
     if (photoFile) {
       try {
-        const uploadResult = await uploadBufferToCloudinary(photoFile.buffer, {
-          folder: 'kkv-gold-finance/customers/photos',
-          publicId: `${customerId}-photo`,
-          resourceType: 'image'
-        });
+        const uploadResult = await googleDriveService.uploadCustomerPhoto(
+          customerId,
+          photoFile.buffer,
+          photoFile.originalname || `customer-photo-${customerId}.jpg`,
+          photoFile.mimetype || 'image/jpeg'
+        );
 
+        uploadedDriveFileIds.push(uploadResult.fileId);
         customerPhotoData = {
-          url: uploadResult.secure_url,
-          publicId: uploadResult.public_id
+          fileId: uploadResult.fileId,
+          fileName: uploadResult.fileName,
+          url: uploadResult.url,
+          mimeType: uploadResult.mimeType,
+          fileSize: uploadResult.fileSize,
+          uploadedAt: uploadResult.uploadedAt,
+          publicId: uploadResult.fileId
         };
-        uploadedAssets.push({ publicId: uploadResult.public_id, resourceType: 'image' });
       } catch (uploadErr: any) {
-        console.error('[Cloudinary] Customer photo upload failed:', uploadErr);
-        await rollbackCloudinaryAssets(uploadedAssets);
+        console.error('[GoogleDrive] Customer photo upload failed:', uploadErr);
+        await rollbackDriveFiles(uploadedDriveFileIds);
         return res.status(500).json({
           success: false,
-          message: `Customer photo upload to Cloudinary failed: ${uploadErr.message || 'Upload error'}`
+          message: `Customer photo upload to Google Drive failed: ${uploadErr.message || 'Upload error'}`
         });
       }
     } else if (body.customerPhoto && typeof body.customerPhoto === 'string' && body.customerPhoto.startsWith('data:image')) {
       const parsed = dataUriToBuffer(body.customerPhoto);
       if (parsed) {
         try {
-          const uploadResult = await uploadBufferToCloudinary(parsed.buffer, {
-            folder: 'kkv-gold-finance/customers/photos',
-            publicId: `${customerId}-photo`,
-            resourceType: 'image'
-          });
+          const uploadResult = await googleDriveService.uploadCustomerPhoto(
+            customerId,
+            parsed.buffer,
+            `customer-webcam-${customerId}.jpg`,
+            parsed.mimeType || 'image/jpeg'
+          );
 
+          uploadedDriveFileIds.push(uploadResult.fileId);
           customerPhotoData = {
-            url: uploadResult.secure_url,
-            publicId: uploadResult.public_id
+            fileId: uploadResult.fileId,
+            fileName: uploadResult.fileName,
+            url: uploadResult.url,
+            mimeType: uploadResult.mimeType,
+            fileSize: uploadResult.fileSize,
+            uploadedAt: uploadResult.uploadedAt,
+            publicId: uploadResult.fileId
           };
-          uploadedAssets.push({ publicId: uploadResult.public_id, resourceType: 'image' });
         } catch (uploadErr: any) {
-          console.error('[Cloudinary] Webcam photo upload failed:', uploadErr);
-          await rollbackCloudinaryAssets(uploadedAssets);
+          console.error('[GoogleDrive] Webcam photo upload failed:', uploadErr);
+          await rollbackDriveFiles(uploadedDriveFileIds);
           return res.status(500).json({
             success: false,
-            message: `Webcam photo upload to Cloudinary failed: ${uploadErr.message || 'Upload error'}`
+            message: `Webcam photo upload to Google Drive failed: ${uploadErr.message || 'Upload error'}`
           });
         }
       }
     }
 
-    // 5. Upload KYC Documents to Cloudinary
+    // 7. Upload KYC Documents to Google Drive (KYC/<DocumentType> folder)
     const kycDocuments: IKYCDocument[] = [];
     const kycFiles = [
       ...(files['kycDocuments'] || []),
@@ -267,39 +295,44 @@ export const createCustomer = async (req: Request, res: Response) => {
         file.fieldname === 'panDoc' ? 'PAN' :
         file.fieldname === 'otherDoc' ? (docName || 'Other') : idProofType;
 
-      const folder = getKycDocFolder(docType);
       const isPdf = file.mimetype === 'application/pdf';
       const resourceType = isPdf ? 'raw' : 'image';
 
       try {
-        const uploadResult = await uploadBufferToCloudinary(file.buffer, {
-          folder,
-          publicId: `${customerId}-kyc-${docType.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${i + 1}`,
-          resourceType
-        });
+        const uploadResult = await googleDriveService.uploadKycDocument(
+          customerId,
+          docType,
+          file.buffer,
+          file.originalname || `${docType.toLowerCase()}_${i + 1}.jpg`,
+          file.mimetype || 'image/jpeg'
+        );
 
-        uploadedAssets.push({ publicId: uploadResult.public_id, resourceType });
+        uploadedDriveFileIds.push(uploadResult.fileId);
 
         kycDocuments.push({
           documentType: docType,
           documentNumber: idProofNumber || '',
           documentName: file.originalname || `${docType} Document`,
-          url: uploadResult.secure_url,
-          publicId: uploadResult.public_id,
-          resourceType: uploadResult.resource_type || resourceType
+          fileId: uploadResult.fileId,
+          fileName: uploadResult.fileName,
+          url: uploadResult.url,
+          mimeType: uploadResult.mimeType,
+          fileSize: uploadResult.fileSize,
+          uploadedAt: uploadResult.uploadedAt,
+          publicId: uploadResult.fileId,
+          resourceType
         });
       } catch (docErr: any) {
-        console.error(`[Cloudinary] Failed to upload KYC document ${file.originalname}:`, docErr);
-        // Rollback all already uploaded files
-        await rollbackCloudinaryAssets(uploadedAssets);
+        console.error(`[GoogleDrive] Failed to upload KYC document ${file.originalname}:`, docErr);
+        await rollbackDriveFiles(uploadedDriveFileIds);
         return res.status(500).json({
           success: false,
-          message: `Failed to upload KYC document "${file.originalname}" to Cloudinary: ${docErr.message || 'Upload failed'}`
+          message: `Failed to upload KYC document "${file.originalname}" to Google Drive: ${docErr.message || 'Upload failed'}`
         });
       }
     }
 
-    // 6. Construct and Save MongoDB Document
+    // 8. Construct and Save MongoDB Document (storing Google Drive metadata and links)
     const customerPayload = {
       customerId,
       numericId: sequenceNumber,
@@ -363,13 +396,12 @@ export const createCustomer = async (req: Request, res: Response) => {
 
       return res.status(201).json({
         success: true,
-        message: 'Customer created successfully and saved permanently in MongoDB.',
+        message: 'Customer created successfully and saved permanently in MongoDB with Google Drive file storage.',
         data: savedCustomer
       });
     } catch (saveErr: any) {
       console.error('[CustomerController] MongoDB create failed:', saveErr);
-      // Rollback Cloudinary files if DB save fails
-      await rollbackCloudinaryAssets(uploadedAssets);
+      await rollbackDriveFiles(uploadedDriveFileIds);
       return res.status(500).json({
         success: false,
         message: `Database save error: ${saveErr.message || 'Failed to save customer in MongoDB.'}`
@@ -377,7 +409,7 @@ export const createCustomer = async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     console.error('[CustomerController] createCustomer unexpected error:', error);
-    await rollbackCloudinaryAssets(uploadedAssets);
+    await rollbackDriveFiles(uploadedDriveFileIds);
     return res.status(500).json({
       success: false,
       message: error.message || 'An unexpected error occurred while creating customer.'
@@ -391,12 +423,15 @@ export const createCustomer = async (req: Request, res: Response) => {
  */
 export const getCustomers = async (req: Request, res: Response) => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'MongoDB is disconnected.',
-        error: { code: 'DATABASE_DISCONNECTED' }
-      });
+    if (!isMongoConnected()) {
+      await ensureMongoConnected();
+      if (!isMongoConnected()) {
+        return res.status(503).json({
+          success: false,
+          message: 'MongoDB is disconnected.',
+          error: { code: 'DATABASE_DISCONNECTED' }
+        });
+      }
     }
 
     const includeDeleted = req.query.includeDeleted === 'true';
@@ -437,12 +472,15 @@ export const getCustomers = async (req: Request, res: Response) => {
  */
 export const getCustomerById = async (req: Request, res: Response) => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'MongoDB is disconnected.',
-        error: { code: 'DATABASE_DISCONNECTED' }
-      });
+    if (!isMongoConnected()) {
+      await ensureMongoConnected();
+      if (!isMongoConnected()) {
+        return res.status(503).json({
+          success: false,
+          message: 'MongoDB is disconnected.',
+          error: { code: 'DATABASE_DISCONNECTED' }
+        });
+      }
     }
 
     const targetId = req.params.id;
@@ -492,12 +530,15 @@ export const getCustomerById = async (req: Request, res: Response) => {
  */
 export const searchCustomers = async (req: Request, res: Response) => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'MongoDB is disconnected.',
-        error: { code: 'DATABASE_DISCONNECTED' }
-      });
+    if (!isMongoConnected()) {
+      await ensureMongoConnected();
+      if (!isMongoConnected()) {
+        return res.status(503).json({
+          success: false,
+          message: 'MongoDB is disconnected.',
+          error: { code: 'DATABASE_DISCONNECTED' }
+        });
+      }
     }
 
     const query = ((req.query.query || req.query.q) as string || '').trim();
@@ -549,18 +590,21 @@ export const searchCustomers = async (req: Request, res: Response) => {
  * PUT /api/customers/:id
  * Updates customer information in MongoDB.
  * If customer photo is replaced:
- *   1. Upload new image to Cloudinary.
+ *   1. Upload new image to Google Drive.
  *   2. Update MongoDB.
- *   3. Delete old Cloudinary file after successful DB update.
+ *   3. Delete old Google Drive file.
  */
 export const updateCustomer = async (req: Request, res: Response) => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'MongoDB is disconnected.',
-        error: { code: 'DATABASE_DISCONNECTED' }
-      });
+    if (!isMongoConnected()) {
+      await ensureMongoConnected();
+      if (!isMongoConnected()) {
+        return res.status(503).json({
+          success: false,
+          message: 'MongoDB is disconnected.',
+          error: { code: 'DATABASE_DISCONNECTED' }
+        });
+      }
     }
 
     const targetId = req.params.id;
@@ -584,7 +628,7 @@ export const updateCustomer = async (req: Request, res: Response) => {
     }
 
     const updateFields: any = { ...body, updatedAt: new Date() };
-    const oldPhotoPublicId = existing.customerPhoto?.publicId;
+    const oldPhotoFileId = existing.customerPhoto?.fileId;
 
     // Normalize field names
     if (body.fullName || body.name) {
@@ -613,25 +657,31 @@ export const updateCustomer = async (req: Request, res: Response) => {
       updateFields.idNumber = updateFields.idProofNumber;
     }
 
-    // 1. Handle new customer photo upload
+    // 1. Handle new customer photo upload to Google Drive
     const photoFile = files['customerPhoto']?.[0];
     let newPhotoUploaded = false;
     if (photoFile) {
       try {
         const custId = existing.customerId;
-        const uploadResult = await uploadBufferToCloudinary(photoFile.buffer, {
-          folder: 'kkv-gold-finance/customers/photos',
-          publicId: `${custId}-photo-${Date.now()}`,
-          resourceType: 'image'
-        });
+        const uploadResult = await googleDriveService.uploadCustomerPhoto(
+          custId,
+          photoFile.buffer,
+          photoFile.originalname || `customer-photo-${custId}-${Date.now()}.jpg`,
+          photoFile.mimetype || 'image/jpeg'
+        );
 
         updateFields.customerPhoto = {
-          url: uploadResult.secure_url,
-          publicId: uploadResult.public_id
+          fileId: uploadResult.fileId,
+          fileName: uploadResult.fileName,
+          url: uploadResult.url,
+          mimeType: uploadResult.mimeType,
+          fileSize: uploadResult.fileSize,
+          uploadedAt: uploadResult.uploadedAt,
+          publicId: uploadResult.fileId
         };
         newPhotoUploaded = true;
       } catch (photoErr: any) {
-        console.error('[Cloudinary] Update photo upload failed:', photoErr);
+        console.error('[GoogleDrive] Update photo upload failed:', photoErr);
         return res.status(500).json({
           success: false,
           message: `Photo update failed: ${photoErr.message}`
@@ -654,23 +704,29 @@ export const updateCustomer = async (req: Request, res: Response) => {
       for (let i = 0; i < kycFiles.length; i++) {
         const file = kycFiles[i];
         const docType = updateFields.idProofType || existing.idProofType || 'KYC';
-        const folder = getKycDocFolder(docType);
         const isPdf = file.mimetype === 'application/pdf';
         const resourceType = isPdf ? 'raw' : 'image';
 
-        const uploadResult = await uploadBufferToCloudinary(file.buffer, {
-          folder,
-          publicId: `${custId}-kyc-${Date.now()}-${i + 1}`,
-          resourceType
-        });
+        const uploadResult = await googleDriveService.uploadKycDocument(
+          custId,
+          docType,
+          file.buffer,
+          file.originalname || `${docType.toLowerCase()}_${Date.now()}_${i + 1}.jpg`,
+          file.mimetype || 'image/jpeg'
+        );
 
         newKycDocs.push({
           documentType: docType,
           documentNumber: updateFields.idProofNumber || existing.idProofNumber || '',
           documentName: file.originalname,
-          url: uploadResult.secure_url,
-          publicId: uploadResult.public_id,
-          resourceType: uploadResult.resource_type || resourceType
+          fileId: uploadResult.fileId,
+          fileName: uploadResult.fileName,
+          url: uploadResult.url,
+          mimeType: uploadResult.mimeType,
+          fileSize: uploadResult.fileSize,
+          uploadedAt: uploadResult.uploadedAt,
+          publicId: uploadResult.fileId,
+          resourceType
         });
       }
 
@@ -681,10 +737,10 @@ export const updateCustomer = async (req: Request, res: Response) => {
     Object.assign(existing, updateFields);
     const updatedDoc = await existing.save();
 
-    // 4. Delete old Cloudinary photo after successful DB update
-    if (newPhotoUploaded && oldPhotoPublicId) {
-      deleteFromCloudinary(oldPhotoPublicId, 'image').catch((err) => {
-        console.warn('[Cloudinary] Cleanup old photo notice:', err);
+    // 4. Delete old Google Drive photo after successful DB update
+    if (newPhotoUploaded && oldPhotoFileId) {
+      googleDriveService.deleteFile(oldPhotoFileId).catch((err) => {
+        console.warn('[GoogleDrive] Cleanup old photo notice:', err);
       });
     }
 
@@ -706,19 +762,21 @@ export const updateCustomer = async (req: Request, res: Response) => {
  * DELETE /api/customers/:id
  * Deletion flow:
  *   1. Find customer in MongoDB.
- *   2. Get customerPhoto.publicId.
- *   3. Get every KYC document publicId.
- *   4. Delete corresponding Cloudinary resources.
- *   5. Delete customer MongoDB document.
+ *   2. Delete customer photo and KYC files from Google Drive.
+ *   3. Delete customer folder from Google Drive.
+ *   4. Delete customer MongoDB document.
  */
 export const deleteCustomer = async (req: Request, res: Response) => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'MongoDB is disconnected.',
-        error: { code: 'DATABASE_DISCONNECTED' }
-      });
+    if (!isMongoConnected()) {
+      await ensureMongoConnected();
+      if (!isMongoConnected()) {
+        return res.status(503).json({
+          success: false,
+          message: 'MongoDB is disconnected.',
+          error: { code: 'DATABASE_DISCONNECTED' }
+        });
+      }
     }
 
     const targetId = req.params.id;
@@ -739,36 +797,43 @@ export const deleteCustomer = async (req: Request, res: Response) => {
       });
     }
 
-    // 1. Delete Customer Photo from Cloudinary
-    if (customer.customerPhoto?.publicId) {
+    // 1. Delete Customer Photo from Google Drive
+    if (customer.customerPhoto?.fileId) {
       try {
-        console.log(`[Cloudinary] Deleting customer photo: ${customer.customerPhoto.publicId}`);
-        await deleteFromCloudinary(customer.customerPhoto.publicId, 'image');
+        await googleDriveService.deleteFile(customer.customerPhoto.fileId);
       } catch (delErr) {
-        console.warn('[Cloudinary] Failed to delete customer photo:', delErr);
+        console.warn('[GoogleDrive] Failed to delete customer photo:', delErr);
       }
     }
 
-    // 2. Delete all KYC Documents from Cloudinary
+    // 2. Delete all KYC Documents from Google Drive
     if (customer.kycDocuments && Array.isArray(customer.kycDocuments)) {
       for (const doc of customer.kycDocuments) {
-        if (doc.publicId) {
+        if (doc.fileId) {
           try {
-            console.log(`[Cloudinary] Deleting KYC doc: ${doc.publicId}`);
-            await deleteFromCloudinary(doc.publicId, doc.resourceType === 'raw' ? 'raw' : 'image');
+            await googleDriveService.deleteFile(doc.fileId);
           } catch (delErr) {
-            console.warn(`[Cloudinary] Failed to delete KYC doc ${doc.publicId}:`, delErr);
+            console.warn(`[GoogleDrive] Failed to delete KYC doc ${doc.fileId}:`, delErr);
           }
         }
       }
     }
 
-    // 3. Delete from MongoDB
+    // 3. Delete customer folder hierarchy from Google Drive
+    if (customer.customerId) {
+      try {
+        await googleDriveService.deleteCustomerFolder(customer.customerId);
+      } catch (folderDelErr) {
+        console.warn(`[GoogleDrive] Failed to delete customer folder:`, folderDelErr);
+      }
+    }
+
+    // 4. Delete from MongoDB
     await CustomerModel.deleteOne({ _id: customer._id });
 
     return res.json({
       success: true,
-      message: 'Customer and all associated Cloudinary assets permanently deleted successfully.'
+      message: 'Customer and all associated Google Drive files permanently deleted successfully.'
     });
   } catch (error: any) {
     console.error('[CustomerController] deleteCustomer error:', error);
@@ -806,3 +871,15 @@ export const restoreCustomer = async (req: Request, res: Response) => {
 };
 
 export const deletePermanentlyCustomer = deleteCustomer;
+
+export default {
+  createCustomer,
+  getCustomers,
+  getCustomerById,
+  searchCustomers,
+  updateCustomer,
+  deleteCustomer,
+  restoreCustomer,
+  deletePermanentlyCustomer
+};
+

@@ -836,18 +836,181 @@ export class GoogleDriveService {
     };
   }
 
-  // Ensure Customer Folders Structure
-  public async ensureCustomerFolders(customerId: string): Promise<CustomerFolderStructure> {
+  /**
+   * Resolves the exact folder structure:
+   * KKV GOLD FINANCE -> Customers -> Customer-<customerId> -> Photos, KYC
+   */
+  public async ensureCustomerFolderHierarchy(customerId: string): Promise<{
+    customersFolderId: string;
+    customerFolderId: string;
+    photosFolderId: string;
+    kycFolderId: string;
+  }> {
     const rootId = this.getRootFolderId();
     const customersFolderId = await this.getOrCreateFolder('Customers', rootId);
-    const customerFolderId = await this.getOrCreateFolder(customerId, customersFolderId);
+    const folderName = customerId.startsWith('Customer-') ? customerId : `Customer-${customerId}`;
+    const customerFolderId = await this.getOrCreateFolder(folderName, customersFolderId);
 
-    const profilePhotoFolderId = await this.getOrCreateFolder('Profile_Photo', customerFolderId);
-    const kycFolderId = await this.getOrCreateFolder('KYC_Documents', customerFolderId);
+    const photosFolderId = await this.getOrCreateFolder('Photos', customerFolderId);
+    const kycFolderId = await this.getOrCreateFolder('KYC', customerFolderId);
 
     return {
+      customersFolderId,
       customerFolderId,
-      profilePhotoFolderId,
+      photosFolderId,
+      kycFolderId
+    };
+  }
+
+  /**
+   * Normalizes and resolves KYC subfolders:
+   * Customers/Customer-<customerId>/KYC/<Aadhaar | PAN | Voter-ID | Driving-License | Passport | Other>
+   */
+  public async ensureKycDocFolder(customerId: string, documentType: string): Promise<string> {
+    const { kycFolderId } = await this.ensureCustomerFolderHierarchy(customerId);
+    const rawType = (documentType || '').toLowerCase().trim();
+
+    let folderName = 'Other';
+    if (rawType.includes('aadhaar')) folderName = 'Aadhaar';
+    else if (rawType.includes('pan')) folderName = 'PAN';
+    else if (rawType.includes('voter')) folderName = 'Voter-ID';
+    else if (rawType.includes('driv') || rawType.includes('licen')) folderName = 'Driving-License';
+    else if (rawType.includes('passport')) folderName = 'Passport';
+
+    return this.getOrCreateFolder(folderName, kycFolderId);
+  }
+
+  /**
+   * Uploads Customer Photo directly to Google Drive Photos folder
+   */
+  public async uploadCustomerPhoto(
+    customerId: string,
+    buffer: Buffer,
+    fileName: string = 'customer-photo.jpg',
+    mimeType: string = 'image/jpeg'
+  ): Promise<{
+    fileId: string;
+    fileName: string;
+    url: string;
+    mimeType: string;
+    fileSize: number;
+    uploadedAt: Date;
+  }> {
+    const { photosFolderId } = await this.ensureCustomerFolderHierarchy(customerId);
+    const cleanFileName = fileName || `customer-photo-${customerId}.jpg`;
+
+    const uploadRes = await this.uploadFile(
+      {
+        originalname: cleanFileName,
+        mimetype: mimeType || 'image/jpeg',
+        buffer
+      },
+      photosFolderId
+    );
+
+    const url = uploadRes.webViewLink || `https://drive.google.com/file/d/${uploadRes.fileId}/view`;
+
+    return {
+      fileId: uploadRes.fileId,
+      fileName: cleanFileName,
+      url,
+      mimeType: uploadRes.mimeType || mimeType || 'image/jpeg',
+      fileSize: buffer.length,
+      uploadedAt: new Date()
+    };
+  }
+
+  /**
+   * Uploads KYC Document directly to Google Drive KYC/<DocumentType> folder
+   */
+  public async uploadKycDocument(
+    customerId: string,
+    documentType: string,
+    buffer: Buffer,
+    fileName: string,
+    mimeType: string = 'image/jpeg'
+  ): Promise<{
+    documentType: string;
+    fileId: string;
+    fileName: string;
+    url: string;
+    mimeType: string;
+    fileSize: number;
+    uploadedAt: Date;
+  }> {
+    const targetFolderId = await this.ensureKycDocFolder(customerId, documentType);
+    const cleanFileName = fileName || `${documentType.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.jpg`;
+
+    const uploadRes = await this.uploadFile(
+      {
+        originalname: cleanFileName,
+        mimetype: mimeType || 'image/jpeg',
+        buffer
+      },
+      targetFolderId
+    );
+
+    const url = uploadRes.webViewLink || `https://drive.google.com/file/d/${uploadRes.fileId}/view`;
+
+    return {
+      documentType,
+      fileId: uploadRes.fileId,
+      fileName: cleanFileName,
+      url,
+      mimeType: uploadRes.mimeType || mimeType || 'image/jpeg',
+      fileSize: buffer.length,
+      uploadedAt: new Date()
+    };
+  }
+
+  /**
+   * Deletes a customer folder hierarchy from Google Drive
+   */
+  public async deleteCustomerFolder(customerId: string): Promise<boolean> {
+    if (!this.isConnected() || !this.drive) {
+      this.initGoogleDrive();
+      if (!this.isConnected() || !this.drive) return false;
+    }
+
+    try {
+      await this.ensureValidAccessToken();
+      const rootId = this.getRootFolderId();
+      const customersFolderId = await this.getOrCreateFolder('Customers', rootId);
+      const folderName = customerId.startsWith('Customer-') ? customerId : `Customer-${customerId}`;
+      const safeName = folderName.replace(/'/g, "\\'");
+
+      const res = await this.drive.files.list({
+        q: `name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${customersFolderId}' in parents`,
+        fields: 'files(id, name)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true
+      });
+
+      if (res.data.files && res.data.files.length > 0) {
+        for (const f of res.data.files) {
+          if (f.id) {
+            await this.deleteFile(f.id);
+          }
+        }
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn(`[GoogleDriveService] Failed to delete customer folder for ${customerId}:`, err);
+      return false;
+    }
+  }
+
+  public getFileUrl(fileId: string): string {
+    return `https://drive.google.com/file/d/${fileId}/view`;
+  }
+
+  // Ensure Customer Folders Structure (backward compatibility)
+  public async ensureCustomerFolders(customerId: string): Promise<CustomerFolderStructure> {
+    const { customerFolderId, photosFolderId, kycFolderId } = await this.ensureCustomerFolderHierarchy(customerId);
+    return {
+      customerFolderId,
+      profilePhotoFolderId: photosFolderId,
       kycFolderId
     };
   }
@@ -867,6 +1030,7 @@ export class GoogleDriveService {
       receiptsFolderId
     };
   }
+
 
   public async testRootFolderAccess(): Promise<{ accessible: boolean; error?: string; errorCode?: string }> {
     try {

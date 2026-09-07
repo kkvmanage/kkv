@@ -463,8 +463,9 @@ export const AddCustomer: React.FC = () => {
       const response = await apiService.createCustomerFormData(formData);
 
       if (response && response.success) {
-        showToast('Customer KYC Profile Created & Uploaded to Cloudinary Successfully!', 'success');
+        showToast('Customer KYC Profile Created & Uploaded to Google Drive Successfully!', 'success');
         localStorage.removeItem('kkv_kyc_draft');
+
 
         // Sync local AppContext state
         try {
@@ -537,8 +538,9 @@ export const AddCustomer: React.FC = () => {
               👤 Customer / KYC Details
             </h2>
             <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: 'var(--text-muted, #64748b)' }}>
-              Personal information, identity proof, and addresses (MongoDB &amp; Cloudinary)
+              Personal information, identity proof, and addresses (MongoDB &amp; Google Drive)
             </p>
+
           </div>
         </div>
 
@@ -803,12 +805,13 @@ export const AddCustomer: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                 <div>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-dark, #0f172a)' }}>
-                    📎 Upload KYC Documents (Cloudinary)
+                    📎 Upload KYC Documents (Google Drive)
                   </span>
                   <p style={{ margin: '2px 0 0 0', fontSize: '11.5px', color: 'var(--text-muted, #64748b)' }}>
                     Attach copies of Aadhaar, PAN, Voter ID, Driving License, Passport, or Other (JPG, PNG, WEBP, PDF - max 10MB)
                   </p>
                 </div>
+
 
                 <label
                   className="btn btn-secondary btn-sm"
