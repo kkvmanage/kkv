@@ -9,7 +9,11 @@ async function runTests() {
     async function request(endpoint, method = 'GET', body = null) {
         const options = {
             method,
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'x-actor-role': 'MASTER_ADMIN',
+                'x-actor-email': 'goldfinancekkv@gmail.com'
+            },
         };
         if (body) {
             options.body = JSON.stringify(body);

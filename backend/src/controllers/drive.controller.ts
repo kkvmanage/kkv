@@ -239,7 +239,7 @@ export class DriveController {
         email: health.googleAccount,
         googleAccount: health.googleAccount,
         folderAccessible: health.folderAccessible,
-        folderName: health.folderName || 'KKV DB',
+        folderName: health.folderName || 'kkv finance',
         canUpload: health.canUpload,
         errorCode: health.errorCode,
         message: health.message,
@@ -248,7 +248,7 @@ export class DriveController {
           authMode: health.authMode,
           googleAccount: health.googleAccount,
           folderAccessible: health.folderAccessible,
-          folderName: health.folderName || 'KKV DB',
+          folderName: health.folderName || 'kkv finance',
           canUpload: health.canUpload
         }
       });
@@ -276,7 +276,7 @@ export class DriveController {
         clientIdMasked: maskedClientId,
         redirectUri: env.GOOGLE_DRIVE_OAUTH_REDIRECT_URI,
         authUrl: '/api/auth/google-drive/start',
-        targetFolder: 'My Drive / KKV DB',
+        targetFolder: 'My Drive / kkv finance',
         folderId: env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID
       });
     } catch (err: any) {

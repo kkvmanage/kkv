@@ -37,12 +37,7 @@ export const Lockers: React.FC = () => {
                 id: `A-${i}`,
                 cabinet: 'A',
                 number: i,
-                status: i % 7 === 0 ? 'Occupied' : 'Available',
-                customerName: i % 7 === 0 ? 'Ramesh Kumar' : undefined,
-                customerPhone: i % 7 === 0 ? '9876543210' : undefined,
-                issueDate: i % 7 === 0 ? '2026-08-01' : undefined,
-                annualRent: i % 7 === 0 ? 1200 : undefined,
-                notes: i % 7 === 0 ? 'Primary gold custody' : undefined,
+                status: 'Available',
             });
         }
         // Cabinet B: 31 lockers
@@ -51,12 +46,7 @@ export const Lockers: React.FC = () => {
                 id: `B-${i}`,
                 cabinet: 'B',
                 number: i,
-                status: i % 9 === 0 ? 'Occupied' : 'Available',
-                customerName: i % 9 === 0 ? 'Thayba Begum' : undefined,
-                customerPhone: i % 9 === 0 ? '9812345678' : undefined,
-                issueDate: i % 9 === 0 ? '2026-08-11' : undefined,
-                annualRent: i % 9 === 0 ? 1500 : undefined,
-                notes: i % 9 === 0 ? 'Secure documents envelope' : undefined,
+                status: 'Available',
             });
         }
         return initial;

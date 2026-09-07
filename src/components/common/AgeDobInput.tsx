@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, CheckCircle2 } from 'lucide-react';
 
 export interface AgeDobValue {
@@ -14,17 +14,87 @@ export interface AgeDobInputProps {
   onChange: (value: AgeDobValue) => void;
 }
 
+export function parseDateString(dateStr: string): { day: number; month: number; year: number } | null {
+  if (!dateStr) return null;
+  const clean = dateStr.trim();
+
+  // Match YYYY-MM-DD
+  const isoMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1], 10);
+    const month = parseInt(isoMatch[2], 10);
+    const day = parseInt(isoMatch[3], 10);
+    return { day, month, year };
+  }
+
+  // Match DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10);
+    const year = parseInt(dmyMatch[3], 10);
+    return { day, month, year };
+  }
+
+  return null;
+}
+
+export function isValidDateParts(day: number, month: number, year: number): boolean {
+  const currentYear = new Date().getFullYear();
+  if (year < 1900 || year > currentYear) return false;
+  if (month < 1 || month > 12) return false;
+
+  // Validate days in month taking leap years into account
+  const daysInMonth = new Date(year, month, 0).getDate();
+  if (day < 1 || day > daysInMonth) return false;
+
+  const dateObj = new Date(year, month - 1, day);
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  if (dateObj > today) return false; // Future dates not permitted
+
+  return true;
+}
+
 export function calculateAgeFromDob(dobString: string): number | null {
   if (!dobString) return null;
-  const birthDate = new Date(dobString);
-  if (isNaN(birthDate.getTime())) return null;
+  const parts = parseDateString(dobString);
+  if (!parts || !isValidDateParts(parts.day, parts.month, parts.year)) return null;
+
+  const birthDate = new Date(parts.year, parts.month - 1, parts.day);
   const today = new Date();
+
   let calculatedAge = today.getFullYear() - birthDate.getFullYear();
   const monthDiff = today.getMonth() - birthDate.getMonth();
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
     calculatedAge--;
   }
-  return calculatedAge >= 0 ? calculatedAge : null;
+  return calculatedAge >= 0 && calculatedAge <= 120 ? calculatedAge : null;
+}
+
+export function toIsoDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const parts = parseDateString(dateStr);
+  if (!parts || !isValidDateParts(parts.day, parts.month, parts.year)) return '';
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+export function toDisplayDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const parts = parseDateString(dateStr);
+  if (!parts || !isValidDateParts(parts.day, parts.month, parts.year)) return dateStr;
+  return `${String(parts.day).padStart(2, '0')}-${String(parts.month).padStart(2, '0')}-${parts.year}`;
+}
+
+export function formatDobInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) {
+    return digits;
+  }
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  }
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`;
 }
 
 export const AgeDobInput: React.FC<AgeDobInputProps> = ({
@@ -34,34 +104,100 @@ export const AgeDobInput: React.FC<AgeDobInputProps> = ({
   onChange
 }) => {
   const [mode, setMode] = useState<'dob' | 'age'>(initialMode);
-  const [dobVal, setDobVal] = useState<string>(dateOfBirth);
+  const [displayVal, setDisplayVal] = useState<string>(toDisplayDate(dateOfBirth));
+  const [isoVal, setIsoVal] = useState<string>(toIsoDate(dateOfBirth));
   const [ageVal, setAgeVal] = useState<number>(age || 30);
+  const [inputError, setInputError] = useState<string>('');
+
+  const datePickerRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (dateOfBirth) setDobVal(dateOfBirth);
-    if (age) setAgeVal(age);
-  }, [dateOfBirth, age]);
+    if (dateOfBirth) {
+      const disp = toDisplayDate(dateOfBirth);
+      const iso = toIsoDate(dateOfBirth);
+      setDisplayVal(disp);
+      setIsoVal(iso);
+      const calc = calculateAgeFromDob(dateOfBirth);
+      if (calc !== null) {
+        setAgeVal(calc);
+      }
+    } else {
+      setDisplayVal('');
+      setIsoVal('');
+    }
+  }, [dateOfBirth]);
+
+  useEffect(() => {
+    if (age && mode === 'age') {
+      setAgeVal(age);
+    }
+  }, [age, mode]);
 
   const handleModeChange = (newMode: 'dob' | 'age') => {
     setMode(newMode);
+    setInputError('');
     if (newMode === 'dob') {
-      const calculated = calculateAgeFromDob(dobVal);
+      const calculated = calculateAgeFromDob(displayVal || isoVal);
       const finalAge = calculated !== null ? calculated : ageVal;
-      onChange({ mode: 'dob', dateOfBirth: dobVal, age: finalAge });
+      onChange({ mode: 'dob', dateOfBirth: isoVal || displayVal, age: finalAge });
     } else {
       onChange({ mode: 'age', dateOfBirth: '', age: ageVal });
     }
   };
 
-  const handleDobChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setDobVal(val);
-    const calculated = calculateAgeFromDob(val);
-    const finalAge = calculated !== null ? calculated : ageVal;
-    if (calculated !== null) {
-      setAgeVal(calculated);
+  const handleManualDobChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatDobInput(e.target.value);
+    setDisplayVal(formatted);
+
+    if (!formatted) {
+      setIsoVal('');
+      setInputError('');
+      onChange({ mode: 'dob', dateOfBirth: '', age: ageVal });
+      return;
     }
-    onChange({ mode: 'dob', dateOfBirth: val, age: finalAge });
+
+    if (formatted.length === 10) {
+      const parts = parseDateString(formatted);
+      if (!parts || !isValidDateParts(parts.day, parts.month, parts.year)) {
+        setInputError('Please enter a valid date (DD-MM-YYYY)');
+        return;
+      }
+
+      setInputError('');
+      const iso = toIsoDate(formatted);
+      setIsoVal(iso);
+      const calc = calculateAgeFromDob(formatted);
+      const finalAge = calc !== null ? calc : ageVal;
+      if (calc !== null) {
+        setAgeVal(calc);
+      }
+      onChange({ mode: 'dob', dateOfBirth: iso, age: finalAge });
+    } else {
+      setInputError('');
+    }
+  };
+
+  const handlePickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawIso = e.target.value; // YYYY-MM-DD
+    if (!rawIso) {
+      setDisplayVal('');
+      setIsoVal('');
+      setInputError('');
+      onChange({ mode: 'dob', dateOfBirth: '', age: ageVal });
+      return;
+    }
+
+    const disp = toDisplayDate(rawIso);
+    setDisplayVal(disp);
+    setIsoVal(rawIso);
+    setInputError('');
+
+    const calc = calculateAgeFromDob(rawIso);
+    const finalAge = calc !== null ? calc : ageVal;
+    if (calc !== null) {
+      setAgeVal(calc);
+    }
+    onChange({ mode: 'dob', dateOfBirth: rawIso, age: finalAge });
   };
 
   const handleAgeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,7 +206,18 @@ export const AgeDobInput: React.FC<AgeDobInputProps> = ({
     onChange({ mode: 'age', dateOfBirth: '', age: val });
   };
 
-  const currentCalcAge = mode === 'dob' ? calculateAgeFromDob(dobVal) : null;
+  const openCalendarPicker = () => {
+    if (datePickerRef.current) {
+      if (typeof datePickerRef.current.showPicker === 'function') {
+        datePickerRef.current.showPicker();
+      } else {
+        datePickerRef.current.focus();
+        datePickerRef.current.click();
+      }
+    }
+  };
+
+  const currentCalcAge = mode === 'dob' ? calculateAgeFromDob(displayVal || isoVal) : null;
 
   return (
     <div className="form-group" style={{ margin: 0 }}>
@@ -140,24 +287,73 @@ export const AgeDobInput: React.FC<AgeDobInputProps> = ({
       {mode === 'dob' ? (
         <div>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            {/* Visible DD-MM-YYYY text input */}
             <input
-              type="date"
+              type="text"
               className="input-control"
-              value={dobVal}
-              onChange={handleDobChange}
-              style={{ paddingRight: '36px', width: '100%' }}
-            />
-            <Calendar
-              size={16}
+              placeholder="DD-MM-YYYY"
+              maxLength={10}
+              value={displayVal}
+              onChange={handleManualDobChange}
               style={{
-                position: 'absolute',
-                right: '12px',
-                pointerEvents: 'none',
-                color: 'var(--color-primary-dark, #0f172a)',
-                opacity: 0.6
+                paddingRight: '40px',
+                width: '100%',
+                borderColor: inputError ? 'var(--color-danger, #ef4444)' : undefined
               }}
             />
+
+            {/* Hidden native date picker used solely for invoking calendar dialog */}
+            <input
+              ref={datePickerRef}
+              type="date"
+              tabIndex={-1}
+              aria-hidden="true"
+              value={isoVal}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={handlePickerChange}
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: '28px',
+                height: '28px',
+                opacity: 0,
+                pointerEvents: 'none',
+                zIndex: -1
+              }}
+            />
+
+            {/* Single Custom Calendar Button */}
+            <button
+              type="button"
+              onClick={openCalendarPicker}
+              title="Open Date Picker"
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--color-primary-dark, #059669)',
+                borderRadius: '4px'
+              }}
+            >
+              <Calendar size={16} />
+            </button>
           </div>
+
+          {inputError && (
+            <small style={{ color: 'var(--color-danger, #ef4444)', fontSize: '11px', marginTop: '3px', display: 'block', fontWeight: 600 }}>
+              {inputError}
+            </small>
+          )}
 
           {currentCalcAge !== null && (
             <div
@@ -196,3 +392,4 @@ export const AgeDobInput: React.FC<AgeDobInputProps> = ({
     </div>
   );
 };
+

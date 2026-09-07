@@ -1,7 +1,7 @@
 export type RentalStatus = 'ACTIVE' | 'INACTIVE';
 export type PaymentMode = 'CASH' | 'GPAY' | 'BOTH';
 export type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
-export type SyncStatus = 'PENDING' | 'SYNCED' | 'FAILED';
+export type SyncStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRYING';
 export type ExpenseCategory =
   | 'Electricity'
   | 'Maintenance'
@@ -104,6 +104,7 @@ export interface RentalPayment {
   advanceUsed: number;
   advanceGenerated: number;
   balanceAfterPayment: number;
+  balance?: number; // alias for balanceAfterPayment
   paymentStatus: PaymentStatus;
   paymentDate: string; // YYYY-MM-DD
   mobileNumber?: string;
@@ -182,7 +183,7 @@ export interface AuditLog {
 
 export interface SyncQueueItem {
   id: string;
-  entityType: 'COMPLEX' | 'SHOP' | 'PAYMENT' | 'EXPENSE' | 'Complex' | 'Shop' | 'RentPayment' | 'Expense';
+  entityType: 'COMPLEX' | 'SHOP' | 'PAYMENT' | 'EXPENSE' | 'Complex' | 'Shop' | 'RentPayment' | 'Expense' | 'AuditLog';
   entityId: string;
   action?: 'INSERT' | 'UPDATE' | 'CREATE' | 'DELETE';
   operation?: 'INSERT' | 'UPDATE' | 'CREATE' | 'DELETE';

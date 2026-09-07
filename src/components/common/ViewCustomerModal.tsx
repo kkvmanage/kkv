@@ -1,12 +1,17 @@
 import React from 'react';
-import { Customer } from '../../types';
-import { X, User, ShieldCheck, ExternalLink, Phone, Mail, Briefcase, Calendar, CheckCircle2 } from 'lucide-react';
+import { Customer, Loan } from '../../types';
+import { X, User, ShieldCheck, ExternalLink, Phone, Mail, Briefcase, Calendar, CheckCircle2, FileSpreadsheet, Users, AlertCircle } from 'lucide-react';
 import { formatIdProofDisplay } from '../../utils/kycValidation';
 import { buildGoogleMapsUrl } from '../../utils/addressUtils';
+import { useApp } from '../../context/AppContext';
+import { isMatchingCustomerId, getCanonicalCustomerId } from '../../utils/customerUtils';
+import { toDisplayDate } from './AgeDobInput';
 
 export interface ViewCustomerModalProps {
   isOpen: boolean;
   customer: Customer | null;
+  isLoading?: boolean;
+  errorMessage?: string | null;
   onClose: () => void;
   onEdit?: (customer: Customer) => void;
 }
@@ -14,11 +19,93 @@ export interface ViewCustomerModalProps {
 export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
   isOpen,
   customer,
+  isLoading = false,
+  errorMessage = null,
   onClose,
   onEdit
 }) => {
-  if (!isOpen || !customer) return null;
+  const { loans } = useApp();
 
+  if (!isOpen) return null;
+
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+          padding: '20px'
+        }}
+        onClick={onClose}
+      >
+        <div
+          className="card"
+          style={{
+            width: '100%',
+            maxWidth: '480px',
+            padding: '36px',
+            textAlign: 'center',
+            borderRadius: 'var(--radius-lg, 12px)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="spinner" style={{ margin: '0 auto 16px' }} />
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 700 }}>Loading customer details...</h3>
+          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Please wait while customer records are retrieved.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (errorMessage || !customer) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+          padding: '20px'
+        }}
+        onClick={onClose}
+      >
+        <div
+          className="card"
+          style={{
+            width: '100%',
+            maxWidth: '480px',
+            padding: '36px',
+            textAlign: 'center',
+            borderRadius: 'var(--radius-lg, 12px)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <AlertCircle size={44} color="var(--color-danger, #ef4444)" style={{ margin: '0 auto 16px' }} />
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 800 }}>
+            {errorMessage || 'Customer not found.'}
+          </h3>
+          <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Unable to load customer details. Please check the customer ID and try again.
+          </p>
+          <button className="btn btn-secondary" onClick={onClose} style={{ margin: '0 auto' }}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const canonicalId = getCanonicalCustomerId(customer);
   const currentLoc = customer.currentLocation;
   const permLoc = customer.permanentLocation;
   const isSameAddress =
@@ -36,6 +123,14 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
     (permLoc?.latitude && permLoc?.longitude
       ? buildGoogleMapsUrl(permLoc.latitude, permLoc.longitude)
       : '');
+
+  // Retrieve customer's actual loans from context/database
+  const customerLoans: Loan[] = (loans || []).filter((l) => isMatchingCustomerId(l.customerId, customer));
+  const activeLoans = customerLoans.filter((l) => l.status !== 'CLOSED' && (l.outstandingPrincipal ?? l.principal) > 0);
+  const totalOutstanding = activeLoans.reduce((sum, l) => sum + (l.outstandingPrincipal ?? l.principal ?? 0), 0);
+
+  const nominee = customer.nominee;
+  const hasNomineeData = nominee && (nominee.hasNominee || nominee.name || nominee.fullName);
 
   return (
     <div
@@ -56,7 +151,7 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
         className="card"
         style={{
           width: '100%',
-          maxWidth: '680px',
+          maxWidth: '740px',
           maxHeight: '90vh',
           height: 'auto',
           boxShadow: 'var(--shadow-xl, 0 20px 40px rgba(0,0,0,0.2))',
@@ -80,14 +175,14 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
             backgroundColor: 'var(--bg-surface-secondary, #f8fafc)'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             {customer.customerPhoto ? (
               <img
                 src={customer.customerPhoto}
                 alt={customer.name}
                 style={{
-                  width: '44px',
-                  height: '44px',
+                  width: '46px',
+                  height: '46px',
                   borderRadius: '50%',
                   objectFit: 'cover',
                   border: '2px solid var(--color-primary-accent, #059669)',
@@ -97,13 +192,13 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
             ) : (
               <div
                 style={{
-                  width: '44px',
-                  height: '44px',
+                  width: '46px',
+                  height: '46px',
                   borderRadius: '50%',
                   backgroundColor: 'var(--color-light-accent, #e6f4f1)',
                   color: 'var(--color-primary-dark, #163f35)',
                   fontWeight: 800,
-                  fontSize: '16px',
+                  fontSize: '17px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -118,13 +213,13 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-dark)' }}>
                   {customer.name}
                 </h3>
-                <span className="badge badge-success" style={{ fontSize: '11px' }}>
+                <span className={`badge ${customer.status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '11px' }}>
                   <ShieldCheck size={12} style={{ marginRight: '4px' }} />
-                  {customer.status}
+                  {customer.status || 'VERIFIED'}
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-                Customer ID: <strong style={{ color: 'var(--color-primary-dark)' }}>{customer.id}</strong> | Joined: {customer.joinedDate}
+                Customer ID: <strong style={{ color: 'var(--color-primary-dark)' }}>{canonicalId || customer.id}</strong> | Registered: {customer.joinedDate || customer.createdAt || 'N/A'}
               </p>
             </div>
           </div>
@@ -160,7 +255,7 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
             gap: '20px'
           }}
         >
-          {/* PROFILE PHOTO SECTION */}
+          {/* PROFILE PHOTO & KYC STATUS */}
           <div
             style={{
               backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
@@ -174,8 +269,8 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
           >
             <div
               style={{
-                width: '100px',
-                height: '115px',
+                width: '90px',
+                height: '105px',
                 borderRadius: '8px',
                 border: '2px solid var(--color-primary-accent, #059669)',
                 overflow: 'hidden',
@@ -193,7 +288,7 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
               ) : (
-                <User size={40} color="var(--text-muted)" />
+                <User size={38} color="var(--text-muted)" />
               )}
             </div>
 
@@ -254,7 +349,7 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>DATE OF BIRTH</span>
                   <strong style={{ color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                     <Calendar size={13} color="var(--color-primary-accent)" />
-                    {customer.dateOfBirth}
+                    {toDisplayDate(customer.dateOfBirth)}
                   </strong>
                 </div>
               )}
@@ -286,13 +381,69 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
               </div>
 
               <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>ACTIVE LOANS</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>EXISTING LOANS</span>
                 <span className="badge badge-info" style={{ marginTop: '2px', display: 'inline-block' }}>
-                  {customer.activeLoansCount} Active Loans
+                  {customerLoans.length} Total ({activeLoans.length} Active)
                 </span>
               </div>
             </div>
           </div>
+
+          {/* NOMINEE DETAILS (IF PRESENT) */}
+          {hasNomineeData && (
+            <div>
+              <h4
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  color: 'var(--color-primary-dark)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  margin: '0 0 12px 0',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  paddingBottom: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Users size={14} color="var(--color-primary-accent)" />
+                <span>NOMINEE DETAILS</span>
+              </h4>
+
+              <div className="grid-3" style={{ gap: '14px', fontSize: '13px' }}>
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>NOMINEE NAME</span>
+                  <strong style={{ color: 'var(--text-dark)', marginTop: '2px', display: 'block' }}>
+                    {nominee.name || nominee.fullName || '—'}
+                  </strong>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>RELATIONSHIP</span>
+                  <strong style={{ color: 'var(--text-dark)', marginTop: '2px', display: 'block' }}>
+                    {nominee.relationship || nominee.relation || nominee.customRelation || '—'}
+                  </strong>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>PHONE NUMBER</span>
+                  <strong style={{ color: 'var(--text-dark)', marginTop: '2px', display: 'block' }}>
+                    {nominee.phone ? `+91 ${nominee.phone}` : '—'}
+                  </strong>
+                </div>
+
+                {nominee.address && (
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>NOMINEE ADDRESS</span>
+                    <span style={{ color: 'var(--text-dark)', marginTop: '2px', display: 'block' }}>
+                      {nominee.address}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* CURRENT ADDRESS */}
           <div
@@ -443,6 +594,96 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* ═══════════════════════════════════════════════════════════════════
+              EXISTING LOANS SECTION (REAL DATABASE RECORDS)
+              ═══════════════════════════════════════════════════════════════════ */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', marginBottom: '12px' }}>
+              <h4
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  color: 'var(--color-primary-dark)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  margin: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <FileSpreadsheet size={14} color="var(--color-primary-accent)" />
+                <span>EXISTING LOANS &amp; FINANCIAL HISTORY ({customerLoans.length})</span>
+              </h4>
+              <span className="badge badge-success" style={{ fontSize: '11px' }}>
+                ₹{totalOutstanding.toLocaleString('en-IN')} Outstanding
+              </span>
+            </div>
+
+            {customerLoans.length === 0 ? (
+              <div
+                style={{
+                  padding: '16px',
+                  textAlign: 'center',
+                  backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+                  borderRadius: '8px',
+                  border: '1px dashed var(--border-light)',
+                  color: 'var(--text-muted)',
+                  fontSize: '13px'
+                }}
+              >
+                No active or past loans found for this customer.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {customerLoans.map((loan, lIdx) => {
+                  const outstanding = loan.outstandingPrincipal ?? loan.principal ?? 0;
+                  const isClosed = loan.status === 'CLOSED';
+                  return (
+                    <div
+                      key={`cust-loan-${loan.id || loan.loanNo}-${lIdx}`}
+                      style={{
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-light, #e2e8f0)',
+                        backgroundColor: isClosed ? 'var(--bg-surface-secondary, #f8fafc)' : 'var(--bg-card, #ffffff)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '10px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <strong style={{ fontSize: '13.5px', color: 'var(--color-primary-dark)' }}>{loan.loanNo}</strong>
+                            <span className={`badge ${isClosed ? 'badge-secondary' : 'badge-success'}`} style={{ fontSize: '10px' }}>
+                              {loan.status}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {loan.loanTypeName || loan.loanType} &bull; Issued: {loan.date}
+                            {loan.items && loan.items.length > 0 && ` &bull; ${loan.items.length} Item(s)`}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-dark)' }}>
+                          Principal: ₹{loan.principal.toLocaleString('en-IN')}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Outstanding: <strong style={{ color: outstanding > 0 ? 'var(--color-danger, #ef4444)' : 'var(--badge-success-text)' }}>₹{outstanding.toLocaleString('en-IN')}</strong> @ {loan.interestRate || loan.interestRateSnapshot || 1.5}%/mo
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Fixed Footer Actions */}
@@ -476,3 +717,4 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
     </div>
   );
 };
+

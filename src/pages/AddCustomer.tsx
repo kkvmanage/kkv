@@ -352,7 +352,7 @@ export const AddCustomer: React.FC = () => {
     addCustomer(newCustomerObj);
     localStorage.removeItem('kkv_kyc_draft');
     showToast('Customer KYC Profile Created Successfully', 'success');
-    setCurrentPage('customers-add');
+    setCurrentPage('customers');
   };
 
   return (
@@ -361,7 +361,7 @@ export const AddCustomer: React.FC = () => {
       <div style={{ marginBottom: '16px' }}>
         <button
           className="btn btn-secondary"
-          onClick={() => setCurrentPage('customers-add')}
+          onClick={() => setCurrentPage('customers')}
           style={{ gap: '6px', fontSize: '13px', padding: '6px 14px' }}
         >
           <ArrowLeft size={16} />

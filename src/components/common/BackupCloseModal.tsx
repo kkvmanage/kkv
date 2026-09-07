@@ -56,57 +56,53 @@ export const BackupCloseModal: React.FC<BackupCloseModalProps> = ({
   const handleStartBackup = async () => {
     setStep('in_progress');
     setErrorMessage('');
-    setProgressPercent(15);
-    setProgressText('Validating local database accessibility...');
-
-    // Small delay for smooth UI feedback
-    await new Promise((r) => setTimeout(r, 400));
+    setProgressPercent(20);
+    setProgressText('Creating complete database snapshot package...');
 
     try {
-      // Step 2: Create snapshot
-      setProgressPercent(40);
-      setProgressText('Creating complete application snapshot...');
+      // Progress simulation alongside backend execution
+      const timer1 = setTimeout(() => {
+        setProgressPercent(45);
+        setProgressText('Uploading backup snapshot package to Google Drive (kkv finance)...');
+      }, 600);
 
-      const backupPayload = {
-        customers,
-        loans,
-        receipts,
-        fixedDeposits,
-        timestamp: new Date().toISOString()
-      };
+      const timer2 = setTimeout(() => {
+        setProgressPercent(75);
+        setProgressText('Independently verifying uploaded file on Google Drive...');
+      }, 1400);
 
-      await new Promise((r) => setTimeout(r, 400));
+      const timer3 = setTimeout(() => {
+        setProgressPercent(90);
+        setProgressText('Safely archiving and clearing local operational database...');
+      }, 2200);
 
-      // Step 3: Transmit to Express backend -> Google Drive
-      setProgressPercent(70);
-      setProgressText('Uploading backup package to Google Drive...');
+      const res = await apiService.backupAndClose();
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
 
-      const result = await apiService.createCloudBackup(backupPayload, 'Desktop');
-
-      // Step 4: Verification
-      setProgressPercent(95);
-      setProgressText('Verifying cloud storage persistence...');
-      await new Promise((r) => setTimeout(r, 300));
+      const result = res.data || res;
 
       setProgressPercent(100);
+      setProgressText('Verified cloud backup completed successfully!');
       setCompletedBackupData(result);
 
       // Save local backup metadata
       const meta: LastBackupMetadata = {
-        lastBackupAt: result.uploadedAt || new Date().toISOString(),
-        lastBackupFileName: result.fileName,
-        lastBackupDriveFileId: result.driveFileId,
-        lastBackupSize: result.sizeBytes || 0,
+        lastBackupAt: result.closedAt || new Date().toISOString(),
+        lastBackupFileName: result.fileName || 'backup.zip',
+        lastBackupDriveFileId: result.driveFileId || '',
+        lastBackupSize: result.fileSize || 0,
         lastBackupStatus: 'success'
       };
 
       localStorage.setItem('kkv_last_backup_meta', JSON.stringify(meta));
       setLastBackup(meta);
       setStep('success');
-      showToast('Cloud backup completed & verified successfully!', 'success');
+      showToast('Cloud backup verified on Google Drive & session closed safely!', 'success');
     } catch (err: any) {
       console.error('[BackupCloseModal] Backup error:', err);
-      const errText = err.message || 'Cloud backup service unreachable.';
+      const errText = err.message || 'Cloud backup could not be verified. Your local data is safe.';
       setErrorMessage(errText);
       setStep('error');
       showToast(errText, 'error');
@@ -272,7 +268,7 @@ export const BackupCloseModal: React.FC<BackupCloseModalProps> = ({
 
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Backup Destination:</span>
-                  <strong style={{ color: 'var(--text-dark)' }}>Google Drive / KKV_GOLD_FINANCE / Backups</strong>
+                  <strong style={{ color: 'var(--text-dark)' }}>Google Drive / kkv finance</strong>
                 </div>
               </div>
 
@@ -353,7 +349,7 @@ export const BackupCloseModal: React.FC<BackupCloseModalProps> = ({
                     ✓ Backup Completed &amp; Verified
                   </h4>
                   <p style={{ margin: 0, fontSize: '12px', color: '#047857', lineHeight: '1.4' }}>
-                    Your primary local data has been securely stored in Google Drive under <strong>KKV_GOLD_FINANCE/Backups</strong>.
+                    Your primary local data has been securely stored in Google Drive under <strong>kkv finance</strong>.
                   </p>
                 </div>
               </div>

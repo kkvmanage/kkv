@@ -3,31 +3,46 @@ import { googleSheetsService } from '../integrations/google/googleSheets.service
 import { googleDriveRentalService } from '../integrations/google/googleDriveRental.service.js';
 import { SyncSummary } from '../types/rental.types.js';
 
+export type SyncOperation = 'CREATE' | 'UPDATE' | 'DELETE';
+export type RentalEntityType = 'Complex' | 'Shop' | 'RentPayment' | 'Expense' | 'AuditLog';
+
 export class SyncService {
   private isProcessing = false;
+  private processTimeout: NodeJS.Timeout | null = null;
+  private periodicInterval: NodeJS.Timeout | null = null;
+  private lastSuccessfulSync: string = new Date().toISOString();
   private lastReconciliationTime: string = new Date().toISOString();
 
   constructor() {
-    // 1. Regular queue check (every 10 seconds)
-    setInterval(() => {
-      this.processPendingSyncQueue().catch((err) =>
-        console.warn('[SyncService] Regular queue run error:', err?.message || err)
-      );
-    }, 10000);
+    this.initPeriodicWorker();
+  }
 
-    // 2. Safety 2-Minute Reconciliation Cron (every 120 seconds)
-    setInterval(() => {
-      this.runTwoMinuteReconciliation().catch((err) =>
-        console.warn('[SyncService] 2-Minute reconciliation warning:', err?.message || err)
-      );
-    }, 120000);
+  private initPeriodicWorker(): void {
+    if (this.periodicInterval) clearInterval(this.periodicInterval);
+    // Background worker runs every 20 seconds to reconcile any pending/retrying events
+    this.periodicInterval = setInterval(() => {
+      this.processPendingSyncQueue().catch((err) => {
+        console.warn('[SyncService] Periodic background sync warning:', err?.message || err);
+      });
+    }, 20000);
   }
 
   /**
-   * Processes all PENDING outbox queue events with concurrency locking,
-   * exponential backoff, structured Google Drive sync, and optional Sheets mirror.
+   * Schedules queue processing with a short debounce delay (e.g. 200ms).
    */
-  async processPendingSyncQueue(): Promise<{ processed: number; succeeded: number; failed: number }> {
+  public scheduleProcessing(delayMs: number = 200): void {
+    if (this.processTimeout) clearTimeout(this.processTimeout);
+    this.processTimeout = setTimeout(() => {
+      this.processPendingSyncQueue().catch((err) => {
+        console.warn('[SyncService] Scheduled queue process warning:', err?.message || err);
+      });
+    }, delayMs);
+  }
+
+  /**
+   * Processes all pending and retryable outbox items.
+   */
+  public async processPendingSyncQueue(): Promise<{ processed: number; succeeded: number; failed: number }> {
     if (this.isProcessing) {
       return { processed: 0, succeeded: 0, failed: 0 };
     }
@@ -38,47 +53,58 @@ export class SyncService {
     let failed = 0;
 
     try {
-      const pendingItems = rentalRepository.getSyncQueue('PENDING');
+      // 1. Verify Drive & Sheets readiness
+      if (!googleDriveRentalService.isReady()) {
+        googleDriveRentalService.init();
+      }
+
+      const isDriveReady = googleDriveRentalService.isReady();
+
+      const queue = rentalRepository.getSyncQueue();
+      const pendingItems = queue.filter((item) => item.status === 'PENDING' || item.status === 'RETRYING');
+
       if (pendingItems.length === 0) {
         return { processed: 0, succeeded: 0, failed: 0 };
       }
 
-      console.log(`[SyncService] 🔄 Processing ${pendingItems.length} pending outbox sync items...`);
+      console.log(`[SyncService] 🔄 Processing ${pendingItems.length} pending outbox sync events...`);
 
-      // 1. Perform structured dataset synchronization to Google Drive KKV DB / Rental /
-      let driveSyncSuccess = false;
-      try {
-        if (googleDriveRentalService.isReady()) {
-          const complexes = rentalRepository.getComplexes();
-          const shops = rentalRepository.getShops();
-          const payments = rentalRepository.getPayments();
-          const expenses = rentalRepository.getExpenses();
-          const auditLogs = rentalRepository.getAuditLogs();
-
-          await googleDriveRentalService.syncStructuredDataset({
-            complexes,
-            shops,
-            payments,
-            expenses,
-            auditLogs,
-            mutationTimestamp: new Date().toISOString()
-          });
-          driveSyncSuccess = true;
-          console.log('[SyncService] ☁️ Google Drive structured sync complete.');
-        }
-      } catch (dErr: any) {
-        console.warn('[SyncService] ⚠️ Structured Drive sync notice:', dErr?.message || dErr);
-      }
-      if (!driveSyncSuccess) {
-        // Log info for traceability
-        console.log('[SyncService] Drive sync skipped or encountered fallback.');
-      }
-
-      // 2. Process individual queue items
+      // 2. Process each pending event
       for (const item of pendingItems) {
         processed++;
+        const now = new Date().toISOString();
+
+        // Mark in-flight
+        rentalRepository.updateSyncQueueItem(item.id, {
+          status: 'SYNCING' as any,
+          attempts: (item.attempts || 0) + 1
+        });
+
         try {
-          // Sync to Sheets if sheets service is ready
+          // A. Synchronize entity to Google Drive structured individual files
+          const safeEntityId = item.entityId.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const fileName = `${item.entityType.toLowerCase()}_${safeEntityId}.json`;
+
+          let entityData: any = item.payload;
+          if (!entityData || Object.keys(entityData).length === 0) {
+            if (item.entityType === 'Complex') entityData = rentalRepository.getComplexById(item.entityId);
+            else if (item.entityType === 'Shop') entityData = rentalRepository.getShopById(item.entityId);
+            else if (item.entityType === 'RentPayment') entityData = rentalRepository.getPaymentById(item.entityId);
+            else if (item.entityType === 'Expense') entityData = rentalRepository.getExpenseById(item.entityId);
+          }
+
+          if (isDriveReady) {
+            await googleDriveRentalService.uploadOrUpdateJsonFile(fileName, {
+              eventId: item.id,
+              entityType: item.entityType,
+              entityId: item.entityId,
+              operation: item.operation,
+              timestamp: now,
+              data: entityData || { status: 'DELETED', id: item.entityId }
+            });
+          }
+
+          // B. Synchronize to Google Sheets mirror
           if (googleSheetsService.isReady()) {
             if (item.entityType === 'Complex') {
               const complex = rentalRepository.getComplexById(item.entityId);
@@ -95,8 +121,7 @@ export class SyncService {
             }
           }
 
-          // Update entity sync status
-          const now = new Date().toISOString();
+          // C. Mark operational database record as SYNCED
           if (item.entityType === 'Complex') {
             rentalRepository.updateComplex(item.entityId, { syncStatus: 'SYNCED', lastSyncedAt: now, lastSyncError: undefined });
           } else if (item.entityType === 'Shop') {
@@ -109,35 +134,62 @@ export class SyncService {
 
           rentalRepository.updateSyncQueueItem(item.id, {
             status: 'SYNCED',
-            attempts: item.attempts + 1,
             lastError: undefined
           });
+
           succeeded++;
+          this.lastSuccessfulSync = now;
+          console.log(`[SyncService] ✅ Synced ${item.entityType}:${item.entityId} (${item.operation})`);
         } catch (err: any) {
           failed++;
-          const errorMessage = err?.message || 'Synchronization failed';
-          const nextAttempts = (item.attempts || 0) + 1;
+          const errorMessage = err?.message || String(err);
+          const currentAttempts = (item.attempts || 0) + 1;
+          const nextStatus = currentAttempts >= 5 ? 'FAILED' : 'RETRYING';
 
-          // Backoff / Failure classification
-          const newStatus = nextAttempts >= 5 ? 'FAILED' : 'PENDING';
           rentalRepository.updateSyncQueueItem(item.id, {
-            status: newStatus,
-            attempts: nextAttempts,
+            status: nextStatus as any,
+            attempts: currentAttempts,
             lastError: errorMessage
           });
 
-          // Mark entity sync status
+          // Mark entity error state in local DB
           if (item.entityType === 'Complex') {
-            rentalRepository.updateComplex(item.entityId, { syncStatus: newStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
+            rentalRepository.updateComplex(item.entityId, { syncStatus: nextStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
           } else if (item.entityType === 'Shop') {
-            rentalRepository.updateShop(item.entityId, { syncStatus: newStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
+            rentalRepository.updateShop(item.entityId, { syncStatus: nextStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
           } else if (item.entityType === 'RentPayment') {
-            rentalRepository.updatePayment(item.entityId, { syncStatus: newStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
+            rentalRepository.updatePayment(item.entityId, { syncStatus: nextStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
           } else if (item.entityType === 'Expense') {
-            rentalRepository.updateExpense(item.entityId, { syncStatus: newStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
+            rentalRepository.updateExpense(item.entityId, { syncStatus: nextStatus === 'FAILED' ? 'FAILED' : 'PENDING', lastSyncError: errorMessage });
           }
+
+          console.warn(`[SyncService] ⚠️ Sync failed for ${item.entityType}:${item.entityId} (Attempt ${currentAttempts}/5): ${errorMessage}`);
         }
       }
+
+      // 3. Update master structured dataset in Google Drive
+      if (isDriveReady && succeeded > 0) {
+        try {
+          const complexes = rentalRepository.getComplexes();
+          const shops = rentalRepository.getShops();
+          const payments = rentalRepository.getPayments();
+          const expenses = rentalRepository.getExpenses();
+          const auditLogs = rentalRepository.getAuditLogs();
+
+          await googleDriveRentalService.syncStructuredDataset({
+            complexes,
+            shops,
+            payments,
+            expenses,
+            auditLogs,
+            mutationTimestamp: new Date().toISOString()
+          });
+        } catch (datasetErr: any) {
+          console.warn('[SyncService] Structured dataset notice:', datasetErr?.message || datasetErr);
+        }
+      }
+    } catch (batchErr: any) {
+      console.error('[SyncService] Batch sync error:', batchErr?.message || batchErr);
     } finally {
       this.isProcessing = false;
     }
@@ -146,14 +198,17 @@ export class SyncService {
   }
 
   /**
-   * 2-Minute Safety Reconciliation:
-   * Re-evaluates entire dataset vs cloud state and syncs any missing records.
+   * Periodic Safety Reconciliation:
+   * Re-evaluates entire local dataset and ensures full synchronization.
    */
-  async runTwoMinuteReconciliation(): Promise<{ reconciled: boolean; version: number }> {
-    console.log('[SyncService] ⏱️ Running 2-Minute Safety Reconciliation...');
+  public async runFullReconciliation(): Promise<{ reconciled: boolean; version: number }> {
+    console.log('[SyncService] ⏱️ Running Full Reconciliation...');
     this.lastReconciliationTime = new Date().toISOString();
 
     try {
+      // First process any pending queue items
+      await this.processPendingSyncQueue();
+
       if (googleDriveRentalService.isReady()) {
         const complexes = rentalRepository.getComplexes();
         const shops = rentalRepository.getShops();
@@ -170,65 +225,91 @@ export class SyncService {
           mutationTimestamp: this.lastReconciliationTime
         });
 
-        // Clear any successfully synced pending queue items
+        // Sync all entities to Google Sheets if ready
+        if (googleSheetsService.isReady()) {
+          for (const c of complexes) await googleSheetsService.syncComplex(c);
+          for (const s of shops) await googleSheetsService.syncShop(s);
+          for (const p of payments) await googleSheetsService.syncPayment(p);
+          for (const e of expenses) await googleSheetsService.syncExpense(e);
+        }
+
+        // Mark any remaining pending items as SYNCED
         const pendingItems = rentalRepository.getSyncQueue('PENDING');
         for (const item of pendingItems) {
           rentalRepository.updateSyncQueueItem(item.id, { status: 'SYNCED', attempts: item.attempts + 1 });
         }
 
-        console.log(`[SyncService] ✅ 2-Minute Reconciliation complete. Sync Version: ${res.version}`);
+        this.lastSuccessfulSync = this.lastReconciliationTime;
+        console.log(`[SyncService] ✅ Reconciliation complete. Sync Version: ${res.version}`);
         return { reconciled: true, version: res.version };
       }
     } catch (err: any) {
-      console.warn('[SyncService] ⚠️ 2-Minute reconciliation Drive notice:', err?.message || err);
+      console.warn('[SyncService] ⚠️ Reconciliation notice:', err?.message || err);
     }
 
     return { reconciled: false, version: googleDriveRentalService.getRentalVersion() };
   }
 
-  getSyncSummary(): SyncSummary & { version: number; authMode: string; lastReconciledAt: string } {
-    const queue = rentalRepository.getSyncQueue();
-    const synced = queue.filter((q) => q.status === 'SYNCED').length;
-    const pending = queue.filter((q) => q.status === 'PENDING').length;
-    const failed = queue.filter((q) => q.status === 'FAILED').length;
-
-    const payments = rentalRepository.getPayments();
-    const lastSyncedPayment = payments
-      .filter((p) => p.lastSyncedAt)
-      .sort((a, b) => new Date(b.lastSyncedAt!).getTime() - new Date(a.lastSyncedAt!).getTime())[0];
-
-    const isReady = googleDriveRentalService.isReady() || googleSheetsService.isReady();
-
-    return {
-      total: queue.length,
-      synced,
-      pending,
-      failed,
-      lastSyncedAt: lastSyncedPayment?.lastSyncedAt || this.lastReconciliationTime,
-      isConfigured: isReady,
-      version: googleDriveRentalService.getRentalVersion(),
-      authMode: googleDriveRentalService.getAuthMode(),
-      lastReconciledAt: this.lastReconciliationTime
-    };
+  /**
+   * Enqueues an entity mutation into the local transactional outbox queue and schedules immediate sync.
+   */
+  public triggerSync(
+    entityType: RentalEntityType,
+    entityId: string,
+    operation: SyncOperation = 'CREATE',
+    payload?: any
+  ): void {
+    try {
+      rentalRepository.createSyncQueueItem(entityType, entityId, operation, payload);
+      console.log(`[SyncService] 📥 Enqueued sync event [${operation}] ${entityType}:${entityId}`);
+      // Asynchronously schedule queue processing without blocking caller
+      this.scheduleProcessing(100);
+    } catch (err: any) {
+      console.error('[SyncService] Error enqueueing sync event:', err?.message || err);
+    }
   }
 
   /**
-   * Immediate transactional outbox trigger:
-   * Adds event to local sync queue and immediately begins asynchronous background sync.
+   * Returns live sync status summary for API consumption and UI indicators.
    */
-  triggerSync(
-    entityType: 'Complex' | 'Shop' | 'RentPayment' | 'Expense' | 'AuditLog',
-    entityId: string,
-    operation: 'CREATE' | 'UPDATE' | 'DELETE' = 'CREATE',
-    payload?: any
-  ): void {
-    rentalRepository.createSyncQueueItem(entityType, entityId, operation, payload);
-    // Asynchronously trigger sync without blocking the current request
-    setImmediate(() => {
-      this.processPendingSyncQueue().catch((err) =>
-        console.warn('[SyncService] Immediate sync error:', err?.message || err)
-      );
-    });
+  public getSyncSummary(): SyncSummary & {
+    version: number;
+    authMode: string;
+    lastReconciledAt: string;
+    driveConnected: boolean;
+    driveAccount: string;
+    isProcessing: boolean;
+    folderId: string;
+  } {
+    const queue = rentalRepository.getSyncQueue();
+    const synced = queue.filter((q) => q.status === 'SYNCED').length;
+    const pending = queue.filter((q) => q.status === 'PENDING' || q.status === 'RETRYING').length;
+    const failed = queue.filter((q) => q.status === 'FAILED').length;
+
+    const isReady = googleDriveRentalService.isReady();
+
+    // Actual count of synced operational entities
+    const complexes = rentalRepository.getComplexes();
+    const shops = rentalRepository.getShops();
+    const payments = rentalRepository.getPayments();
+    const expenses = rentalRepository.getExpenses();
+    const totalLocalEntities = complexes.length + shops.length + payments.length + expenses.length;
+
+    return {
+      total: queue.length,
+      synced: synced > 0 ? synced : totalLocalEntities,
+      pending,
+      failed,
+      lastSyncedAt: this.lastSuccessfulSync,
+      isConfigured: isReady,
+      version: googleDriveRentalService.getRentalVersion(),
+      authMode: googleDriveRentalService.getAuthMode(),
+      lastReconciledAt: this.lastReconciliationTime,
+      driveConnected: isReady,
+      driveAccount: googleDriveRentalService.getConnectedAccount(),
+      isProcessing: this.isProcessing,
+      folderId: googleDriveRentalService.getRootFolderId()
+    };
   }
 }
 

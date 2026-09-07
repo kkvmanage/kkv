@@ -38,7 +38,7 @@ const financeEnv = parseEnv(path.resolve(__dirname, '../backend/.env'));
 const googleapisPath = path.resolve(__dirname, '../backend/node_modules/googleapis');
 const { google } = require(googleapisPath);
 
-const TARGET_DRIVE_FOLDER_ID = '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv'; // KKV DB
+const TARGET_DRIVE_FOLDER_ID = '1xCCRJaN8dWABu7HwfVW13Hp0DTMh_jM'; // kkv finance
 
 async function runTest() {
   console.log('================================================================');

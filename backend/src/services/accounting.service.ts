@@ -1,74 +1,22 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { DayBookEntry } from '../types/index.js';
+import { syncQueueService } from './syncQueue.service.js';
+import { DayBookEntry, Loan, FixedDeposit } from '../types/index.js';
 
 const FILE_NAME = 'daybook_entries.json';
 
-const initialDayBook: DayBookEntry[] = [
-  {
-    id: 'db-1',
-    time: '10:14 AM',
-    billNo: '1',
-    particulars: 'New Loan Disbursement (GL-01) - thayba',
-    accountHead: 'Gold Loan Portfolio',
-    mode: 'UPI',
-    cashIn: 0,
-    cashOut: 0,
-    bankIn: 0,
-    bankOut: 100000,
-    cashBal: 50000,
-    bankBal: -100000,
-    tdsAmount: 0,
-    customerName: 'thayba',
-    loanNo: 'GL-01',
-    date: '25/08/2026'
-  },
-  {
-    id: 'db-2',
-    time: '11:30 AM',
-    billNo: '2',
-    particulars: 'Repayment Collection - thayba',
-    accountHead: 'Cash Collections',
-    mode: 'Cash',
-    cashIn: 1500,
-    cashOut: 0,
-    bankIn: 0,
-    bankOut: 0,
-    cashBal: 51500,
-    bankBal: -100000,
-    tdsAmount: 0,
-    customerName: 'thayba',
-    loanNo: 'GL-01',
-    date: '25/08/2026'
-  },
-  {
-    id: 'db-3',
-    time: '12:45 PM',
-    billNo: 'FD-01',
-    particulars: 'Fixed Deposit Receipt - Thayba Begum',
-    accountHead: 'Fixed Deposits',
-    mode: 'Cash',
-    cashIn: 200000,
-    cashOut: 0,
-    bankIn: 0,
-    bankOut: 0,
-    cashBal: 251500,
-    bankBal: -100000,
-    tdsAmount: 0,
-    customerName: 'Thayba Begum',
-    date: '25/08/2026'
-  }
-];
+const initialDayBook: DayBookEntry[] = [];
 
 export class AccountingService {
   public getDayBook(): DayBookEntry[] {
-    return googleDriveRepository.readJson<DayBookEntry[]>(FILE_NAME, initialDayBook);
+    const list = googleDriveRepository.readJson<DayBookEntry[]>(FILE_NAME, initialDayBook);
+    return Array.isArray(list) ? list : [];
   }
 
   public getBalances(): { cashInHand: number; cashAtBank: number } {
     const entries = this.getDayBook();
-    let cashInHand = new Decimal(385000); // Base initial float
-    let cashAtBank = new Decimal(1240000); // Base initial bank float
+    let cashInHand = new Decimal(0);
+    let cashAtBank = new Decimal(0);
 
     entries.forEach((e) => {
       cashInHand = cashInHand.plus(new Decimal(e.cashIn || 0)).minus(new Decimal(e.cashOut || 0));
@@ -108,46 +56,99 @@ export class AccountingService {
 
     entries.unshift(newEntry);
     googleDriveRepository.writeJson(FILE_NAME, entries);
+    syncQueueService.enqueue('daybook', newEntry.id, 'CREATE', newEntry);
     return newEntry;
   }
 
   public getTrialBalance(): any[] {
     const balances = this.getBalances();
+    const loans = googleDriveRepository.readJson<Loan[]>('loans.json', []);
+    const fds = googleDriveRepository.readJson<FixedDeposit[]>('fixed_deposits.json', []);
+    const entries = this.getDayBook();
+
+    const goldLoanPortfolio = loans
+      .filter((l) => l.status === 'ACTIVE' || l.status === 'OVERDUE')
+      .reduce((sum, l) => sum + (l.outstandingPrincipal || 0), 0);
+
+    const fdLiability = fds
+      .filter((f) => f.status === 'ACTIVE')
+      .reduce((sum, f) => sum + (f.principal || 0), 0);
+
+    const interestIncome = entries
+      .filter((e) => e.accountHead === 'Interest Income' || e.accountHead === 'Cash Collections')
+      .reduce((sum, e) => sum + (e.cashIn || 0) + (e.bankIn || 0), 0);
+
+    const totalDebits = Math.max(0, balances.cashInHand) + Math.max(0, balances.cashAtBank) + goldLoanPortfolio;
+    const totalCredits = Math.max(0, -balances.cashInHand) + Math.max(0, -balances.cashAtBank) + fdLiability + interestIncome;
+    const capitalAccount = Math.max(0, totalDebits - totalCredits);
+
     return [
       { accountHead: 'Cash in Hand', debit: Math.max(0, balances.cashInHand), credit: Math.max(0, -balances.cashInHand) },
       { accountHead: 'Cash at Bank', debit: Math.max(0, balances.cashAtBank), credit: Math.max(0, -balances.cashAtBank) },
-      { accountHead: 'Gold Loan Portfolio', debit: 100000, credit: 0 },
-      { accountHead: 'Fixed Deposits Liability', debit: 0, credit: 200000 },
-      { accountHead: 'Capital Account', debit: 0, credit: 1625000 },
-      { accountHead: 'Interest Income', debit: 0, credit: 1500 }
+      { accountHead: 'Gold Loan Portfolio', debit: goldLoanPortfolio, credit: 0 },
+      { accountHead: 'Fixed Deposits Liability', debit: 0, credit: fdLiability },
+      { accountHead: 'Capital Account', debit: 0, credit: capitalAccount },
+      { accountHead: 'Interest Income', debit: 0, credit: interestIncome }
     ];
   }
 
   public getProfitAndLoss(): any {
+    const entries = this.getDayBook();
+    const interestIncome = entries
+      .filter((e) => e.accountHead === 'Interest Income' || e.accountHead === 'Cash Collections')
+      .reduce((sum, e) => sum + (e.cashIn || 0) + (e.bankIn || 0), 0);
+
+    const fdExpenses = entries
+      .filter((e) => e.accountHead === 'Interest Expense' || e.accountHead === 'FD Interest Expense')
+      .reduce((sum, e) => sum + (e.cashOut || 0) + (e.bankOut || 0), 0);
+
+    const opExpenses = entries
+      .filter((e) => e.accountHead === 'Operational Expenses' || e.accountHead === 'Office Expenses')
+      .reduce((sum, e) => sum + (e.cashOut || 0) + (e.bankOut || 0), 0);
+
+    const totalExpenses = fdExpenses + opExpenses;
+    const netProfit = interestIncome - totalExpenses;
+
     return {
       revenue: [
-        { head: 'Interest Income on Gold Loans', amount: 1500 }
+        { head: 'Interest Income on Gold Loans', amount: interestIncome }
       ],
       expenses: [
-        { head: 'FD Interest Expenses', amount: 0 },
-        { head: 'Operational Expenses', amount: 0 }
+        { head: 'FD Interest Expenses', amount: fdExpenses },
+        { head: 'Operational Expenses', amount: opExpenses }
       ],
-      netProfit: 1500
+      netProfit
     };
   }
 
   public getBalanceSheet(): any {
     const balances = this.getBalances();
+    const loans = googleDriveRepository.readJson<Loan[]>('loans.json', []);
+    const fds = googleDriveRepository.readJson<FixedDeposit[]>('fixed_deposits.json', []);
+    const pnl = this.getProfitAndLoss();
+
+    const goldLoanPortfolio = loans
+      .filter((l) => l.status === 'ACTIVE' || l.status === 'OVERDUE')
+      .reduce((sum, l) => sum + (l.outstandingPrincipal || 0), 0);
+
+    const fdLiability = fds
+      .filter((f) => f.status === 'ACTIVE')
+      .reduce((sum, f) => sum + (f.principal || 0), 0);
+
+    const totalAssets = balances.cashInHand + balances.cashAtBank + goldLoanPortfolio;
+    const knownLiabilities = fdLiability + (pnl.netProfit || 0);
+    const capitalAccount = Math.max(0, totalAssets - knownLiabilities);
+
     return {
       assets: [
         { head: 'Cash in Hand', amount: balances.cashInHand },
         { head: 'Cash at Bank', amount: balances.cashAtBank },
-        { head: 'Gold Loan Principal Portfolio', amount: 100000 }
+        { head: 'Gold Loan Principal Portfolio', amount: goldLoanPortfolio }
       ],
       liabilities: [
-        { head: 'Fixed Deposit Liabilities', amount: 200000 },
-        { head: 'Capital Account', amount: 1625000 },
-        { head: 'Current Period Retained Earnings', amount: 1500 }
+        { head: 'Fixed Deposit Liabilities', amount: fdLiability },
+        { head: 'Capital Account', amount: capitalAccount },
+        { head: 'Current Period Retained Earnings', amount: pnl.netProfit || 0 }
       ]
     };
   }

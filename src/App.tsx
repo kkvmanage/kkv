@@ -6,6 +6,7 @@ import { Topbar } from './components/layout/Topbar';
 // Page Views
 import { Dashboard } from './pages/Dashboard';
 import { Customers } from './pages/Customers';
+import { AddCustomer } from './pages/AddCustomer';
 import { SearchCustomer } from './pages/SearchCustomer';
 import { CustomerProfile } from './pages/CustomerProfile';
 import { LoanIssue } from './pages/LoanIssue';
@@ -120,7 +121,7 @@ export const App: React.FC = () => {
           ACCESS DENIED
         </h2>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px 0', lineHeight: 1.5 }}>
-          You do not have permission to access <strong>{moduleName}</strong>. Your assigned role is <strong>{userRole || 'OPERATOR'}</strong>. Please contact the Master Admin if you require access.
+          You do not have permission to access <strong>{moduleName}</strong>. Your assigned role is <strong>{userRole || 'STAFF'}</strong>. Please contact the Master Admin if you require access.
         </p>
         <button
           type="button"
@@ -146,7 +147,8 @@ export const App: React.FC = () => {
       case 'search-customer':
       case 'customer-profile':
         if (!hasPermission('customers')) return renderAccessDenied('Customer Management');
-        if (currentPage === 'customers' || currentPage === 'customers-add' || currentPage === 'add-customer-form') return <Customers />;
+        if (currentPage === 'customers') return <Customers />;
+        if (currentPage === 'customers-add' || currentPage === 'add-customer-form') return <AddCustomer />;
         if (currentPage === 'search-customer') return <SearchCustomer />;
         return <CustomerProfile />;
 
@@ -208,11 +210,11 @@ export const App: React.FC = () => {
 
       case 'backup-restore':
       case 'admin-panel':
-        if (!hasPermission('adminPanel')) return renderAccessDenied('Admin Panel');
+        if (userRole !== 'MASTER_ADMIN') return renderAccessDenied('Admin Panel & Data Management');
         return <AdminPanel />;
 
       case 'settings':
-        if (!hasPermission('settings')) return renderAccessDenied('Branch Settings');
+        if (userRole !== 'MASTER_ADMIN') return renderAccessDenied('Branch Settings & Master Control');
         return <Settings />;
 
       default:

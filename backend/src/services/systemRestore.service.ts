@@ -26,6 +26,7 @@ export interface RestoreValidationPreview {
   sha256: string;
   schemaVersion: string;
   sourceType: 'LOCAL_UPLOAD' | 'GOOGLE_DRIVE' | 'LOCAL_SERVER';
+  driveFileId?: string;
   manifestVerified: boolean;
   checksumsVerified: boolean;
   relationshipsVerified: boolean;
@@ -523,48 +524,43 @@ class SystemRestoreService {
       // Invalidate single-use token
       this.activeTokens.delete(token);
 
-      // STEP 4: GOOGLE DRIVE CLOUD SYNCHRONIZATION
-      console.log('[SystemRestoreService] ☁️ Initiating post-restore Google Drive synchronization...');
-      let googleDriveSync: 'VERIFIED' | 'PENDING' | 'FAILED' | 'SKIPPED' = 'PENDING';
-      let googleDriveFileId: string | undefined;
-      let googleDriveFileName: string | undefined;
+      // STEP 4: AUTO-SYNC RESTORED STATE BACK TO GOOGLE DRIVE (If from local/upload, sync to Drive)
+      let googleDriveSync: 'VERIFIED' | 'PENDING' | 'FAILED' = preview.sourceType === 'GOOGLE_DRIVE' ? 'VERIFIED' : 'PENDING';
+      let googleDriveFileId: string | undefined = preview.driveFileId;
+      let googleDriveFileName: string | undefined = preview.fileName;
       let googleDriveError: string | undefined;
       let googleDriveErrorCode: string | undefined;
 
-      this.logAudit('DRIVE_SYNC_STARTED', {
-        restoreId,
-        backupId: preview.backupId,
-        status: 'SYNCING'
-      }, user);
+      if (preview.sourceType !== 'GOOGLE_DRIVE') {
+        try {
+          const driveSyncResult = await this.syncRestoredStateToGoogleDrive(restoreId, preview.backupId, user);
+          googleDriveSync = driveSyncResult.verified ? 'VERIFIED' : 'PENDING';
+          googleDriveFileId = driveSyncResult.fileId;
+          googleDriveFileName = driveSyncResult.fileName;
+          
+          this.logAudit('DRIVE_SYNC_COMPLETED', {
+            restoreId,
+            backupId: preview.backupId,
+            driveFileId: driveSyncResult.fileId,
+            driveFileName: driveSyncResult.fileName,
+            sha256: driveSyncResult.sha256,
+            status: 'VERIFIED'
+          }, user);
+        } catch (driveErr: any) {
+          const mapped = this.mapDriveError(driveErr);
+          console.warn(`[SystemRestoreService] ⚠️ Google Drive sync failed post-restore (DB remains intact) [${mapped.code}]:`, mapped.message);
+          googleDriveSync = 'FAILED';
+          googleDriveError = mapped.message;
+          googleDriveErrorCode = mapped.code;
 
-      try {
-        const driveSyncResult = await this.syncRestoredStateToGoogleDrive(restoreId, preview.backupId, user);
-        googleDriveSync = driveSyncResult.verified ? 'VERIFIED' : 'PENDING';
-        googleDriveFileId = driveSyncResult.fileId;
-        googleDriveFileName = driveSyncResult.fileName;
-        
-        this.logAudit('DRIVE_SYNC_COMPLETED', {
-          restoreId,
-          backupId: preview.backupId,
-          driveFileId: driveSyncResult.fileId,
-          driveFileName: driveSyncResult.fileName,
-          sha256: driveSyncResult.sha256,
-          status: 'VERIFIED'
-        }, user);
-      } catch (driveErr: any) {
-        const mapped = this.mapDriveError(driveErr);
-        console.warn(`[SystemRestoreService] ⚠️ Google Drive sync failed post-restore (DB remains intact) [${mapped.code}]:`, mapped.message);
-        googleDriveSync = 'FAILED';
-        googleDriveError = mapped.message;
-        googleDriveErrorCode = mapped.code;
-
-        this.logAudit('DRIVE_SYNC_FAILED', {
-          restoreId,
-          backupId: preview.backupId,
-          errorCode: mapped.code,
-          error: mapped.message,
-          status: 'FAILED'
-        }, user);
+          this.logAudit('DRIVE_SYNC_FAILED', {
+            restoreId,
+            backupId: preview.backupId,
+            errorCode: mapped.code,
+            error: mapped.message,
+            status: 'FAILED'
+          }, user);
+        }
       }
 
       // STEP 5: RECORD RESTORE HISTORY & AUDIT LOG
@@ -887,13 +883,177 @@ class SystemRestoreService {
 
   private updateRestoreHistoryRecord(record: RestoreHistoryRecord): void {
     const history = this.getRestoreHistory();
-    const idx = history.findIndex(h => h.restoreId === record.restoreId);
+    const idx = history.findIndex((h) => h.restoreId === record.restoreId);
     if (idx !== -1) {
       history[idx] = record;
     } else {
       history.unshift(record);
     }
     googleDriveRepository.writeJson('restore_history.json', history);
+  }
+
+  /**
+   * Checks current operational database counts.
+   */
+  public checkOperationalDatabaseStatus(): {
+    isEmpty: boolean;
+    counts: {
+      customers: number;
+      loans: number;
+      receipts: number;
+      fixedDeposits: number;
+      dayBookEntries: number;
+      totalOperationalRecords: number;
+    };
+  } {
+    const customers = customerService.getAll() || [];
+    const loans = loanService.getAll() || [];
+    const receipts = receiptService.getAll() || [];
+    const fixedDeposits = fdService.getDeposits() || [];
+    const dayBookEntries = accountingService.getDayBook() || [];
+
+    const totalOperationalRecords =
+      customers.length + loans.length + receipts.length + fixedDeposits.length + dayBookEntries.length;
+
+    return {
+      isEmpty: totalOperationalRecords === 0,
+      counts: {
+        customers: customers.length,
+        loans: loans.length,
+        receipts: receipts.length,
+        fixedDeposits: fixedDeposits.length,
+        dayBookEntries: dayBookEntries.length,
+        totalOperationalRecords
+      }
+    };
+  }
+
+  /**
+   * Discovers the latest verified cloud backup and automatically restores it cleanly.
+   */
+  public async autoRestoreFromLatestDriveBackup(user?: {
+    userId?: string;
+    name?: string;
+    role?: string;
+  }): Promise<{
+    success: boolean;
+    restoredBackupId: string;
+    recordCounts: any;
+    status: string;
+    historyRecord: RestoreHistoryRecord;
+  }> {
+    console.log('[SystemRestoreService] 🔍 Locating latest verified Google Drive backup for automatic restoration...');
+
+    // 1. Check for latest marker first
+    const marker = googleDriveRepository.readJson<any | null>('latest_verified_backup.json', null);
+    let targetSource: { fileId?: string; backupId?: string; zipBuffer?: Buffer } | null = null;
+
+    if (marker && (marker.driveFileId || marker.backupId)) {
+      if (marker.backupId && backupPackageService.getBackupZip(marker.backupId)) {
+        targetSource = { backupId: marker.backupId };
+      } else if (marker.driveFileId) {
+        targetSource = { fileId: marker.driveFileId };
+      }
+    }
+
+    // 2. If marker not found, check backups_history.json
+    if (!targetSource) {
+      const history = backupPackageService.getBackupHistory();
+      const verifiedList = history.filter(
+        (h) => h.status === 'DRIVE_VERIFIED' || h.googleDriveVerified || h.googleDriveUploaded || h.status === 'LOCAL_VERIFIED'
+      );
+      if (verifiedList.length > 0) {
+        const latest = verifiedList[0];
+        if (latest.backupId && backupPackageService.getBackupZip(latest.backupId)) {
+          targetSource = { backupId: latest.backupId };
+        } else if (latest.googleDriveFileId || latest.driveFileId) {
+          targetSource = { fileId: latest.googleDriveFileId || latest.driveFileId };
+        }
+      }
+    }
+
+    // 3. If still not found, query Google Drive files directly
+    if (!targetSource) {
+      try {
+        const driveFiles = await this.getAvailableBackups();
+        if (driveFiles.length > 0) {
+          targetSource = { fileId: driveFiles[0].fileId };
+        }
+      } catch (driveErr) {
+        console.warn('[SystemRestoreService] Could not list Drive files directly:', driveErr);
+      }
+    }
+
+    if (!targetSource) {
+      throw new Error('No verified backup found on Google Drive or local server to restore.');
+    }
+
+    // Validate and stage
+    const preview = await this.validateBackupForRestore(targetSource);
+    console.log(`[SystemRestoreService] 📦 Staged backup ${preview.backupId} with ${preview.counts.totalRecords} total records.`);
+
+    // Execute staged atomic restore with explicit confirmation text
+    const historyRecord = await this.executeRestore(preview.token, 'RESTORE BACKUP', user || {
+      userId: 'SYSTEM',
+      name: 'System Auto-Restore',
+      role: 'ADMIN'
+    });
+
+    console.log(`[SystemRestoreService] ✅ Auto-restore completed successfully: ${preview.backupId}`);
+
+    return {
+      success: true,
+      restoredBackupId: preview.backupId,
+      recordCounts: preview.counts,
+      status: 'RESTORE_SUCCESS',
+      historyRecord
+    };
+  }
+
+  /**
+   * On startup: If local database is empty and a verified backup exists, automatically restores it.
+   */
+  public async checkAndAutoRestoreIfEmpty(user?: {
+    userId?: string;
+    name?: string;
+    role?: string;
+  }): Promise<{
+    needed: boolean;
+    autoRestored: boolean;
+    restoredBackupId?: string;
+    recordCounts?: any;
+    currentCounts: any;
+    message?: string;
+  }> {
+    const status = this.checkOperationalDatabaseStatus();
+    if (!status.isEmpty) {
+      return {
+        needed: false,
+        autoRestored: false,
+        currentCounts: status.counts
+      };
+    }
+
+    console.log('[SystemRestoreService] ℹ️ Local operational database is empty. Triggering automatic cloud restore...');
+    try {
+      const res = await this.autoRestoreFromLatestDriveBackup(user);
+      return {
+        needed: true,
+        autoRestored: true,
+        restoredBackupId: res.restoredBackupId,
+        recordCounts: res.recordCounts,
+        currentCounts: res.recordCounts,
+        message: `Restored ${res.recordCounts?.totalRecords || 0} records from latest verified cloud backup (${res.restoredBackupId}).`
+      };
+    } catch (err: any) {
+      console.warn('[SystemRestoreService] ⚠️ Auto-restore skipped or failed:', err?.message || err);
+      return {
+        needed: true,
+        autoRestored: false,
+        currentCounts: status.counts,
+        message: err?.message || 'No cloud backup restored. System opened in clean initial state.'
+      };
+    }
   }
 }
 

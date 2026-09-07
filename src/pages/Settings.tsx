@@ -34,10 +34,11 @@ export const Settings: React.FC = () => {
     fetchStaffAuditLogs,
     masterControlSettings,
     updateMasterControlSettings,
-    updateFDInterestRate
+    updateFDInterestRate,
+    setCurrentPage
   } = useApp();
 
-  const isMasterAdmin = userRole === 'MASTER_ADMIN' || userRole === 'ADMIN';
+  const isMasterAdmin = userRole === 'MASTER_ADMIN';
 
   const [activeTab, setActiveTab] = useState<'branch' | 'financial' | 'loan-types' | 'security' | 'printer'>('branch');
 
@@ -101,16 +102,16 @@ export const Settings: React.FC = () => {
   // Add Staff Form State
   const [addName, setAddName] = useState('');
   const [addEmail, setAddEmail] = useState('');
-  const [addRole, setAddRole] = useState<'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF'>('OPERATOR');
+  const [addRole, setAddRole] = useState<'STAFF' | 'RENTAL_STAFF'>('STAFF');
   const [addPhone, setAddPhone] = useState('');
   const [addPassword, setAddPassword] = useState('');
-  const [customPerms, setCustomPerms] = useState<UserPermissions>(getDefaultPermissionsForRole('OPERATOR'));
+  const [customPerms, setCustomPerms] = useState<UserPermissions>(getDefaultPermissionsForRole('STAFF'));
 
   // Edit Staff State
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [editRole, setEditRole] = useState<'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF'>('OPERATOR');
-  const [editPerms, setEditPerms] = useState<UserPermissions>(getDefaultPermissionsForRole('OPERATOR'));
+  const [editRole, setEditRole] = useState<'STAFF' | 'RENTAL_STAFF'>('STAFF');
+  const [editPerms, setEditPerms] = useState<UserPermissions>(getDefaultPermissionsForRole('STAFF'));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -182,7 +183,7 @@ export const Settings: React.FC = () => {
     }
   };
 
-  const handleRoleChangeForAdd = (role: 'ADMIN' | 'MANAGER' | 'OPERATOR') => {
+  const handleRoleChangeForAdd = (role: 'STAFF' | 'RENTAL_STAFF') => {
     setAddRole(role);
     setCustomPerms(getDefaultPermissionsForRole(role));
   };
@@ -190,10 +191,10 @@ export const Settings: React.FC = () => {
   const handleOpenAddStaff = () => {
     setAddName('');
     setAddEmail('');
-    setAddRole('OPERATOR');
+    setAddRole('STAFF');
     setAddPhone('');
     setAddPassword('');
-    setCustomPerms(getDefaultPermissionsForRole('OPERATOR'));
+    setCustomPerms(getDefaultPermissionsForRole('STAFF'));
     setIsAddStaffModalOpen(true);
   };
 
@@ -224,7 +225,7 @@ export const Settings: React.FC = () => {
     setManagingStaff(staff);
     setEditName(staff.displayName);
     setEditPhone(staff.phone || '');
-    setEditRole(staff.role === 'MASTER_ADMIN' ? 'ADMIN' : staff.role);
+    setEditRole(staff.role === 'RENTAL_STAFF' ? 'RENTAL_STAFF' : 'STAFF');
     setEditPerms(staff.permissions);
   };
 
@@ -252,6 +253,32 @@ export const Settings: React.FC = () => {
   });
 
   const fdHistory = masterControlSettings?.fdInterestRateHistory || [];
+
+  if (!isMasterAdmin) {
+    return (
+      <div className="page-content" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div className="card" style={{ padding: '40px 32px', textAlign: 'center', maxWidth: '520px', width: '100%' }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+            <Shield size={28} />
+          </div>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
+            Access Restricted
+          </h2>
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.5 }}>
+            Settings and system configuration are restricted strictly to <strong>Master Admin</strong>. Operational staff accounts do not have permission to access this area.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setCurrentPage('dashboard')}
+            style={{ margin: '0 auto' }}
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-content">
@@ -849,7 +876,7 @@ export const Settings: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {(['ALL', 'ADMIN', 'MANAGER', 'OPERATOR', 'RENTAL_STAFF'] as const).map((r) => (
+                {(['ALL', 'STAFF', 'RENTAL_STAFF'] as const).map((r) => (
                   <button
                     key={r}
                     type="button"
@@ -908,22 +935,18 @@ export const Settings: React.FC = () => {
                                 backgroundColor:
                                   staff.role === 'MASTER_ADMIN'
                                     ? 'var(--color-gold-subtle)'
-                                    : staff.role === 'ADMIN'
-                                    ? 'rgba(59, 130, 246, 0.15)'
-                                    : staff.role === 'MANAGER'
-                                    ? 'rgba(16, 185, 129, 0.15)'
-                                    : 'rgba(148, 163, 184, 0.15)',
+                                    : staff.role === 'RENTAL_STAFF'
+                                    ? 'rgba(201, 162, 39, 0.15)'
+                                    : 'rgba(59, 130, 246, 0.15)',
                                 color:
                                   staff.role === 'MASTER_ADMIN'
                                     ? 'var(--color-gold-light)'
-                                    : staff.role === 'ADMIN'
-                                    ? '#60a5fa'
-                                    : staff.role === 'MANAGER'
-                                    ? '#34d399'
-                                    : '#cbd5e1'
+                                    : staff.role === 'RENTAL_STAFF'
+                                    ? 'var(--color-gold-light)'
+                                    : '#60a5fa'
                               }}
                             >
-                              {staff.role}
+                              {staff.role === 'RENTAL_STAFF' ? 'RENTAL STAFF' : staff.role}
                             </span>
                           </td>
                           <td>
@@ -1111,9 +1134,7 @@ export const Settings: React.FC = () => {
               <div className="form-group">
                 <label className="form-label required">Role</label>
                 <select className="select-control" value={addRole} onChange={(e) => handleRoleChangeForAdd(e.target.value as any)}>
-                  <option value="OPERATOR">Operator (Standard Cash Counter / Entry)</option>
-                  <option value="MANAGER">Manager (Approvals &amp; Reports)</option>
-                  <option value="ADMIN">Administrator (Full Access)</option>
+                  <option value="STAFF">Staff (Finance Operations)</option>
                   <option value="RENTAL_STAFF">Rental Staff (Complex Rental Management Only)</option>
                 </select>
               </div>
@@ -1149,9 +1170,7 @@ export const Settings: React.FC = () => {
               <div className="form-group">
                 <label className="form-label required">Assigned Role</label>
                 <select className="select-control" value={editRole} onChange={(e) => setEditRole(e.target.value as any)}>
-                  <option value="OPERATOR">Operator</option>
-                  <option value="MANAGER">Manager</option>
-                  <option value="ADMIN">Administrator</option>
+                  <option value="STAFF">Staff (Finance Operations)</option>
                   <option value="RENTAL_STAFF">Rental Staff (Complex Rental Management Only)</option>
                 </select>
               </div>

@@ -158,8 +158,12 @@ const defaultMasterSettings: MasterControlSettings = {
   fdInterestRate: 12,
   fdInterestRateEffectiveFrom: '01-08-2026',
   fdDefaultTenureMonths: 12,
+  fdAllowedTenures: [6, 12, 24, 36, 60],
   fdMinimumAmount: 5000,
   fdMaximumAmount: 10000000,
+  fdPayoutFrequency: 'Monthly',
+  fdAllowedReceivingMethods: ['Cash', 'Bank', 'UPI'],
+  fdLockinPeriodMonths: 3,
   fdRenewalPolicy: 'MANUAL',
   fdCalculationMethod: 'MONTHLY_DIVIDEND',
   fdInterestRateHistory: [
@@ -211,7 +215,10 @@ export class AdminService {
     return {
       ...defaultMasterSettings,
       ...raw,
-      loanTypes: mergedLoanTypes
+      loanTypes: mergedLoanTypes,
+      fdAllowedTenures: raw.fdAllowedTenures && raw.fdAllowedTenures.length > 0 ? raw.fdAllowedTenures : defaultMasterSettings.fdAllowedTenures,
+      fdAllowedReceivingMethods: raw.fdAllowedReceivingMethods && raw.fdAllowedReceivingMethods.length > 0 ? raw.fdAllowedReceivingMethods : defaultMasterSettings.fdAllowedReceivingMethods,
+      fdInterestRateHistory: raw.fdInterestRateHistory && raw.fdInterestRateHistory.length > 0 ? raw.fdInterestRateHistory : defaultMasterSettings.fdInterestRateHistory
     };
   }
 
@@ -229,16 +236,34 @@ export class AdminService {
       (data.fdInterestRate !== undefined && data.fdInterestRate !== current.fdInterestRate) ||
       (data.fdDefaultTenureMonths !== undefined && data.fdDefaultTenureMonths !== current.fdDefaultTenureMonths) ||
       (data.fdMinimumAmount !== undefined && data.fdMinimumAmount !== current.fdMinimumAmount) ||
+      (data.fdMaximumAmount !== undefined && data.fdMaximumAmount !== current.fdMaximumAmount) ||
       (data.fdRenewalPolicy !== undefined && data.fdRenewalPolicy !== current.fdRenewalPolicy) ||
-      (data.fdCalculationMethod !== undefined && data.fdCalculationMethod !== current.fdCalculationMethod);
+      (data.fdCalculationMethod !== undefined && data.fdCalculationMethod !== current.fdCalculationMethod) ||
+      (data.fdPayoutFrequency !== undefined && data.fdPayoutFrequency !== current.fdPayoutFrequency);
 
     const nextVersion = isFinancialChanged
       ? (current.configurationVersion || 1) + 1
       : (data.configurationVersion || current.configurationVersion || 1);
 
+    // Track FD Interest Rate change history
+    let updatedHistory = data.fdInterestRateHistory || current.fdInterestRateHistory || [];
+    if (data.fdInterestRate !== undefined && data.fdInterestRate !== current.fdInterestRate) {
+      const historyItem = {
+        id: `FD-RATE-${Date.now()}`,
+        rate: Number(data.fdInterestRate),
+        previousRate: current.fdInterestRate,
+        effectiveFrom: data.fdInterestRateEffectiveFrom || new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
+        changedBy: (data as any).changedBy || 'Master Admin',
+        changedAt: new Date().toISOString(),
+        notes: (data as any).notes || `Updated Master FD interest rate from ${current.fdInterestRate}% to ${data.fdInterestRate}% p.a.`
+      };
+      updatedHistory = [historyItem, ...updatedHistory];
+    }
+
     const updated: MasterControlSettings = {
       ...current,
       ...data,
+      fdInterestRateHistory: updatedHistory,
       configurationVersion: nextVersion
     };
 

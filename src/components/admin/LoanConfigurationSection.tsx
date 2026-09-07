@@ -48,7 +48,7 @@ export const LoanConfigurationSection: React.FC = () => {
     userRole
   } = useApp();
 
-  const isAuthorized = userRole === 'MASTER_ADMIN' || userRole === 'ADMIN';
+  const isAuthorized = userRole === 'MASTER_ADMIN';
 
   const loanTypes = masterControlSettings?.loanTypes || [];
   const repaymentSystems = masterControlSettings?.repaymentSystems || [];
@@ -69,9 +69,9 @@ export const LoanConfigurationSection: React.FC = () => {
   const [typeActive, setTypeActive] = useState(true);
   const [typeShowOnIssue, setTypeShowOnIssue] = useState(true);
   const [typeCardFeeEnabled, setTypeCardFeeEnabled] = useState(true);
-  const [typeCardFeeAmount, setTypeCardFeeAmount] = useState<number>(50);
+  const [typeCardFeeAmount, setTypeCardFeeAmount] = useState<number | ''>(50);
   const [typeInterestProfile, setTypeInterestProfile] = useState<'gold-bands' | 'silver-bands' | 'pronote-interest' | 'fixed-rate'>('gold-bands');
-  const [typeDefaultMonthlyRate, setTypeDefaultMonthlyRate] = useState<number>(2.0);
+  const [typeDefaultMonthlyRate, setTypeDefaultMonthlyRate] = useState<number | ''>(2.0);
   const [typeRepaymentSystemId, setTypeRepaymentSystemId] = useState<string>('monthly-interest-only');
 
   // Repayment System Modal States
@@ -950,7 +950,7 @@ export const LoanConfigurationSection: React.FC = () => {
                       className="input-control"
                       value={typeCardFeeAmount}
                       disabled={!typeCardFeeEnabled}
-                      onChange={(e) => setTypeCardFeeAmount(Number(e.target.value))}
+                      onChange={(e) => setTypeCardFeeAmount(e.target.value === '' ? '' : Number(e.target.value))}
                       placeholder="e.g. 50"
                       min={0}
                     />
@@ -986,7 +986,7 @@ export const LoanConfigurationSection: React.FC = () => {
                       step="0.05"
                       className="input-control"
                       value={typeDefaultMonthlyRate}
-                      onChange={(e) => setTypeDefaultMonthlyRate(Number(e.target.value))}
+                      onChange={(e) => setTypeDefaultMonthlyRate(e.target.value === '' ? '' : Number(e.target.value))}
                       placeholder="2.0"
                       required
                     />

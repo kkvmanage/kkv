@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const projectId = process.env.FIREBASE_PROJECT_ID || 'otp-site-80c03';
+const projectId = process.env.FIREBASE_PROJECT_ID || 'kkv-gold-finance';
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
 const rawPrivateKey = process.env.FIREBASE_PRIVATE_KEY?.trim();
 const privateKey = rawPrivateKey ? rawPrivateKey.replace(/\\n/g, '\n') : undefined;

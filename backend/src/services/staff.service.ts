@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import { UserProfile, UserPermissions, UserRole, StaffAuditLog } from '../types/index.js';
 import { sessionService } from './session.service.js';
 
-const MASTER_ADMIN_EMAIL = 'kkvgoldfinance13@gmail.com';
+const MASTER_ADMIN_EMAIL = 'goldfinancekkv@gmail.com';
 
 const getDefaultPermissionsForRole = (role: UserRole): UserPermissions => {
   switch (role) {
@@ -26,66 +26,6 @@ const getDefaultPermissionsForRole = (role: UserRole): UserPermissions => {
         permanentDelete: true,
         rental: true
       };
-    case 'ADMIN':
-      return {
-        customers: true,
-        loans: true,
-        loanReceipts: true,
-        pendingLoans: true,
-        fixedDeposits: true,
-        fdInterest: true,
-        fdWithdrawal: true,
-        notifications: true,
-        adminPanel: false,
-        masterControl: false,
-        fdInterestRates: false,
-        bulkFdDateChange: false,
-        devices: true,
-        staffManagement: false,
-        settings: false,
-        permanentDelete: false,
-        rental: true
-      };
-    case 'MANAGER':
-      return {
-        customers: true,
-        loans: true,
-        loanReceipts: true,
-        pendingLoans: true,
-        fixedDeposits: true,
-        fdInterest: true,
-        fdWithdrawal: true,
-        notifications: true,
-        adminPanel: false,
-        masterControl: false,
-        fdInterestRates: false,
-        bulkFdDateChange: false,
-        devices: false,
-        staffManagement: false,
-        settings: false,
-        permanentDelete: false,
-        rental: false
-      };
-    case 'RENTAL_ADMIN':
-      return {
-        customers: false,
-        loans: false,
-        loanReceipts: false,
-        pendingLoans: false,
-        fixedDeposits: false,
-        fdInterest: false,
-        fdWithdrawal: false,
-        notifications: true,
-        adminPanel: false,
-        masterControl: false,
-        fdInterestRates: false,
-        bulkFdDateChange: false,
-        devices: true,
-        staffManagement: true,
-        settings: true,
-        permanentDelete: false,
-        rental: true
-      };
     case 'RENTAL_STAFF':
       return {
         customers: false,
@@ -106,16 +46,16 @@ const getDefaultPermissionsForRole = (role: UserRole): UserPermissions => {
         permanentDelete: false,
         rental: true
       };
-    case 'OPERATOR':
+    case 'STAFF':
     default:
       return {
         customers: true,
         loans: true,
         loanReceipts: true,
         pendingLoans: true,
-        fixedDeposits: false,
-        fdInterest: false,
-        fdWithdrawal: false,
+        fixedDeposits: true,
+        fdInterest: true,
+        fdWithdrawal: true,
         notifications: true,
         adminPanel: false,
         masterControl: false,
@@ -165,46 +105,46 @@ class StaffService {
     {
       uid: 'uid_admin_01',
       email: 'admin1@kkvgoldfinance.com',
-      displayName: 'Karthik Raja (Admin)',
+      displayName: 'Karthik Raja (Staff)',
       phone: '9876543211',
-      role: 'ADMIN',
+      role: 'STAFF',
       isActive: true,
       createdAt: '2026-08-10T09:30:00.000Z',
       updatedAt: '2026-09-02T10:15:00.000Z',
       lastLoginAt: '2026-09-03T09:15:00.000Z',
       createdByUid: 'uid_master_admin_01',
       createdByEmail: MASTER_ADMIN_EMAIL,
-      permissions: getDefaultPermissionsForRole('ADMIN'),
-      passwordHash: bcrypt.hashSync('admin123', 10)
+      permissions: getDefaultPermissionsForRole('STAFF'),
+      passwordHash: bcrypt.hashSync('1234', 10)
     },
     {
       uid: 'uid_manager_01',
       email: 'manager1@kkvgoldfinance.com',
-      displayName: 'Muthu Kumar (Branch Manager)',
+      displayName: 'Muthu Kumar (Staff)',
       phone: '9876543212',
-      role: 'MANAGER',
+      role: 'STAFF',
       isActive: true,
       createdAt: '2026-08-15T11:00:00.000Z',
       updatedAt: '2026-09-01T14:20:00.000Z',
       lastLoginAt: '2026-09-03T08:30:00.000Z',
       createdByUid: 'uid_master_admin_01',
       createdByEmail: MASTER_ADMIN_EMAIL,
-      permissions: getDefaultPermissionsForRole('MANAGER'),
-      passwordHash: bcrypt.hashSync('manager123', 10)
+      permissions: getDefaultPermissionsForRole('STAFF'),
+      passwordHash: bcrypt.hashSync('1234', 10)
     },
     {
       uid: 'uid_operator_01',
       email: 'staff1@kkvgoldfinance.com',
-      displayName: 'Sanjai (Operator)',
+      displayName: 'Sanjai (Staff)',
       phone: '9876543213',
-      role: 'OPERATOR',
+      role: 'STAFF',
       isActive: true,
       createdAt: '2026-08-20T10:00:00.000Z',
       updatedAt: '2026-09-02T16:45:00.000Z',
       lastLoginAt: '2026-09-03T07:45:00.000Z',
       createdByUid: 'uid_master_admin_01',
       createdByEmail: MASTER_ADMIN_EMAIL,
-      permissions: getDefaultPermissionsForRole('OPERATOR'),
+      permissions: getDefaultPermissionsForRole('STAFF'),
       passwordHash: bcrypt.hashSync('1234', 10)
     },
     {
@@ -270,7 +210,7 @@ class StaffService {
     data: {
       email: string;
       displayName: string;
-      role: 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF' | 'RENTAL_ADMIN' | UserRole;
+      role: 'STAFF' | 'RENTAL_STAFF' | UserRole;
       phone?: string;
       permissions?: Partial<UserPermissions>;
       password?: string;
@@ -278,7 +218,18 @@ class StaffService {
     actorUid: string,
     actorEmail: string
   ): UserProfile {
-    const cleanEmail = data.email.trim().toLowerCase();
+    const cleanEmail = (data.email || '').trim().toLowerCase();
+    const cleanName = (data.displayName || '').trim();
+
+    if (!cleanEmail || !cleanName) {
+      throw new Error('Email address and full name are required.');
+    }
+
+    // Role validation - strictly allow operational roles only
+    const ALLOWED_STAFF_ROLES: UserRole[] = ['STAFF', 'RENTAL_STAFF'];
+    if (!data.role || !ALLOWED_STAFF_ROLES.includes(data.role as UserRole)) {
+      throw new Error(`Invalid role "${data.role}". Allowed roles are: STAFF, RENTAL_STAFF.`);
+    }
 
     // Check duplicate
     if (this.users.some((u) => u.email.toLowerCase() === cleanEmail)) {
@@ -357,6 +308,11 @@ class StaffService {
       }
       if (updates.isActive === false) {
         throw new Error('Master Admin account cannot be disabled.');
+      }
+    } else if (updates.role) {
+      const ALLOWED_STAFF_ROLES: UserRole[] = ['STAFF', 'RENTAL_STAFF'];
+      if (!ALLOWED_STAFF_ROLES.includes(updates.role)) {
+        throw new Error(`Invalid role "${updates.role}". Allowed roles are: STAFF, RENTAL_STAFF.`);
       }
     }
 
@@ -488,7 +444,7 @@ class StaffService {
   }
 
   // ── CENTRAL VERIFICATION FOR SHARED AUTHENTICATION ─────────────────────────
-  public verifyStaffCredentials(email: string, password: string): StaffVerificationResult {
+  public verifyStaffCredentials(email: string, password: string, targetPortal?: 'FINANCE' | 'RENTAL'): StaffVerificationResult {
     const cleanEmail = (email || '').trim().toLowerCase();
     const cleanPassword = (password || '').trim();
 
@@ -541,13 +497,9 @@ class StaffService {
     if (!isPasswordValid) {
       if (user.role === 'MASTER_ADMIN' && (cleanPassword === 'admin123' || cleanPassword === 'admin' || cleanPassword === 'kkv123')) {
         isPasswordValid = true;
-      } else if (user.role === 'ADMIN' && (cleanPassword === 'admin123' || cleanPassword === 'admin' || cleanPassword === '1234')) {
+      } else if (user.role === 'STAFF' && (cleanPassword === '1234' || cleanPassword === 'staff123' || cleanPassword === 'operator123')) {
         isPasswordValid = true;
-      } else if (user.role === 'MANAGER' && (cleanPassword === 'manager123' || cleanPassword === 'manager' || cleanPassword === '1234')) {
-        isPasswordValid = true;
-      } else if (user.role === 'OPERATOR' && (cleanPassword === 'operator123' || cleanPassword === 'operator' || cleanPassword === '1234')) {
-        isPasswordValid = true;
-      } else if ((user.role === 'RENTAL_STAFF' || user.role === 'RENTAL_ADMIN') && (cleanPassword === 'rental123' || cleanPassword === 'rental' || cleanPassword === '1234' || cleanPassword === 'admin123')) {
+      } else if (user.role === 'RENTAL_STAFF' && (cleanPassword === 'rental123' || cleanPassword === 'rental' || cleanPassword === '1234' || cleanPassword === 'admin123')) {
         isPasswordValid = true;
       }
     }
@@ -565,23 +517,33 @@ class StaffService {
       return { success: false, message: 'Invalid email or password.' };
     }
 
-    // Check role authorization for Rental Management application
-    const allowedRentalRoles: UserRole[] = ['RENTAL_STAFF', 'RENTAL_ADMIN', 'MASTER_ADMIN', 'ADMIN'];
-    if (!allowedRentalRoles.includes(user.role)) {
-      this.addAuditLog({
-        actorUid: user.uid,
-        actorEmail: user.email,
-        action: 'UNAUTHORIZED_RENTAL_ACCESS',
-        targetUid: user.uid,
-        targetEmail: user.email,
-        details: `Role ${user.role} is not authorized for Rental Management`,
-        result: 'FAILED'
-      });
-      return {
-        success: false,
-        unauthorizedRole: true,
-        message: 'Your account does not have access to Rental Management.'
-      };
+    // Portal Authorization Checks
+    if (targetPortal === 'RENTAL') {
+      const allowedRentalRoles: UserRole[] = ['RENTAL_STAFF', 'MASTER_ADMIN'];
+      if (!allowedRentalRoles.includes(user.role)) {
+        this.addAuditLog({
+          actorUid: user.uid,
+          actorEmail: user.email,
+          action: 'UNAUTHORIZED_RENTAL_ACCESS',
+          targetUid: user.uid,
+          targetEmail: user.email,
+          details: `Role ${user.role} is not authorized for Rental Management`,
+          result: 'FAILED'
+        });
+        return {
+          success: false,
+          unauthorizedRole: true,
+          message: 'Your account is authorized for Finance Operations only. Please sign in at http://localhost:5173.'
+        };
+      }
+    } else if (targetPortal === 'FINANCE') {
+      if (user.role === 'RENTAL_STAFF') {
+        return {
+          success: false,
+          unauthorizedRole: true,
+          message: 'Rental Staff must use the Rental Management Portal at http://localhost:5174.'
+        };
+      }
     }
 
     // Update last login
@@ -648,7 +610,7 @@ class StaffService {
     }
 
     // Check role authorization for Rental Management application
-    const allowedRentalRoles: UserRole[] = ['RENTAL_STAFF', 'RENTAL_ADMIN', 'MASTER_ADMIN', 'ADMIN'];
+    const allowedRentalRoles: UserRole[] = ['RENTAL_STAFF', 'MASTER_ADMIN'];
     if (!allowedRentalRoles.includes(user.role)) {
       return {
         success: false,
@@ -663,7 +625,7 @@ class StaffService {
           status: 'ACTIVE',
           phone: user.phone
         },
-        message: 'Your account does not have access to Rental Management.'
+        message: 'Your account is authorized for Finance Operations only. Please sign in at http://localhost:5173.'
       };
     }
 

@@ -100,22 +100,6 @@ class BackupPackageService {
     const auditLogs = googleDriveRepository.readJson<any[]>('audit_logs.json', []) || [];
     const notifications = googleDriveRepository.readJson<any[]>('notifications.json', []) || [];
 
-    // Rental DB Integration (Included in full system backup)
-    let rentalData: any = null;
-    const rentalCandidates = [
-      path.resolve(process.cwd(), '../complex-rental-management/rental-backend/data/rental.db.json'),
-      path.resolve(process.cwd(), 'complex-rental-management/rental-backend/data/rental.db.json'),
-      path.resolve('d:/cli/Client-2/complex-rental-management/rental-backend/data/rental.db.json')
-    ];
-    for (const rPath of rentalCandidates) {
-      if (fs.existsSync(rPath)) {
-        try {
-          rentalData = JSON.parse(fs.readFileSync(rPath, 'utf8'));
-          break;
-        } catch (e) {}
-      }
-    }
-
     // Extract sub-entities for specialized CSV exports
     const customerKycList: any[] = [];
     customers.forEach((c: any) => {
@@ -242,8 +226,7 @@ class BackupPackageService {
         dayBookEntries,
         reminders,
         notifications,
-        auditLogs,
-        rental: rentalData
+        auditLogs
       }
     };
 
@@ -267,7 +250,6 @@ class BackupPackageService {
       { path: 'data/daybook.csv', buffer: Buffer.from(objectsToCsv(dayBookEntries), 'utf-8') },
       { path: 'data/notifications.csv', buffer: Buffer.from(objectsToCsv(notifications), 'utf-8') },
       { path: 'data/audit_logs.csv', buffer: Buffer.from(objectsToCsv(auditLogs), 'utf-8') },
-      ...(rentalData ? [{ path: 'data/rental.json', buffer: Buffer.from(JSON.stringify(rentalData, null, 2), 'utf-8') }] : []),
       {
         path: 'schema/backup-schema-version.json',
         buffer: Buffer.from(
@@ -383,7 +365,7 @@ class BackupPackageService {
     // 7. Automatic Google Drive Upload if Connected
     if (googleDriveService.isConnected()) {
       try {
-        console.log(`[BackupPackageService] ☁️ Automatically uploading ${fileName} to Google Drive KKV DB folder...`);
+        console.log(`[BackupPackageService] ☁️ Automatically uploading ${fileName} to Google Drive kkv finance folder...`);
         await this.uploadBackupToDrive(backupId);
         const updated = this.getBackupHistory().find(r => r.backupId === backupId);
         if (updated) return updated;

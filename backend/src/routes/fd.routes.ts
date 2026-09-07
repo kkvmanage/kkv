@@ -6,10 +6,15 @@ import {
   createFixedDeposit,
   payFDInterest,
   withdrawFD,
-  bulkUpdateFDDates
+  bulkUpdateFDDates,
+  getFDConfiguration,
+  updateFDConfiguration
 } from '../controllers/fd.controller.js';
 
 const router = Router();
+
+router.get('/config', getFDConfiguration);
+router.put('/config', updateFDConfiguration);
 
 router.get('/customers', getFDCustomers);
 router.post('/customers', createFDCustomer);

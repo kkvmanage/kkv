@@ -82,7 +82,7 @@ The system mirrors records into a designated Google Spreadsheet with 5 synchroni
 ```env
 # Google Cloud Service Account
 GOOGLE_PROJECT_ID=client-2-507109
-GOOGLE_CLIENT_EMAIL=kkv-gold-finance-drive@client-2-507109.iam.gserviceaccount.com
+GOOGLE_CLIENT_EMAIL=kkv-finance-management@kkv-finance-management.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 
 # Google Drive & Sheets Identifiers
@@ -93,7 +93,7 @@ RENTAL_SPREADSHEET_ID=your-google-sheets-spreadsheet-id
 ### Setup Instructions
 1. In the Google Cloud Console, enable **Google Sheets API** and **Google Drive API**.
 2. Create a Service Account and download the JSON key.
-3. Create a Google Spreadsheet and share it with the service account email (`kkv-gold-finance-drive@client-2-507109.iam.gserviceaccount.com`) as **Editor**.
+3. Create a Google Spreadsheet and share it with the service account email (`kkv-finance-management@kkv-finance-management.iam.gserviceaccount.com`) as **Editor**.
 4. Set `RENTAL_SPREADSHEET_ID` in `backend/.env`.
 5. The backend will automatically verify headers and append/update rows during normal operations.
 

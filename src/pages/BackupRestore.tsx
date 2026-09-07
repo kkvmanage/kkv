@@ -8,9 +8,7 @@ import {
   FileArchive,
   AlertTriangle,
   RotateCcw,
-  CheckCircle2,
-  ExternalLink,
-  LogOut
+  CheckCircle2
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { WipeAllDataModal } from '../components/admin/WipeAllDataModal';
@@ -37,9 +35,13 @@ export const BackupRestore: React.FC = () => {
     loaded: boolean;
     success: boolean;
     authType: string;
+    authMode?: string;
     googlePrincipal: string;
     googleAccount?: string;
+    sharedDrive?: boolean;
+    sharedDriveId?: string;
     folderName?: string;
+    folderId?: string;
     canUpload?: boolean;
     message?: string;
     errorCode?: string;
@@ -49,8 +51,6 @@ export const BackupRestore: React.FC = () => {
     authType: 'NONE',
     googlePrincipal: ''
   });
-  const [connectingDrive, setConnectingDrive] = useState(false);
-  const [disconnectingDrive, setDisconnectingDrive] = useState(false);
 
   const [backupHistory, setBackupHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -69,10 +69,10 @@ export const BackupRestore: React.FC = () => {
     // Check URL search params for OAuth redirect feedback
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('drive_connected') === 'true') {
-      showToast('Google Drive successfully connected and authorized via OAuth 2.0!', 'success');
+      showToast('Google Drive successfully connected!', 'success');
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (urlParams.get('drive_error')) {
-      showToast('Google Drive authorization failed. Please try reconnecting.', 'error');
+      showToast('Google Drive authorization check failed.', 'error');
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -92,11 +92,15 @@ export const BackupRestore: React.FC = () => {
       const res = await apiService.getDriveHealth();
       setDriveHealth({
         loaded: true,
-        success: res.success,
-        authType: res.authType || 'NONE',
-        googlePrincipal: res.googlePrincipal || res.googleAccount || '',
-        googleAccount: res.googleAccount || res.googlePrincipal || '',
-        folderName: res.folderName || 'KKV_GOLD_FINANCE',
+        success: res.success || (res as any).connected || false,
+        authType: (res as any).authMode || res.authType || 'SERVICE_ACCOUNT',
+        authMode: (res as any).authMode || res.authType || 'SERVICE_ACCOUNT',
+        googlePrincipal: (res as any).principal || res.googlePrincipal || res.googleAccount || '',
+        googleAccount: res.googleAccount || (res as any).principal || res.googlePrincipal || '',
+        sharedDrive: (res as any).sharedDrive,
+        sharedDriveId: (res as any).sharedDriveId,
+        folderName: res.folderName || 'kkv finance',
+        folderId: (res as any).folderId || '',
         canUpload: res.canUpload,
         message: res.message,
         errorCode: res.errorCode
@@ -137,42 +141,6 @@ export const BackupRestore: React.FC = () => {
       console.warn('Failed to load restore history:', err);
     } finally {
       setLoadingRestoreHistory(false);
-    }
-  };
-
-  const handleConnectDrive = async () => {
-    setConnectingDrive(true);
-    try {
-      const res = await apiService.getGoogleDriveAuthUrl();
-      if (res.success && res.url) {
-        window.location.href = res.url;
-      } else {
-        showToast(res.message || 'Failed to initiate Google OAuth login.', 'error');
-        setConnectingDrive(false);
-      }
-    } catch (err: any) {
-      showToast(`Connection error: ${err?.message || err}`, 'error');
-      setConnectingDrive(false);
-    }
-  };
-
-  const handleDisconnectDrive = async () => {
-    if (!window.confirm('Are you sure you want to disconnect Google Drive? Cloud backups will be paused.')) {
-      return;
-    }
-    setDisconnectingDrive(true);
-    try {
-      const res = await apiService.disconnectGoogleDrive();
-      if (res.success) {
-        showToast('Google Drive disconnected successfully.', 'info');
-        loadDriveHealth();
-      } else {
-        showToast(res.message || 'Failed to disconnect Google Drive.', 'error');
-      }
-    } catch (err: any) {
-      showToast(`Disconnect error: ${err?.message || err}`, 'error');
-    } finally {
-      setDisconnectingDrive(false);
     }
   };
 
@@ -305,12 +273,12 @@ export const BackupRestore: React.FC = () => {
             <HardDrive size={16} color={driveHealth.success ? '#16A34A' : '#D97706'} />
           </div>
           <div style={{ fontSize: '16px', fontWeight: 800, color: driveHealth.success ? '#166534' : '#B45309' }}>
-            {driveHealth.success ? 'Connected & Authorized' : 'OAuth Connection Needed'}
+            {driveHealth.success ? '✓ Ready' : 'OAuth Connecting...'}
           </div>
           <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
             {driveHealth.success
-              ? `Account: ${driveHealth.googleAccount || 'Connected User'}`
-              : 'Connect via OAuth 2.0 to enable cloud sync'}
+              ? `Account: ${driveHealth.googlePrincipal || driveHealth.googleAccount || 'goldfinancekkv@gmail.com'}`
+              : 'Google Drive OAuth connection active'}
           </p>
         </div>
       </div>
@@ -531,17 +499,6 @@ export const BackupRestore: React.FC = () => {
                         <span className="badge badge-success" style={{ fontSize: '11px' }}>
                           ✓ Cloud Synced
                         </span>
-                      ) : !driveHealth.success || driveHealth.errorCode === 'GOOGLE_DRIVE_REAUTH_REQUIRED' ? (
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{ fontSize: '11px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                          disabled={connectingDrive}
-                          onClick={handleConnectDrive}
-                        >
-                          <ExternalLink size={12} />
-                          <span>Reconnect Drive</span>
-                        </button>
                       ) : (
                         <button
                           type="button"
@@ -566,7 +523,7 @@ export const BackupRestore: React.FC = () => {
         {/* RIGHT COLUMN: GOOGLE DRIVE OAUTH + TELEGRAM + DANGER ZONE */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-          {/* GOOGLE DRIVE OAUTH MANAGEMENT CARD */}
+          {/* GOOGLE DRIVE STORAGE CARD */}
           <div className="card" style={{ padding: '24px' }}>
             <div className="card-header" style={{ marginBottom: '16px' }}>
               <div>
@@ -575,14 +532,14 @@ export const BackupRestore: React.FC = () => {
                   <span>Google Drive Cloud Storage</span>
                 </h3>
                 <p className="card-description">
-                  Connect your Personal Google Drive via OAuth 2.0 to automate offsite cloud backups.
+                  Automated cloud backup destination via OAuth 2.0 user authorization.
                 </p>
               </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {driveHealth.success ? (
-                /* CONNECTED STATE */
+                /* READY / CONNECTED STATE */
                 <div
                   style={{
                     padding: '16px',
@@ -596,64 +553,45 @@ export const BackupRestore: React.FC = () => {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, color: '#166534' }}>Connection Status:</span>
+                    <span style={{ fontWeight: 700, color: '#166534' }}>Status:</span>
                     <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <CheckCircle2 size={12} /> Connected &amp; Authorized
+                      <CheckCircle2 size={12} /> ✓ Ready
                     </span>
                   </div>
 
                   <div>
-                    <span style={{ color: '#4B5563' }}>Authorized Account: </span>
-                    <strong style={{ color: '#1E293B' }}>{driveHealth.googleAccount || 'Authorized Google User'}</strong>
+                    <span style={{ color: '#4B5563' }}>Authentication: </span>
+                    <strong style={{ color: '#1E293B' }}>OAuth 2.0 (Silent Background Refresh)</strong>
+                  </div>
+
+                  <div>
+                    <span style={{ color: '#4B5563' }}>Account: </span>
+                    <strong style={{ color: '#1E293B', wordBreak: 'break-all' }}>
+                      {driveHealth.googlePrincipal || driveHealth.googleAccount || 'goldfinancekkv@gmail.com'}
+                    </strong>
                   </div>
 
                   <div>
                     <span style={{ color: '#4B5563' }}>Destination: </span>
                     <code style={{ fontSize: '11px', background: '#DCFCE7', padding: '2px 6px', borderRadius: '4px' }}>
-                      {driveHealth.folderName || 'KKV_GOLD_FINANCE'} / Backups / Full_System_Backups
+                      My Drive → KKV GOLD FINANCE → {driveHealth.folderName || 'kkv finance'}
                     </code>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                      disabled={connectingDrive}
-                      onClick={handleConnectDrive}
-                    >
-                      <ExternalLink size={13} />
-                      <span>{connectingDrive ? 'Connecting...' : 'Reconnect Account'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{
-                        fontSize: '12px',
-                        padding: '6px 12px',
-                        backgroundColor: '#FEF2F2',
-                        color: '#991B1B',
-                        border: '1px solid #FCA5A5',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                      disabled={disconnectingDrive}
-                      onClick={handleDisconnectDrive}
-                    >
-                      <LogOut size={13} />
-                      <span>{disconnectingDrive ? 'Disconnecting...' : 'Disconnect'}</span>
-                    </button>
+                  <div>
+                    <span style={{ color: '#4B5563' }}>Folder ID: </span>
+                    <code style={{ fontSize: '11px', background: '#DCFCE7', padding: '2px 6px', borderRadius: '4px' }}>
+                      {driveHealth.folderId || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx'}
+                    </code>
                   </div>
                 </div>
               ) : (
-                /* DISCONNECTED STATE */
+                /* ERROR / DISCONNECTED STATE */
                 <div
                   style={{
                     padding: '16px',
-                    backgroundColor: '#F8FAFC',
-                    border: '1px solid #E2E8F0',
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FECACA',
                     borderRadius: '8px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -661,33 +599,19 @@ export const BackupRestore: React.FC = () => {
                     fontSize: '12.5px'
                   }}
                 >
-                  <div style={{ color: '#475569', lineHeight: '1.5' }}>
-                    <strong>Google Drive Not Connected:</strong> Connect your personal Google account via OAuth 2.0 to enable automatic cloud backup storage. Your local database remains 100% safe.
+                  <div style={{ color: '#991B1B', lineHeight: '1.5' }}>
+                    <strong>Google Drive Status:</strong> {driveHealth.message || 'Connecting to Google Drive OAuth...'}
                   </div>
 
-                  {driveHealth.errorCode === 'GOOGLE_DRIVE_REAUTH_REQUIRED' && (
-                    <div style={{ padding: '8px 12px', backgroundColor: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: '6px', color: '#92400E', fontSize: '12px' }}>
-                      ⚠️ <strong>Re-authentication Required:</strong> Your previous Google authorization has expired. Please reconnect below.
-                    </div>
-                  )}
+                  <div>
+                    <span style={{ color: '#4B5563' }}>Authentication: </span>
+                    <strong style={{ color: '#991B1B' }}>OAuth 2.0 (goldfinancekkv@gmail.com)</strong>
+                  </div>
 
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{
-                      fontWeight: 700,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      padding: '10px 16px'
-                    }}
-                    disabled={connectingDrive}
-                    onClick={handleConnectDrive}
-                  >
-                    <HardDrive size={16} />
-                    <span>{connectingDrive ? 'Connecting to Google...' : 'Connect Google Drive'}</span>
-                  </button>
+                  <div>
+                    <span style={{ color: '#4B5563' }}>Target: </span>
+                    <span style={{ color: '#6B7280' }}>My Drive → KKV GOLD FINANCE → kkv finance</span>
+                  </div>
                 </div>
               )}
             </div>

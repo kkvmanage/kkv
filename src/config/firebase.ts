@@ -30,17 +30,25 @@ import { getAnalytics, isSupported, Analytics } from 'firebase/analytics';
 import { UserProfile, UserPermissions, UserRole } from '../types';
 
 // ====================================================
-// OFFICIAL FIREBASE CONFIGURATION (otp-site-80c03)
+// AUTHORITATIVE FIREBASE CONFIGURATION (kkv-gold-finance)
 // ====================================================
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 export const firebaseConfig = {
-  apiKey: "AIzaSyDzBC4GLKXN3_lyh91B0NY4FcHH6x_hIEw",
-  authDomain: "otp-site-80c03.firebaseapp.com",
-  projectId: "otp-site-80c03",
-  storageBucket: "otp-site-80c03.firebasestorage.app",
-  messagingSenderId: "419034737047",
-  appId: "1:419034737047:web:136ccc97ec4d1275c8bcd2",
-  measurementId: "G-Y944D6CF9C"
+  apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || "AIzaSyC0z5Z3MAStIA88bRhQlbTzG2TWvEnc-Vg",
+  authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "kkv-gold-finance.firebaseapp.com",
+  projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "kkv-gold-finance",
+  storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || "kkv-gold-finance.firebasestorage.app",
+  messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "1078096093903",
+  appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || "1:1078096093903:web:74480b31fca9d9adec4dba",
+  measurementId: (import.meta as any).env?.VITE_FIREBASE_MEASUREMENT_ID || "G-8DVJ631E0Y"
 };
+
+// Debugging output for verification
+console.log("Firebase Config:", {
+  apiKey: firebaseConfig.apiKey,
+  projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain
+});
 
 // ====================================================
 // INITIALIZE FIREBASE SERVICES (SINGLETON)
@@ -50,15 +58,20 @@ export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
 export const storage: FirebaseStorage = getStorage(app);
 
-// Initialize Analytics conditionally if supported in the browser environment
+// Initialize Analytics conditionally and safely without crashing
 export let analytics: Analytics | null = null;
 if (typeof window !== 'undefined') {
   isSupported().then((supported) => {
     if (supported) {
-      analytics = getAnalytics(app);
+      try {
+        analytics = getAnalytics(app);
+      } catch (analyticsErr) {
+        console.warn('[Firebase Analytics] Analytics initialization skipped:', analyticsErr);
+        analytics = null;
+      }
     }
-  }).catch(() => {
-    // Analytics not supported or blocked by browser extensions
+  }).catch((err) => {
+    console.warn('[Firebase Analytics] Not supported in this environment:', err);
     analytics = null;
   });
 }
@@ -67,7 +80,7 @@ if (typeof window !== 'undefined') {
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export const MASTER_ADMIN_EMAIL = 'kkvgoldfinance13@gmail.com';
+export const MASTER_ADMIN_EMAIL = 'goldfinancekkv@gmail.com';
 
 /**
  * Generates canonical default permissions for each role.
@@ -94,46 +107,6 @@ export const getDefaultPermissionsForRole = (role: UserRole): UserPermissions =>
         permanentDelete: true,
         rentalManagement: true
       };
-    case 'ADMIN':
-      return {
-        customers: true,
-        loans: true,
-        loanReceipts: true,
-        pendingLoans: true,
-        fixedDeposits: true,
-        fdInterest: true,
-        fdWithdrawal: true,
-        notifications: true,
-        adminPanel: false,
-        masterControl: false,
-        fdInterestRates: false,
-        bulkFdDateChange: false,
-        devices: true,
-        staffManagement: false,
-        settings: false,
-        permanentDelete: false,
-        rentalManagement: true
-      };
-    case 'MANAGER':
-      return {
-        customers: true,
-        loans: true,
-        loanReceipts: true,
-        pendingLoans: true,
-        fixedDeposits: true,
-        fdInterest: true,
-        fdWithdrawal: true,
-        notifications: true,
-        adminPanel: false,
-        masterControl: false,
-        fdInterestRates: false,
-        bulkFdDateChange: false,
-        devices: false,
-        staffManagement: false,
-        settings: false,
-        permanentDelete: false,
-        rentalManagement: false
-      };
     case 'RENTAL_STAFF':
       return {
         customers: false,
@@ -143,7 +116,7 @@ export const getDefaultPermissionsForRole = (role: UserRole): UserPermissions =>
         fixedDeposits: false,
         fdInterest: false,
         fdWithdrawal: false,
-        notifications: false,
+        notifications: true,
         adminPanel: false,
         masterControl: false,
         fdInterestRates: false,
@@ -154,16 +127,16 @@ export const getDefaultPermissionsForRole = (role: UserRole): UserPermissions =>
         permanentDelete: false,
         rentalManagement: true
       };
-    case 'OPERATOR':
+    case 'STAFF':
     default:
       return {
         customers: true,
         loans: true,
         loanReceipts: true,
         pendingLoans: true,
-        fixedDeposits: false,
-        fdInterest: false,
-        fdWithdrawal: false,
+        fixedDeposits: true,
+        fdInterest: true,
+        fdWithdrawal: true,
         notifications: true,
         adminPanel: false,
         masterControl: false,

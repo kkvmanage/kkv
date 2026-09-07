@@ -683,7 +683,7 @@ class RentalAdminSummaryService {
       status: failedItems > 0 ? 'SYNC_DELAYED' : (pendingItems > 0 ? 'SYNC_PENDING' : 'SYNCED'),
       version: version || 100,
       lastSyncedAt: mtime || new Date().toISOString(),
-      source: 'Google Drive (KKV DB / Rental)',
+      source: 'Google Drive (kkv finance / Rental)',
       pendingChanges: pendingItems,
       isConfigured: true,
       counts: {

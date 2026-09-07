@@ -13,32 +13,22 @@ interface DailyReminderItem {
 
 export const DailyReminders: React.FC = () => {
   const { showToast } = useApp();
-  const [reminders, setReminders] = useState<DailyReminderItem[]>([
-    {
-      id: '1',
-      customer: 'thayba (+91 98401 23456)',
-      loanFd: 'GL-01 (Gold Loan)',
-      reminderType: 'Monthly Interest',
-      dueDate: 'Today, 11:00 AM',
-      status: 'PENDING'
-    },
-    {
-      id: '2',
-      customer: 'Arun Kumar (+91 94440 11223)',
-      loanFd: 'FD-02 (Fixed Deposit)',
-      reminderType: 'FD Maturity Payout',
-      dueDate: 'Today, 02:00 PM',
-      status: 'PENDING'
-    },
-    {
-      id: '3',
-      customer: 'Rajan Sundaram (+91 98840 98765)',
-      loanFd: 'GL-02 (Gold Loan)',
-      reminderType: 'Pledge Renewal',
-      dueDate: 'Tomorrow',
-      status: 'COMPLETED'
+  const [reminders, setReminders] = useState<DailyReminderItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('kkv_daily_reminders');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
     }
-  ]);
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('kkv_daily_reminders', JSON.stringify(reminders));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [reminders]);
 
   const [newCustomer, setNewCustomer] = useState('');
   const [newLoanFd, setNewLoanFd] = useState('');
@@ -121,38 +111,46 @@ export const DailyReminders: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {reminders.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>{r.customer}</td>
-                  <td style={{ fontWeight: 600 }}>{r.loanFd}</td>
-                  <td>
-                    <span className="badge badge-gold">{r.reminderType}</span>
-                  </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{r.dueDate}</td>
-                  <td>
-                    <span
-                      className={`badge ${
-                        r.status === 'COMPLETED'
-                          ? 'badge-success'
-                          : r.status === 'OVERDUE'
-                          ? 'badge-danger'
-                          : 'badge-warning'
-                      }`}
-                    >
-                      {r.status}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <button
-                      className={`btn btn-sm ${r.status === 'COMPLETED' ? 'btn-secondary' : 'btn-primary'}`}
-                      onClick={() => handleAction(r)}
-                    >
-                      {r.status === 'COMPLETED' ? <CheckCircle2 size={13} /> : <PhoneCall size={13} />}
-                      <span>{r.status === 'COMPLETED' ? 'Done' : 'Contact'}</span>
-                    </button>
+              {reminders.length > 0 ? (
+                reminders.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ fontWeight: 700, color: 'var(--color-primary-dark)' }}>{r.customer}</td>
+                    <td style={{ fontWeight: 600 }}>{r.loanFd}</td>
+                    <td>
+                      <span className="badge badge-gold">{r.reminderType}</span>
+                    </td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{r.dueDate}</td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          r.status === 'COMPLETED'
+                            ? 'badge-success'
+                            : r.status === 'OVERDUE'
+                            ? 'badge-danger'
+                            : 'badge-warning'
+                        }`}
+                      >
+                        {r.status}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button
+                        className={`btn btn-sm ${r.status === 'COMPLETED' ? 'btn-secondary' : 'btn-primary'}`}
+                        onClick={() => handleAction(r)}
+                      >
+                        {r.status === 'COMPLETED' ? <CheckCircle2 size={13} /> : <PhoneCall size={13} />}
+                        <span>{r.status === 'COMPLETED' ? 'Done' : 'Contact'}</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                    No daily follow-up tasks recorded. Add a task above to track follow-ups.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

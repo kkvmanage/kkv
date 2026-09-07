@@ -16,14 +16,38 @@ export class DriveService {
 
   public initGoogleDrive(): boolean {
     try {
-      this.rootFolderId = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim();
+      this.rootFolderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '').trim();
 
-      // 1. PRIMARY: Google OAuth 2.0 User Authentication (Personal My Drive)
+      // 1. PRIMARY & DEFAULT: Google Service Account Authentication (Server-Side)
+      const serviceEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+      const rawPrivateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+
+      if (serviceEmail && rawPrivateKey) {
+        try {
+          const privateKey = rawPrivateKey.replace(/\\n/g, '\n');
+          const jwtClient = new google.auth.JWT(
+            serviceEmail,
+            undefined,
+            privateKey,
+            ['https://www.googleapis.com/auth/drive']
+          );
+          this.authClient = jwtClient;
+          this.drive = google.drive({ version: 'v3', auth: jwtClient });
+          this.authType = 'SERVICE_ACCOUNT';
+          this.principalEmail = serviceEmail;
+          this.isDriveConfigured = true;
+          console.log(`[DriveService] 🏢 Initialized Google Drive API via Service Account (${serviceEmail})`);
+          return true;
+        } catch (saErr) {
+          console.warn('[DriveService] Service Account initialization failed:', saErr);
+        }
+      }
+
+      // 2. FALLBACK/OPTIONAL: Google OAuth 2.0 User Authentication
       const clientId = env.GOOGLE_CLIENT_ID;
       const clientSecret = env.GOOGLE_CLIENT_SECRET;
       const redirectUri = env.GOOGLE_DRIVE_OAUTH_REDIRECT_URI;
       const refreshToken = driveTokenService.getRefreshToken() || env.GOOGLE_REFRESH_TOKEN;
-      const isSharedDriveExplicit = process.env.GOOGLE_DRIVE_IS_SHARED_DRIVE === 'true';
 
       if (clientId && clientSecret && refreshToken) {
         try {
@@ -53,31 +77,6 @@ export class DriveService {
           return true;
         } catch (oauthErr) {
           console.warn('[DriveService] OAuth client initialization error:', oauthErr);
-        }
-      }
-
-      // 2. OPTIONAL: Service Account Authentication ONLY for Google Workspace Shared Drives
-      const serviceEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-      const rawPrivateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-
-      if (isSharedDriveExplicit && serviceEmail && rawPrivateKey) {
-        try {
-          const privateKey = rawPrivateKey.replace(/\\n/g, '\n');
-          const jwtClient = new google.auth.JWT(
-            serviceEmail,
-            undefined,
-            privateKey,
-            ['https://www.googleapis.com/auth/drive']
-          );
-          this.authClient = jwtClient;
-          this.drive = google.drive({ version: 'v3', auth: jwtClient });
-          this.authType = 'SERVICE_ACCOUNT';
-          this.principalEmail = serviceEmail;
-          this.isDriveConfigured = true;
-          console.log(`[DriveService] 🏢 Initialized Google Drive API via Service Account for Shared Drive (${serviceEmail})`);
-          return true;
-        } catch (saErr) {
-          console.warn('[DriveService] Service Account initialization failed for Shared Drive:', saErr);
         }
       }
 

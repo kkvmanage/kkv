@@ -28,9 +28,13 @@ import {
   getRentalShopDetails,
   getRentalPayments,
   getRentalExpenses,
-  getRentalSyncStatus
+  getRentalSyncStatus,
+  getDatabaseStatus,
+  migrateToAtlas
 } from '../controllers/admin.controller.js';
 import { driveController } from '../controllers/drive.controller.js';
+
+import { requireMasterAdmin } from '../middleware/rbac.middleware.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -40,7 +44,7 @@ const upload = multer({
 const router = Router();
 
 router.get('/settings', getMasterSettings);
-router.put('/settings', updateMasterSettings);
+router.put('/settings', requireMasterAdmin, updateMasterSettings);
 
 // Rental Admin Integration Endpoints (Read-Only)
 router.get('/rental-summary', getRentalSummary);
@@ -54,9 +58,13 @@ router.get('/rental/expenses', getRentalExpenses);
 router.get('/rental/sync-status', getRentalSyncStatus);
 
 router.get('/whatsapp-templates', getWhatsAppTemplates);
-router.put('/whatsapp-templates', updateWhatsAppTemplates);
+router.put('/whatsapp-templates', requireMasterAdmin, updateWhatsAppTemplates);
 
-router.post('/unlock', unlockMasterControl);
+router.post('/unlock', requireMasterAdmin, unlockMasterControl);
+
+// Database & MongoDB Atlas Management
+router.get('/database/status', getDatabaseStatus);
+router.post('/database/migrate-to-atlas', requireMasterAdmin, migrateToAtlas);
 
 // Google Drive Health Check & Auth Flow
 router.get('/backup/drive-health', getDriveHealth);
@@ -65,7 +73,7 @@ router.get('/backup/google-drive/status', driveController.getStatus);
 router.get('/backup/google-drive/oauth-config', driveController.getOAuthConfig);
 router.get('/backup/google-drive/connect', driveController.connect);
 router.get('/backup/google-drive/callback', driveController.callback);
-router.post('/backup/google-drive/disconnect', driveController.disconnect);
+router.post('/backup/google-drive/disconnect', requireMasterAdmin, driveController.disconnect);
 
 // Production Backup Package APIs
 router.post('/backup/create', createBackupPackage);
@@ -78,9 +86,9 @@ router.get('/backup/google-drive/files', getAvailableRestoreBackups);
 router.get('/backup/google-drive/files/:fileId/download', downloadDriveBackupFile);
 
 // Wipe All Data Workflow
-router.get('/wipe-all-data/preview', getWipePreview);
-router.post('/wipe-all-data/initiate', initiateWipeBackup);
-router.post('/wipe-all-data/confirm', confirmSystemWipe);
+router.get('/wipe-all-data/preview', requireMasterAdmin, getWipePreview);
+router.post('/wipe-all-data/initiate', requireMasterAdmin, initiateWipeBackup);
+router.post('/wipe-all-data/confirm', requireMasterAdmin, confirmSystemWipe);
 
 // System Restore Workflow
 router.get('/system/backups', getAvailableRestoreBackups);

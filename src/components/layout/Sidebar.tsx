@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
   Power,
+  RotateCcw,
   Moon,
   Sun,
   LogOut,
@@ -23,6 +24,7 @@ import {
 
 import { KKVLogo } from '../common/KKVLogo';
 import { BackupCloseModal } from '../common/BackupCloseModal';
+import { RestoreModal } from '../common/RestoreModal';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -34,7 +36,6 @@ export const Sidebar: React.FC = () => {
     closeMobileMenu,
     userRole,
     currentUser,
-    hasPermission,
     logoutUser
   } = useApp();
 
@@ -96,6 +97,7 @@ export const Sidebar: React.FC = () => {
   }, [currentPage]);
 
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
 
   const handleBackupAndClose = () => {
     setIsBackupModalOpen(true);
@@ -108,13 +110,12 @@ export const Sidebar: React.FC = () => {
   const roleLabel =
     userRole === 'MASTER_ADMIN'
       ? 'Master Admin'
-      : userRole === 'ADMIN'
-      ? 'Admin'
-      : userRole === 'MANAGER'
-      ? 'Branch Manager'
       : userRole === 'RENTAL_STAFF'
       ? 'Rental Staff'
-      : 'Operator';
+      : 'Staff';
+
+  // RENTAL_STAFF users should use the Rental Portal (localhost:5174) — hide Finance navigation
+  const isRentalOnly = userRole === 'RENTAL_STAFF';
 
   return (
     <>
@@ -159,7 +160,21 @@ export const Sidebar: React.FC = () => {
             <span>Dashboard</span>
           </button>
 
-          {/* OPERATIONS */}
+          {/* OPERATIONS — Finance modules: hidden from Rental Staff */}
+          {isRentalOnly ? (
+            <div style={{ margin: '16px 8px', padding: '14px 16px', backgroundColor: 'rgba(201, 162, 39, 0.08)', borderRadius: '10px', border: '1px solid rgba(201, 162, 39, 0.25)', textAlign: 'center' }}>
+              <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-gold-light)', margin: '0 0 6px' }}>🏢 Rental Staff Access</p>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.4 }}>Use the Rental Management Portal for your operations.</p>
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ fontSize: '11px', padding: '6px 12px' }}
+                onClick={() => window.open('http://localhost:5174', '_blank')}
+              >
+                Open Rental Portal ↗
+              </button>
+            </div>
+          ) : (
+            <>
           <div className="sidebar-section-label">OPERATIONS</div>
 
           {/* Customers Section */}
@@ -178,8 +193,8 @@ export const Sidebar: React.FC = () => {
             {customersOpen && (
               <div className="sidebar-submenu">
                 <button
-                  className={`sidebar-sublink ${['customers', 'customers-add', 'add-customer-form'].includes(currentPage) ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('customers-add')}
+                  className={`sidebar-sublink ${['customers-add', 'add-customer-form'].includes(currentPage) ? 'active' : ''}`}
+                  onClick={() => setCurrentPage('add-customer-form')}
                 >
                   <UserPlus size={14} style={{ marginRight: '6px' }} />
                   Add Customer
@@ -408,8 +423,9 @@ export const Sidebar: React.FC = () => {
             <span>Daily Reminders</span>
           </button>
 
-          {/* DATA - hidden if Operator */}
-          {userRole !== 'OPERATOR' && (
+          {/* DATA - hidden from STAFF / OPERATOR / RENTAL_STAFF */}
+          {/* DATA - visible to MASTER_ADMIN only */}
+          {!isRentalOnly && userRole === 'MASTER_ADMIN' && (
             <>
               <div className="sidebar-section-label">DATA</div>
               <button
@@ -422,42 +438,51 @@ export const Sidebar: React.FC = () => {
             </>
           )}
 
-          {/* SYSTEM - only if adminPanel or settings permission */}
-          {(hasPermission('adminPanel') || hasPermission('settings')) && (
+          {/* SYSTEM - visible to MASTER_ADMIN only */}
+          {!isRentalOnly && userRole === 'MASTER_ADMIN' && (
             <>
               <div className="sidebar-section-label">SYSTEM</div>
-              {hasPermission('adminPanel') && (
-                <button
-                  className={`sidebar-link ${currentPage === 'admin-panel' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('admin-panel')}
-                >
-                  <Shield size={17} />
-                  <span>Admin Panel</span>
-                </button>
-              )}
-              {hasPermission('settings') && (
-                <button
-                  className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('settings')}
-                >
-                  <Settings size={17} />
-                  <span>Settings</span>
-                </button>
-              )}
+              <button
+                className={`sidebar-link ${currentPage === 'admin-panel' ? 'active' : ''}`}
+                onClick={() => setCurrentPage('admin-panel')}
+              >
+                <Shield size={17} />
+                <span>Admin Panel</span>
+              </button>
+              <button
+                className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
+                onClick={() => setCurrentPage('settings')}
+              >
+                <Settings size={17} />
+                <span>Settings</span>
+              </button>
             </>
           )}
+          </>)}
         </nav>
 
         {/* Footer Controls */}
         <div className="sidebar-footer" style={{ padding: '10px 10px 14px', display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--border-subtle)' }}>
-          <button
-            className="btn btn-primary"
-            style={{ width: '100%', justifyContent: 'center', gap: '7px', fontSize: '12.5px', padding: '7px 12px', height: '34px' }}
-            onClick={handleBackupAndClose}
-          >
-            <Power size={14} />
-            <span>Backup &amp; Close</span>
-          </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '6px' }}>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', justifyContent: 'center', gap: '6px', fontSize: '11.5px', padding: '7px 8px', height: '34px' }}
+              onClick={handleBackupAndClose}
+              title="Backup & Close Session"
+            >
+              <Power size={13} />
+              <span>Backup &amp; Close</span>
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ width: '100%', justifyContent: 'center', gap: '6px', fontSize: '11.5px', padding: '7px 8px', height: '34px', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#2563eb' }}
+              onClick={() => setIsRestoreModalOpen(true)}
+              title="Restore Latest Cloud Backup"
+            >
+              <RotateCcw size={13} />
+              <span>Restore</span>
+            </button>
+          </div>
 
           <button
             className="btn btn-secondary"
@@ -494,6 +519,12 @@ export const Sidebar: React.FC = () => {
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
         onFinishCloseSession={handleFinishCloseSession}
+      />
+
+      {/* Restore Database Workflow Modal */}
+      <RestoreModal
+        isOpen={isRestoreModalOpen}
+        onClose={() => setIsRestoreModalOpen(false)}
       />
     </>
   );

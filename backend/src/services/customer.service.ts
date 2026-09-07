@@ -1,5 +1,6 @@
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { googleDriveService } from './googleDriveService.js';
+import { syncQueueService } from './syncQueue.service.js';
 import { counterService } from './counter.service.js';
 import { Customer } from '../types/index.js';
 
@@ -14,92 +15,14 @@ export function normalizePhone(phone: string): string {
   return digits;
 }
 
-const initialCustomers: Customer[] = [
-  {
-    id: 'CUST-0001',
-    customerId: 1,
-    name: 'thayba',
-    phone: '9840123456',
-    phoneNormalized: '9840123456',
-    gender: 'Female',
-    age: 28,
-    occupation: 'Textile Business',
-    email: 'thayba@example.com',
-    currentAddress: '123 Market Street, Main Town',
-    permanentAddress: '123 Market Street, Main Town',
-    idProof: 'Aadhaar Card',
-    idNumber: '1234-5678-9012',
-    activeLoansCount: 1,
-    totalBorrowed: 100000,
-    status: 'VERIFIED',
-    joinedDate: '25/08/2026',
-    isDeleted: false
-  },
-  {
-    id: 'CUST-0002',
-    customerId: 2,
-    name: 'Thayba Begum',
-    phone: '9123456789',
-    phoneNormalized: '9123456789',
-    gender: 'Female',
-    age: 32,
-    occupation: 'Housewife',
-    email: 'thaybabegum@example.com',
-    currentAddress: '45 Lake View Road',
-    permanentAddress: '45 Lake View Road',
-    idProof: 'PAN Card',
-    idNumber: 'ABCDE1234F',
-    activeLoansCount: 0,
-    totalBorrowed: 0,
-    status: 'VERIFIED',
-    joinedDate: '25/08/2026',
-    isDeleted: false
-  },
-  {
-    id: 'CUST-0003',
-    customerId: 3,
-    name: 'Rajan Sundaram',
-    phone: '9884098765',
-    phoneNormalized: '9884098765',
-    gender: 'Male',
-    age: 45,
-    occupation: 'Civil Contractor',
-    email: 'rajan.s@example.com',
-    currentAddress: '88 North Mada Street, Mylapore, Chennai',
-    permanentAddress: '88 North Mada Street, Mylapore, Chennai',
-    idProof: 'PAN Card',
-    idNumber: 'XYZDE5678K',
-    activeLoansCount: 1,
-    totalBorrowed: 150000,
-    status: 'VERIFIED',
-    joinedDate: '02/02/2026',
-    isDeleted: false
-  },
-  {
-    id: 'CUST-0004',
-    customerId: 4,
-    name: 'Kavitha Murugan',
-    phone: '9791054321',
-    phoneNormalized: '9791054321',
-    gender: 'Female',
-    age: 38,
-    occupation: 'School Teacher',
-    email: 'kavitha.m@example.com',
-    currentAddress: '22 Ring Road, Anna Nagar, Chennai',
-    permanentAddress: '22 Ring Road, Anna Nagar, Chennai',
-    idProof: 'Aadhaar Card',
-    idNumber: '9988-7766-5544',
-    activeLoansCount: 1,
-    totalBorrowed: 85000,
-    status: 'VERIFIED',
-    joinedDate: '10/03/2026',
-    isDeleted: false
-  }
-];
+const initialCustomers: Customer[] = [];
 
 export class CustomerService {
   public getAll(includeDeleted: boolean = false): Customer[] {
-    const list = googleDriveRepository.readJson<Customer[]>(FILE_NAME, initialCustomers);
+    let list = googleDriveRepository.readJson<Customer[]>(FILE_NAME, initialCustomers);
+    if (!Array.isArray(list)) {
+      list = [];
+    }
     if (includeDeleted) return list;
     return list.filter((c) => !c.isDeleted);
   }
@@ -107,13 +30,21 @@ export class CustomerService {
   public getById(id: string): Customer | null {
     const customers = this.getAll(true);
     const q = id.toLowerCase().trim();
+    const qDigits = q.replace(/\D/g, '');
+    const qNum = qDigits ? parseInt(qDigits, 10) : null;
+
     return (
-      customers.find(
-        (c) =>
-          c.id.toLowerCase() === q ||
-          (c.customerId && c.customerId.toString() === q) ||
-          c.name.toLowerCase() === q
-      ) || null
+      customers.find((c) => {
+        if (c.id.toLowerCase() === q) return true;
+        if (c.customerId && c.customerId.toString() === q) return true;
+        if (c.name.toLowerCase() === q) return true;
+        if (qNum !== null) {
+          if (c.customerId && c.customerId === qNum) return true;
+          const cDigits = c.id.replace(/\D/g, '');
+          if (cDigits && parseInt(cDigits, 10) === qNum) return true;
+        }
+        return false;
+      }) || null
     );
   }
 
@@ -178,6 +109,10 @@ export class CustomerService {
 
     customers.unshift(newCustomer);
     googleDriveRepository.writeJson(FILE_NAME, customers);
+
+    // Enqueue background sync event
+    syncQueueService.enqueue('customer', newCustomer.id, 'CREATE', newCustomer);
+
     return newCustomer;
   }
 
@@ -209,11 +144,15 @@ export class CustomerService {
     };
 
     googleDriveRepository.writeJson(FILE_NAME, customers);
+
+    // Enqueue background sync event
+    syncQueueService.enqueue('customer', customers[index].id, 'UPDATE', customers[index]);
+
     return customers[index];
   }
 
   public delete(id: string, userRole?: string): { success: boolean; statusCode?: number; message?: string } {
-    if (userRole !== 'ADMIN') {
+    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN') {
       return {
         success: false,
         statusCode: 403,
@@ -230,14 +169,18 @@ export class CustomerService {
     // Perform Soft Delete
     customers[index].isDeleted = true;
     customers[index].deletedAt = new Date().toISOString();
-    customers[index].deletedBy = 'ADMIN';
+    customers[index].deletedBy = userRole || 'MASTER_ADMIN';
 
     googleDriveRepository.writeJson(FILE_NAME, customers);
+
+    // Enqueue background sync event
+    syncQueueService.enqueue('customer', id, 'DELETE', { id, isDeleted: true });
+
     return { success: true, message: 'Customer soft-deleted successfully' };
   }
 
   public restore(id: string, userRole?: string): { success: boolean; statusCode?: number; message?: string } {
-    if (userRole !== 'ADMIN') {
+    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN') {
       return {
         success: false,
         statusCode: 403,
@@ -260,11 +203,11 @@ export class CustomerService {
   }
 
   public deletePermanently(id: string, userRole?: string): { success: boolean; statusCode?: number; message?: string } {
-    if (userRole !== 'ADMIN') {
+    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN') {
       return {
         success: false,
         statusCode: 403,
-        message: 'Only Admin users have permission to permanently delete customer records.'
+        message: 'Only Master Admin has permission to permanently delete customer records.'
       };
     }
 

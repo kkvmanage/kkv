@@ -1,22 +1,77 @@
-// API Client Service connecting Frontend to Local Node.js + Express Backend (http://localhost:8080/api)
-// with Google Drive integration for secure file management
+// Central Finance Backend API Client for Desktop Multi-Staff Deployment
+// Supports Centralized MongoDB Atlas + Downstream Google Drive Outbox Architecture
 
-const API_BASE_URL = ((import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:8080/api';
+let customApiBaseUrl: string | null = null;
+
+export const getApiBaseUrl = (): string => {
+  if (customApiBaseUrl) return customApiBaseUrl;
+  return (
+    ((import.meta as any).env?.VITE_API_BASE_URL) ||
+    ((import.meta as any).env?.FINANCE_API_BASE_URL) ||
+    (typeof window !== 'undefined' && (window as any).__FINANCE_API_URL__) ||
+    'http://localhost:8080/api'
+  );
+};
+
+export const setApiBaseUrl = (url: string) => {
+  customApiBaseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+function generateIdempotencyKey(): string {
+  return 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+}
+
+function getStoredAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return (
+    sessionStorage.getItem('kkv_auth_token') ||
+    localStorage.getItem('kkv_auth_token') ||
+    sessionStorage.getItem('kkv_session_token') ||
+    localStorage.getItem('kkv_session_token') ||
+    null
+  );
+}
 
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
+  const baseUrl = getApiBaseUrl();
+  const token = getStoredAuthToken();
+  const method = (options?.method || 'GET').toUpperCase();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...(method !== 'GET' && method !== 'HEAD' ? { 'x-idempotency-key': generateIdempotencyKey() } : {}),
+    ...(options?.headers as Record<string, string> || {}),
+  };
+
   try {
-    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+    const res = await fetch(`${baseUrl}${endpoint}`, {
       ...options,
+      headers,
     });
-    if (!res.ok) return null;
+    
+    if (res.status === 409) {
+      console.warn(`[Concurrency Conflict] Record modified concurrently on ${endpoint}.`);
+      const errorJson = await res.json().catch(() => null);
+      throw new Error(errorJson?.message || 'Conflict: Record was modified by another staff member. Please refresh and retry.');
+    }
+
+    if (!res.ok) {
+      const errorJson = await res.json().catch(() => null);
+      if (errorJson?.message) {
+        console.warn(`[Backend API] Request failed with ${res.status}: ${errorJson.message}`);
+      }
+      return null;
+    }
     const json = await res.json();
     return json.data ?? json;
-  } catch (err) {
-    console.warn(`[Backend Sync] Server unreachable at ${API_BASE_URL}${endpoint}. Utilizing local fallback.`);
+  } catch (err: any) {
+    if (err.message && err.message.includes('Conflict:')) {
+      throw err;
+    }
+    console.warn(`[Backend Sync] Server unreachable at ${baseUrl}${endpoint}.`);
     return null;
   }
 }
@@ -167,6 +222,9 @@ export const apiService = {
   async getCustomers(includeDeleted: boolean = false) {
     return fetchJson<any[]>(`/customers${includeDeleted ? '?includeDeleted=true' : ''}`);
   },
+  async getCustomerById(id: string) {
+    return fetchJson<any>(`/customers/${encodeURIComponent(id)}`);
+  },
   async createCustomer(customer: any) {
     return fetchJson<any>('/customers', {
       method: 'POST',
@@ -256,6 +314,16 @@ export const apiService = {
       body: JSON.stringify({ mode, notes })
     });
   },
+  async getFDConfig() {
+    return fetchJson<any>('/fd/config');
+  },
+  async updateFDConfig(config: any, userRole: string = 'MASTER_ADMIN') {
+    return fetchJson<any>('/fd/config', {
+      method: 'PUT',
+      headers: { 'user-role': userRole },
+      body: JSON.stringify(config)
+    });
+  },
 
   // Accounting / Day Book
   async getDayBook() {
@@ -280,9 +348,10 @@ export const apiService = {
   async getMasterSettings() {
     return fetchJson<any>('/admin/settings');
   },
-  async updateMasterSettings(settings: any) {
+  async updateMasterSettings(settings: any, userRole: string = 'MASTER_ADMIN') {
     return fetchJson<any>('/admin/settings', {
       method: 'PUT',
+      headers: { 'user-role': userRole },
       body: JSON.stringify(settings)
     });
   },
@@ -305,6 +374,35 @@ export const apiService = {
       method: 'POST',
       body: JSON.stringify(data)
     });
+  },
+  async backupAndClose(user?: { userId?: string; name?: string; role?: string }) {
+    return fetchJson<any>('/backup/close', {
+      method: 'POST',
+      headers: {
+        'user-id': user?.userId || 'STAFF-001',
+        'user-name': user?.name || 'Staff User',
+        'user-role': user?.role || 'STAFF'
+      }
+    });
+  },
+  async checkAutoRestore() {
+    return fetchJson<any>('/backup/auto-restore-check');
+  },
+  async restoreLatestBackup() {
+    return fetchJson<any>('/backup/restore-latest', {
+      method: 'POST'
+    });
+  },
+  async getSyncStatus() {
+    return fetchJson<any>('/sync/status');
+  },
+  async retrySyncQueue() {
+    return fetchJson<any>('/sync/retry', {
+      method: 'POST'
+    });
+  },
+  async getSyncEvents() {
+    return fetchJson<any>('/sync/events');
   },
 
   // Telegram Integration

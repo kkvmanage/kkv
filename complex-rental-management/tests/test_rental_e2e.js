@@ -1,7 +1,7 @@
 // End-to-end automated verification script for Complex Rental Management system
 import http from 'http';
 
-const BASE_URL = 'http://localhost:5001/api';
+const BASE_URL = process.env.RENTAL_API_URL || 'http://localhost:5175/api';
 
 const apiRequest = (path, options = {}) => {
   return new Promise((resolve, reject) => {

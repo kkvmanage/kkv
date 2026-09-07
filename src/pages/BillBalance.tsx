@@ -14,28 +14,30 @@ interface BillBalanceEntry {
   status: 'OPEN' | 'CLEARED';
 }
 
-const initialBalances: BillBalanceEntry[] = [
-  {
-    id: 'bb-1',
-    billNo: 'BILL-104',
-    loanNo: 'GL-01',
-    customerName: 'Thayba Begum',
-    phone: '+91 98401 23456',
-    date: '25-08-2026',
-    balanceAmount: 250,
-    reason: 'Rounded off change to be settled next visit',
-    status: 'OPEN'
-  }
-];
-
 export const BillBalance: React.FC = () => {
   const { showToast, setCurrentPage } = useApp();
-  const [entries, setEntries] = useState<BillBalanceEntry[]>(initialBalances);
+  const [entries, setEntries] = useState<BillBalanceEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('kkv_bill_balances');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('kkv_bill_balances', JSON.stringify(entries));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [entries]);
+
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newLoanNo, setNewLoanNo] = useState('GL-01');
-  const [newCustomer, setNewCustomer] = useState('Thayba Begum');
-  const [newAmount, setNewAmount] = useState<number>(100);
-  const [newReason, setNewReason] = useState('Short balance on interest payment');
+  const [newLoanNo, setNewLoanNo] = useState('');
+  const [newCustomer, setNewCustomer] = useState('');
+  const [newAmount, setNewAmount] = useState<number>(0);
+  const [newReason, setNewReason] = useState('');
 
   const openEntries = entries.filter((e) => e.status === 'OPEN');
   const totalOwed = openEntries.reduce((sum, e) => sum + e.balanceAmount, 0);

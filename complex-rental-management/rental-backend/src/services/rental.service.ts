@@ -493,6 +493,8 @@ export class RentalService {
         entityId: expenseId,
         oldValue: oldVal
       });
+
+      syncService.triggerSync('Expense', expenseId, 'DELETE', oldVal);
     }
     return deleted;
   }

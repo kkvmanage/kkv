@@ -21,7 +21,7 @@ export class AuthController {
 
   // ── FIREBASE HEALTH DIAGNOSTIC ─────────────────────────────────────────────
   async firebaseHealth(_req: Request, res: Response): Promise<void> {
-    const projectId = process.env.FIREBASE_PROJECT_ID || 'otp-site-80c03';
+    const projectId = process.env.FIREBASE_PROJECT_ID || 'kkv-gold-finance';
     res.status(200).json({
       success: true,
       firebaseConfigured: true,

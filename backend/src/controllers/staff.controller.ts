@@ -25,16 +25,16 @@ export const getStaffProfile = (req: Request, res: Response) => {
 
 export const createStaff = (req: Request, res: Response) => {
   try {
-    const { email, displayName, role, phone, permissions } = req.body;
+    const { email, displayName, role, phone, permissions, password } = req.body;
     const actorUid = (req.headers['x-actor-uid'] as string) || 'uid_master_admin_01';
-    const actorEmail = (req.headers['x-actor-email'] as string) || 'kkvgoldfinance13@gmail.com';
+    const actorEmail = (req.headers['x-actor-email'] as string) || 'goldfinancekkv@gmail.com';
 
     if (!email || !displayName || !role) {
       return res.status(400).json({ success: false, message: 'Email, display name, and role are required.' });
     }
 
     const created = staffService.createStaff(
-      { email, displayName, role, phone, permissions },
+      { email, displayName, role, phone, permissions, password },
       actorUid,
       actorEmail
     );
@@ -49,7 +49,7 @@ export const updateStaff = (req: Request, res: Response) => {
     const { uid } = req.params;
     const updates = req.body;
     const actorUid = (req.headers['x-actor-uid'] as string) || 'uid_master_admin_01';
-    const actorEmail = (req.headers['x-actor-email'] as string) || 'kkvgoldfinance13@gmail.com';
+    const actorEmail = (req.headers['x-actor-email'] as string) || 'goldfinancekkv@gmail.com';
 
     const updated = staffService.updateStaff(uid, updates, actorUid, actorEmail);
     return res.json({ success: true, data: updated, message: 'Staff profile updated successfully.' });
@@ -63,7 +63,7 @@ export const toggleStaffStatus = (req: Request, res: Response) => {
     const { uid } = req.params;
     const { isActive } = req.body;
     const actorUid = (req.headers['x-actor-uid'] as string) || 'uid_master_admin_01';
-    const actorEmail = (req.headers['x-actor-email'] as string) || 'kkvgoldfinance13@gmail.com';
+    const actorEmail = (req.headers['x-actor-email'] as string) || 'goldfinancekkv@gmail.com';
 
     if (typeof isActive !== 'boolean') {
       return res.status(400).json({ success: false, message: 'isActive boolean is required.' });
@@ -84,7 +84,7 @@ export const revokeStaffSessions = (req: Request, res: Response) => {
   try {
     const { uid } = req.params;
     const actorUid = (req.headers['x-actor-uid'] as string) || 'uid_master_admin_01';
-    const actorEmail = (req.headers['x-actor-email'] as string) || 'kkvgoldfinance13@gmail.com';
+    const actorEmail = (req.headers['x-actor-email'] as string) || 'goldfinancekkv@gmail.com';
 
     const count = staffService.revokeStaffSessions(uid, actorUid, actorEmail);
     return res.json({
@@ -101,7 +101,7 @@ export const deleteStaff = (req: Request, res: Response) => {
   try {
     const { uid } = req.params;
     const actorUid = (req.headers['x-actor-uid'] as string) || 'uid_master_admin_01';
-    const actorEmail = (req.headers['x-actor-email'] as string) || 'kkvgoldfinance13@gmail.com';
+    const actorEmail = (req.headers['x-actor-email'] as string) || 'goldfinancekkv@gmail.com';
 
     staffService.deleteStaff(uid, actorUid, actorEmail);
     return res.json({ success: true, message: 'Staff account deleted permanently.' });
@@ -129,7 +129,8 @@ export const verifyStaffCredentials = (req: Request, res: Response) => {
       });
     }
 
-    const result = staffService.verifyStaffCredentials(email, password);
+    const targetPortal = req.body?.targetPortal || (req.headers['x-target-portal'] as string) || (req.body?.portal === 'RENTAL' ? 'RENTAL' : undefined);
+    const result = staffService.verifyStaffCredentials(email, password, targetPortal as any);
 
     if (!result.success) {
       if (result.disabled) {

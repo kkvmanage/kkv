@@ -6,6 +6,7 @@ import { EditCustomerModal } from '../components/common/EditCustomerModal';
 import { ViewCustomerModal } from '../components/common/ViewCustomerModal';
 import { Customer } from '../types';
 import { formatIdProofDisplay } from '../utils/kycValidation';
+import { isMatchingCustomerId } from '../utils/customerUtils';
 
 export const Customers: React.FC = () => {
   const { customers, loans, updateCustomer, setCurrentPage, setSelectedProfileCustomerId } = useApp();
@@ -28,6 +29,13 @@ export const Customers: React.FC = () => {
       document.body.style.overflow = '';
     };
   }, [viewingCustomer, editingCustomer]);
+
+  const handleViewCustomer = (customer: Customer) => {
+    setViewingCustomer(customer);
+    if (setSelectedProfileCustomerId) {
+      setSelectedProfileCustomerId(customer.id);
+    }
+  };
 
   const filteredCustomers = activeCustomers.filter((c) => {
     const query = searchTerm.toLowerCase().trim();
@@ -128,9 +136,14 @@ export const Customers: React.FC = () => {
                 </tr>
               ) : (
                 filteredCustomers.map((c, index) => {
-                  const loanCount = loans.filter((l) => l.customerId === c.id || (c.customerId && l.customerId === c.customerId.toString())).length;
+                  const loanCount = loans.filter((l) => isMatchingCustomerId(l.customerId, c)).length;
                   return (
-                    <tr key={`cust-row-${c.id}-${index}`}>
+                    <tr
+                      key={`cust-row-${c.id}-${index}`}
+                      onClick={() => handleViewCustomer(c)}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to view customer details"
+                    >
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           {c.customerPhoto ? (
@@ -192,21 +205,26 @@ export const Customers: React.FC = () => {
                       <td style={{ textAlign: 'center' }}>
                         <div style={{ display: 'inline-flex', gap: '6px' }}>
                           <button
+                            type="button"
                             className="icon-button"
                             style={{ width: '28px', height: '28px' }}
                             title="View Customer Profile"
-                            onClick={() => {
-                              setSelectedProfileCustomerId(c.id);
-                              setCurrentPage('customer-profile');
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewCustomer(c);
                             }}
                           >
                             <Eye size={14} />
                           </button>
                           <button
+                            type="button"
                             className="icon-button"
                             style={{ width: '28px', height: '28px' }}
                             title="Edit Customer"
-                            onClick={() => setEditingCustomer(c)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCustomer(c);
+                            }}
                           >
                             <Edit3 size={13} />
                           </button>
@@ -241,3 +259,4 @@ export const Customers: React.FC = () => {
     </div>
   );
 };
+

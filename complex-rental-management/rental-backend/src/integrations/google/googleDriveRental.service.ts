@@ -1,4 +1,5 @@
 import { google, drive_v3 } from 'googleapis';
+import { OAuth2Client } from 'google-auth-library';
 import { Readable } from 'stream';
 import { config } from '../../config/app.config.js';
 import {
@@ -27,8 +28,10 @@ export interface RentalSyncMetadata {
 
 export class GoogleDriveRentalService {
   private drive: drive_v3.Drive | null = null;
+  private oauth2Client: OAuth2Client | null = null;
   private authType: 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE' = 'NONE';
   private principalEmail: string = '';
+  private rootFolderId: string = (config.google.driveFolderId || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx').trim();
   private rentalFolderId: string = '';
   private currentVersion: number = 100;
   private initialized: boolean = false;
@@ -39,6 +42,8 @@ export class GoogleDriveRentalService {
 
   public init(): boolean {
     try {
+      this.rootFolderId = (config.google.driveFolderId || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx').trim();
+
       const clientId = config.google.clientId;
       const clientSecret = config.google.clientSecret;
       const redirectUri = config.google.redirectUri;
@@ -46,24 +51,29 @@ export class GoogleDriveRentalService {
       const serviceEmail = config.google.clientEmail;
       const privateKey = config.google.privateKey;
 
-      // 1. PRIMARY: Google OAuth 2.0 User Authentication (Personal My Drive)
+      // 1. PRIMARY: Google OAuth 2.0 User Authentication for goldfinancekkv@gmail.com
       if (clientId && clientSecret && refreshToken) {
         try {
           const oauthClient = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
           oauthClient.setCredentials({ refresh_token: refreshToken });
 
+          oauthClient.on('tokens', (_tokens: any) => {
+            console.log('[GoogleDriveRentalService] 🔄 Auto-refreshed OAuth access token');
+          });
+
+          this.oauth2Client = oauthClient;
           this.drive = google.drive({ version: 'v3', auth: oauthClient });
           this.authType = 'OAUTH';
-          this.principalEmail = config.google.accountEmail || 'Authorized User';
+          this.principalEmail = config.google.accountEmail || 'goldfinancekkv@gmail.com';
           this.initialized = true;
-          console.log(`[GoogleDriveRentalService] ✅ Initialized Drive API via OAuth (${this.principalEmail})`);
+          console.log(`[GoogleDriveRentalService] ✅ Initialized Drive API via OAuth 2.0 (${this.principalEmail})`);
           return true;
         } catch (oaErr: any) {
           console.warn('[GoogleDriveRentalService] ⚠️ OAuth client initialization warning:', oaErr?.message || oaErr);
         }
       }
 
-      // 2. ALTERNATIVE: Service Account for Shared Drive
+      // 2. FALLBACK: Service Account for Google Drive Sync
       if (serviceEmail && privateKey) {
         try {
           const formattedKey = privateKey.replace(/\\n/g, '\n');
@@ -104,35 +114,88 @@ export class GoogleDriveRentalService {
     return true;
   }
 
+  public getAuthClient(): any {
+    if (this.oauth2Client) return this.oauth2Client;
+    return (this.drive as any)?.context?._options?.auth;
+  }
+
   public getAuthMode(): 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE' {
     return this.authType;
   }
 
   public getConnectedAccount(): string {
-    return this.principalEmail;
+    return this.principalEmail || 'goldfinancekkv@gmail.com';
   }
 
   public getRentalVersion(): number {
     return this.currentVersion;
   }
 
+  public getRootFolderId(): string {
+    return this.rootFolderId;
+  }
+
   /**
-   * Ensures the 'Rental' subfolder exists inside the designated 'KKV DB' folder (1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv).
+   * Tests real Google Drive connectivity and target folder access.
    */
-  public async ensureRentalFolder(): Promise<string> {
-    if (this.rentalFolderId) {
-      return this.rentalFolderId;
+  public async verifyConnection(): Promise<{
+    success: boolean;
+    message: string;
+    account: string;
+    authMode: string;
+    folderId: string;
+    folderName?: string;
+  }> {
+    if (!this.isReady() || !this.drive) {
+      return {
+        success: false,
+        message: 'Google Drive client not configured or authentication failed',
+        account: '',
+        authMode: 'NONE',
+        folderId: this.rootFolderId
+      };
     }
 
+    try {
+      const folderRes = await this.drive.files.get({
+        fileId: this.rootFolderId,
+        fields: 'id, name, mimeType, trashed',
+        supportsAllDrives: true
+      });
+
+      const folderName = folderRes.data.name || 'kkv finance';
+      return {
+        success: true,
+        message: `Connected to Google Drive (${this.principalEmail}) — Target: ${folderName}`,
+        account: this.principalEmail,
+        authMode: this.authType,
+        folderId: this.rootFolderId,
+        folderName
+      };
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      return {
+        success: false,
+        message: `Google Drive verification error: ${msg}`,
+        account: this.principalEmail,
+        authMode: this.authType,
+        folderId: this.rootFolderId
+      };
+    }
+  }
+
+  /**
+   * Returns or creates a subfolder inside a given parent folder in Google Drive.
+   */
+  public async getOrCreateFolder(folderName: string, parentId?: string): Promise<string> {
     if (!this.isReady() || !this.drive) {
       throw new Error('Google Drive API is not initialized');
     }
 
-    const parentFolderId = config.google.driveFolderId || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv';
+    const targetParent = parentId || this.rootFolderId;
 
     try {
-      // Search for existing 'Rental' folder under parentFolderId
-      const q = `name = 'Rental' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${parentFolderId}' in parents`;
+      const q = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${targetParent}' in parents`;
       const listRes = await this.drive.files.list({
         q,
         fields: 'files(id, name)',
@@ -142,40 +205,47 @@ export class GoogleDriveRentalService {
       });
 
       if (listRes.data.files && listRes.data.files.length > 0) {
-        this.rentalFolderId = listRes.data.files[0].id!;
-        return this.rentalFolderId;
+        return listRes.data.files[0].id!;
       }
 
-      // Create 'Rental' folder
       const createRes = await this.drive.files.create({
         requestBody: {
-          name: 'Rental',
+          name: folderName,
           mimeType: 'application/vnd.google-apps.folder',
-          parents: [parentFolderId]
+          parents: [targetParent]
         },
         fields: 'id, name',
         supportsAllDrives: true
       });
 
-      this.rentalFolderId = createRes.data.id!;
-      console.log(`[GoogleDriveRentalService] 📁 Created 'Rental' subfolder in KKV DB (${this.rentalFolderId})`);
-      return this.rentalFolderId;
+      return createRes.data.id!;
     } catch (err: any) {
-      console.warn('[GoogleDriveRentalService] Could not resolve Rental folder, defaulting to root KKV DB folder:', err?.message || err);
-      this.rentalFolderId = parentFolderId;
+      console.warn(`[GoogleDriveRentalService] Folder getOrCreate failed for '${folderName}':`, err?.message || err);
+      return targetParent;
+    }
+  }
+
+  /**
+   * Ensures the 'Rental' subfolder exists inside the designated 'kkv finance' folder.
+   */
+  public async ensureRentalFolder(): Promise<string> {
+    if (this.rentalFolderId) {
       return this.rentalFolderId;
     }
+
+    this.rentalFolderId = await this.getOrCreateFolder('Rental', this.rootFolderId);
+    return this.rentalFolderId;
   }
 
   /**
    * Uploads or updates a JSON file inside KKV DB / Rental /
    */
-  public async uploadOrUpdateJsonFile(fileName: string, data: any): Promise<string> {
+  public async uploadOrUpdateJsonFile(fileName: string, data: any, folderIdOverride?: string): Promise<string> {
     if (!this.isReady() || !this.drive) {
       throw new Error('Google Drive API is not connected');
     }
 
-    const folderId = await this.ensureRentalFolder();
+    const folderId = folderIdOverride || (await this.ensureRentalFolder());
     const content = JSON.stringify(data, null, 2);
     const buffer = Buffer.from(content, 'utf-8');
 
@@ -247,8 +317,8 @@ export class GoogleDriveRentalService {
         expenses: payload.expenses.length,
         auditLogs: (payload.auditLogs || []).length
       },
-      destinationFolderId: config.google.driveFolderId || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv',
-      destinationFolderName: 'KKV DB / Rental',
+      destinationFolderId: this.rootFolderId,
+      destinationFolderName: 'kkv finance / Rental',
       syncedBy: this.principalEmail || 'Rental Service'
     };
 

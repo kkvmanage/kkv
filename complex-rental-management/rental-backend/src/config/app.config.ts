@@ -29,7 +29,8 @@ export const config = {
     projectId: process.env.GOOGLE_PROJECT_ID || '',
     clientEmail: process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '',
     privateKey: (process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-    driveFolderId: (process.env.GOOGLE_DRIVE_FOLDER_ID || process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim(),
+    sharedDriveId: (process.env.GOOGLE_DRIVE_SHARED_DRIVE_ID || '').trim(),
+    driveFolderId: (process.env.GOOGLE_DRIVE_FOLDER_ID || process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '').trim(),
     spreadsheetId: process.env.RENTAL_SPREADSHEET_ID || ''
   },
 

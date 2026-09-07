@@ -26,7 +26,7 @@ export const PurityManagementSection: React.FC = () => {
     userRole
   } = useApp();
 
-  const isAuthorized = userRole === 'MASTER_ADMIN' || userRole === 'ADMIN';
+  const isAuthorized = userRole === 'MASTER_ADMIN';
 
   const purityOptions = masterControlSettings?.purityOptions || [];
   const baseGoldRate = masterControlSettings?.goldRate22ct || 6400;

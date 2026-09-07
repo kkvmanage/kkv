@@ -694,7 +694,7 @@ export const SystemRestoreModal: React.FC<SystemRestoreModalProps> = ({
               {sourceType === 'drive' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ padding: '8px 12px', backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '6px', fontSize: '11.5px', color: '#1E40AF', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span><strong>Source Folder:</strong> <code>KKV_GOLD_FINANCE / Backups / Full_System_Backups</code></span>
+                    <span><strong>Source Folder:</strong> <code>kkv finance</code></span>
                     <span className="badge badge-success" style={{ fontSize: '10px' }}>✓ Verified Destination</span>
                   </div>
                   {loadingDrive ? (

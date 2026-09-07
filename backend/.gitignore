@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.vercel/
+
+# Environment variables & secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+key*
+
+# Logs & Temporary files
+*.log
+*.tmp
+*.bak
+coverage/

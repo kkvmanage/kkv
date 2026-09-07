@@ -43,11 +43,15 @@ export interface DriveHealthResult {
   success: boolean;
   configured: boolean;
   authMode: 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE';
+  principal?: string;
   googleAccount: string;
+  sharedDrive?: boolean;
+  sharedDriveId?: string;
   rootFolder: string;
   backupFolder: string;
   fullBackupFolder: string;
   rootFolderId?: string;
+  folderId?: string;
   backupsFolderId?: string;
   fullBackupsFolderId?: string;
   driveAccessible: boolean;
@@ -56,7 +60,7 @@ export interface DriveHealthResult {
   folderIdConfigured: boolean;
   writable?: boolean;
   canUpload: boolean;
-  status: 'READY' | 'REAUTH_REQUIRED' | 'FOLDER_ACCESS_DENIED' | 'NOT_CONNECTED' | 'FAILED';
+  status: 'READY' | 'REAUTH_REQUIRED' | 'FOLDER_ACCESS_DENIED' | 'NOT_CONNECTED' | 'FAILED' | 'INVALID_TARGET' | 'CONFIGURATION_MISSING' | 'NOT_READY';
   errorCode?: string;
   message?: string;
   connected?: boolean;
@@ -82,20 +86,19 @@ export class GoogleDriveService {
   }
 
   /**
-   * Initializes Google Drive with OAuth 2.0 user authentication for personal My Drive.
-   * Service Account is supported ONLY if explicitly configured for Google Workspace Shared Drive.
+   * Initializes Google Drive with OAuth 2.0 user authentication for goldfinancekkv@gmail.com.
+   * Silently refreshes tokens using the refresh token in the background.
    */
   public initGoogleDrive(): boolean {
     try {
-      this.rootFolderId = (env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
+      this.rootFolderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx').trim();
 
+      // 1. PRIMARY: Google OAuth 2.0 User Authentication
       const clientId = env.GOOGLE_CLIENT_ID;
       const clientSecret = env.GOOGLE_CLIENT_SECRET;
       const redirectUri = env.GOOGLE_DRIVE_OAUTH_REDIRECT_URI;
-      const refreshToken = driveTokenService.getRefreshToken() || env.GOOGLE_REFRESH_TOKEN;
-      const isSharedDriveExplicit = process.env.GOOGLE_DRIVE_IS_SHARED_DRIVE === 'true';
+      const refreshToken = env.GOOGLE_REFRESH_TOKEN || driveTokenService.getRefreshToken();
 
-      // 1. PRIMARY: Google OAuth 2.0 User Authentication (Personal My Drive)
       if (clientId && clientSecret && refreshToken) {
         try {
           const oauthClient = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
@@ -114,7 +117,7 @@ export class GoogleDriveService {
           this.oauth2Client = oauthClient;
           this.drive = google.drive({ version: 'v3', auth: oauthClient });
           this.authType = 'OAUTH';
-          this.principalEmail = driveTokenService.getGoogleAccount() || env.GOOGLE_DRIVE_ACCOUNT_EMAIL || 'Authorized User';
+          this.principalEmail = env.GOOGLE_DRIVE_ACCOUNT_EMAIL || driveTokenService.getGoogleAccount() || 'goldfinancekkv@gmail.com';
           this.isDriveConfigured = true;
 
           console.log(`[GoogleDriveService] ✅ Initialized Google Drive API via OAuth 2.0 (${this.principalEmail})`);
@@ -124,11 +127,11 @@ export class GoogleDriveService {
         }
       }
 
-      // 2. OPTIONAL ALTERNATIVE: Workspace Shared Drive with Service Account (ONLY when explicitly enabled)
+      // 2. Fallback: Service Account if explicitly configured and no OAuth
       const serviceEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
       const rawPrivateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
 
-      if (isSharedDriveExplicit && serviceEmail && rawPrivateKey) {
+      if (serviceEmail && rawPrivateKey) {
         try {
           const privateKey = rawPrivateKey.replace(/\\n/g, '\n');
           const jwtClient = new google.auth.JWT(
@@ -141,7 +144,7 @@ export class GoogleDriveService {
           this.authType = 'SERVICE_ACCOUNT';
           this.principalEmail = serviceEmail;
           this.isDriveConfigured = true;
-          console.log(`[GoogleDriveService] 🏢 Initialized Google Drive API via Workspace Shared Drive Service Account (${serviceEmail})`);
+          console.log(`[GoogleDriveService] 🏢 Initialized Google Drive API via Service Account (${serviceEmail})`);
           return true;
         } catch (saErr: any) {
           console.warn('[GoogleDriveService] ⚠️ Service Account initialization failed:', saErr?.message || saErr);
@@ -154,7 +157,7 @@ export class GoogleDriveService {
       this.isDriveConfigured = false;
       this.drive = null;
       this.oauth2Client = null;
-      console.log('[GoogleDriveService] ℹ️ Google Drive is not connected. User OAuth connection required in Settings.');
+      console.log('[GoogleDriveService] ℹ️ Google Drive is not connected.');
       return false;
     } catch (err: any) {
       console.error('[GoogleDriveService] ❌ Initialization failed:', err?.message || err);
@@ -180,6 +183,9 @@ export class GoogleDriveService {
   }
 
   public getPrincipalEmail(): string {
+    if (this.authType === 'SERVICE_ACCOUNT') {
+      return this.principalEmail || env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';
+    }
     return driveTokenService.getGoogleAccount() || this.principalEmail || env.GOOGLE_DRIVE_ACCOUNT_EMAIL || '';
   }
 
@@ -254,11 +260,12 @@ export class GoogleDriveService {
   }
 
   /**
-   * Directly verifies the configured KKV DB Google Drive target folder.
+   * Directly verifies the configured kkv finance Google Drive target folder (Personal My Drive).
    */
   public async verifyTargetFolder(): Promise<{
     folderId: string;
     folderName: string;
+    sharedDriveId?: string;
     isFolder: boolean;
     isWritable: boolean;
     isSharedDrive: boolean;
@@ -274,48 +281,55 @@ export class GoogleDriveService {
 
     await this.ensureValidAccessToken();
 
-    const folderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim();
+    const folderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx').trim();
+
+    console.log(`[GoogleDriveService] ⚙️ Safe Runtime Config:`);
+    console.log(`  GOOGLE_DRIVE_AUTH_MODE=${this.authType.toLowerCase()}`);
+    console.log(`  GOOGLE_DRIVE_FOLDER_ID=${folderId}`);
+    console.log(`  GOOGLE_DRIVE_ACCOUNT=${this.getPrincipalEmail()}`);
+    console.log(`  GOOGLE_DRIVE_CLIENT_CONFIGURED=${Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)}`);
+    console.log(`  GOOGLE_DRIVE_REFRESH_TOKEN_CONFIGURED=${Boolean(env.GOOGLE_REFRESH_TOKEN)}`);
+
+    if (!folderId) {
+      const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_CONFIGURED: GOOGLE_DRIVE_FOLDER_ID is not set in backend/.env.');
+      (err as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_CONFIGURED';
+      throw err;
+    }
 
     try {
       const res = await this.drive.files.get({
         fileId: folderId,
-        fields: 'id, name, mimeType, trashed, capabilities, driveId',
+        fields: 'id, name, mimeType, trashed, capabilities, driveId, parents, owners',
         supportsAllDrives: true
       });
 
       if (!res.data || res.data.trashed) {
-        const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: Configured KKV DB folder was not found or is in trash.');
+        const err = new Error(`GOOGLE_DRIVE_FOLDER_NOT_FOUND: Configured folder "${folderId}" was not found or is in trash.`);
         (err as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
         throw err;
       }
 
       const isFolder = res.data.mimeType === 'application/vnd.google-apps.folder';
       if (!isFolder) {
-        const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: Configured Google Drive target is not a folder.');
+        const err = new Error(`GOOGLE_DRIVE_FOLDER_NOT_FOUND: Configured Google Drive target "${folderId}" is not a folder.`);
         (err as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
         throw err;
       }
 
+      const driveId = res.data.driveId;
+      const isSharedDrive = Boolean(driveId);
+
       const isWritable = Boolean(res.data.capabilities?.canAddChildren || res.data.capabilities?.canEdit);
-      const isSharedDrive = Boolean(res.data.driveId);
-
-      if (!isSharedDrive && this.authType === 'SERVICE_ACCOUNT') {
-        const err = new Error(
-          'GOOGLE_DRIVE_AUTH_MODE_INVALID: The configured KKV DB folder is in personal Google Drive. Use Google OAuth user authorization for this folder, or move the backup destination to a Google Workspace Shared Drive for Service Account upload.'
-        );
-        (err as any).code = 'GOOGLE_DRIVE_AUTH_MODE_INVALID';
-        throw err;
-      }
-
       if (!isWritable) {
-        const err = new Error('GOOGLE_DRIVE_FOLDER_ACCESS_DENIED: The authenticated account does not have write permission in the KKV DB folder.');
+        const err = new Error(`GOOGLE_DRIVE_FOLDER_ACCESS_DENIED: The configured Drive folder "${folderId}" is not writable by ${this.getPrincipalEmail()}.`);
         (err as any).code = 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED';
         throw err;
       }
 
       return {
         folderId: res.data.id || folderId,
-        folderName: res.data.name || 'KKV DB',
+        folderName: res.data.name || 'kkv finance',
+        sharedDriveId: driveId || undefined,
         isFolder,
         isWritable,
         isSharedDrive
@@ -325,17 +339,17 @@ export class GoogleDriveService {
       const status = err?.status || err?.code || err?.response?.status;
       const msg = err?.message || String(err);
       if (msg.includes('invalid_grant') || status === 401) {
-        const e = new Error('GOOGLE_DRIVE_REAUTH_REQUIRED: Google Drive authorization expired.');
+        const e = new Error('GOOGLE_DRIVE_REAUTH_REQUIRED: Google Drive OAuth authentication failed.');
         (e as any).code = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
         throw e;
       }
       if (status === 404) {
-        const e = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: The configured KKV DB folder was not found on Google Drive.');
+        const e = new Error(`GOOGLE_DRIVE_FOLDER_NOT_FOUND: The configured kkv finance folder ID "${folderId}" was not found on Google Drive or is not accessible to ${this.getPrincipalEmail()}.`);
         (e as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
         throw e;
       }
       if (status === 403) {
-        const e = new Error('GOOGLE_DRIVE_FOLDER_ACCESS_DENIED: Access denied to the configured KKV DB folder.');
+        const e = new Error(`GOOGLE_DRIVE_FOLDER_ACCESS_DENIED: The configured Drive folder "${folderId}" is not accessible to ${this.getPrincipalEmail()}.`);
         (e as any).code = 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED';
         throw e;
       }
@@ -345,7 +359,7 @@ export class GoogleDriveService {
 
   /**
    * Resolves and verifies the single centralized backup destination:
-   * Google Drive -> KKV DB (1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv)
+   * My Drive -> KKV GOLD FINANCE -> kkv finance
    */
   public async ensureBackupFolderHierarchy(): Promise<DriveFolderConfig> {
     const target = await this.verifyTargetFolder();
@@ -364,7 +378,7 @@ export class GoogleDriveService {
 
   public getRootFolderId(): string {
     const config = this.getStoredFolderConfig();
-    return config?.rootFolderId || (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim();
+    return config?.rootFolderId || (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx').trim();
   }
 
   public getBackupsFolderId(): string {
@@ -380,7 +394,7 @@ export class GoogleDriveService {
    */
   public async getDriveHealth(): Promise<DriveHealthResult> {
     const configured = this.isConnected();
-    const configuredFolderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv').trim();
+    const configuredFolderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx').trim();
 
     if (!configured || !this.drive) {
       return {
@@ -388,21 +402,25 @@ export class GoogleDriveService {
         connected: false,
         configured: false,
         authMode: this.authType,
+        principal: this.getPrincipalEmail(),
         googleAccount: this.getPrincipalEmail(),
-        rootFolder: 'KKV DB',
-        backupFolder: 'KKV DB',
-        fullBackupFolder: 'KKV DB',
+        sharedDrive: false,
+        sharedDriveId: undefined,
+        rootFolder: 'kkv finance',
+        backupFolder: 'kkv finance',
+        fullBackupFolder: 'kkv finance',
         rootFolderId: configuredFolderId,
+        folderId: configuredFolderId,
         backupsFolderId: configuredFolderId,
         fullBackupsFolderId: configuredFolderId,
         driveAccessible: false,
         folderAccessible: false,
-        folderName: 'KKV DB',
+        folderName: 'kkv finance',
         folderIdConfigured: !!configuredFolderId,
         canUpload: false,
         status: 'NOT_CONNECTED',
         errorCode: 'GOOGLE_DRIVE_NOT_CONNECTED',
-        message: 'Google Drive is not connected. Please connect your Google account in Settings.'
+        message: 'Google Drive is not connected.'
       };
     }
 
@@ -415,11 +433,15 @@ export class GoogleDriveService {
         connected: folder.isFolder && folder.isWritable,
         configured: true,
         authMode: this.authType,
+        principal: this.getPrincipalEmail(),
         googleAccount: this.getPrincipalEmail(),
+        sharedDrive: folder.isSharedDrive,
+        sharedDriveId: folder.sharedDriveId,
         rootFolder: folder.folderName,
         backupFolder: folder.folderName,
         fullBackupFolder: folder.folderName,
         rootFolderId: folder.folderId,
+        folderId: folder.folderId,
         backupsFolderId: folder.folderId,
         fullBackupsFolderId: folder.folderId,
         driveAccessible: true,
@@ -428,10 +450,10 @@ export class GoogleDriveService {
         folderIdConfigured: true,
         writable: folder.isWritable,
         canUpload: folder.isFolder && folder.isWritable,
-        status: folder.isFolder && folder.isWritable ? 'READY' : 'FOLDER_ACCESS_DENIED',
-        message: folder.isFolder && folder.isWritable
-          ? 'Google Drive KKV DB backup destination is verified and ready.'
-          : 'Google Drive folder has restricted write permissions.'
+        status: (folder.isFolder && folder.isWritable) ? 'READY' : 'FOLDER_ACCESS_DENIED',
+        message: (folder.isFolder && folder.isWritable)
+          ? 'Google Drive backup destination (My Drive → KKV GOLD FINANCE → kkv finance) is verified and ready.'
+          : 'Google Drive target folder is not accessible.'
       };
     } catch (err: any) {
       const status = err?.status || err?.code || err?.response?.status;
@@ -440,20 +462,24 @@ export class GoogleDriveService {
       let statusStr: DriveHealthResult['status'] = 'FAILED';
       let message = err?.message || 'Google Drive is temporarily unavailable.';
 
-      if (errorCode === 'GOOGLE_DRIVE_AUTH_MODE_INVALID') {
-        statusStr = 'FAILED';
-      } else if (errMsg.includes('GOOGLE_DRIVE_REAUTH_REQUIRED') || status === 401 || errMsg.includes('invalid_grant')) {
+      if (errMsg.includes('GOOGLE_DRIVE_REAUTH_REQUIRED') || status === 401 || errMsg.includes('invalid_grant')) {
         errorCode = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
         statusStr = 'REAUTH_REQUIRED';
-        message = 'Google Drive authorization expired. Please reconnect your Google account in Settings.';
+        message = 'Google Drive OAuth authorization expired or invalid.';
+      } else if (errorCode === 'GOOGLE_DRIVE_FOLDER_NOT_CONFIGURED' || errorCode === 'GOOGLE_DRIVE_CONFIGURATION_MISSING') {
+        errorCode = 'GOOGLE_DRIVE_CONFIGURATION_MISSING';
+        statusStr = 'CONFIGURATION_MISSING';
+        message = 'GOOGLE_DRIVE_FOLDER_ID is not configured in backend/.env.';
       } else if (status === 404 || errorCode === 'GOOGLE_DRIVE_FOLDER_NOT_FOUND') {
         errorCode = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
         statusStr = 'FOLDER_ACCESS_DENIED';
-        message = 'The configured KKV DB backup folder was not found on Google Drive.';
+        message = err?.message || 'The configured kkv finance backup folder was not found on Google Drive.';
       } else if (status === 403 || errorCode === 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED') {
         errorCode = 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED';
         statusStr = 'FOLDER_ACCESS_DENIED';
-        message = 'The connected Google account does not have write access to the KKV DB folder.';
+        message = err?.message || 'The configured Drive folder is not accessible to the OAuth user.';
+      } else {
+        message = err?.message || message;
       }
 
       return {
@@ -461,16 +487,20 @@ export class GoogleDriveService {
         connected: false,
         configured: true,
         authMode: this.authType,
+        principal: this.getPrincipalEmail(),
         googleAccount: this.getPrincipalEmail(),
-        rootFolder: 'KKV DB',
-        backupFolder: 'KKV DB',
-        fullBackupFolder: 'KKV DB',
+        sharedDrive: false,
+        sharedDriveId: undefined,
+        rootFolder: 'kkv finance',
+        backupFolder: 'kkv finance',
+        fullBackupFolder: 'kkv finance',
         rootFolderId: configuredFolderId,
+        folderId: configuredFolderId,
         backupsFolderId: configuredFolderId,
         fullBackupsFolderId: configuredFolderId,
         driveAccessible: false,
         folderAccessible: false,
-        folderName: 'KKV DB',
+        folderName: 'kkv finance',
         folderIdConfigured: true,
         canUpload: false,
         status: statusStr,
@@ -494,7 +524,7 @@ export class GoogleDriveService {
     await this.ensureValidAccessToken();
 
     let currentParent = (parentId || this.rootFolderId || '').trim();
-    if (!currentParent || currentParent.startsWith('local_') || currentParent === 'KKV DB') {
+    if (!currentParent || currentParent.startsWith('local_') || currentParent === 'kkv finance') {
       currentParent = this.rootFolderId;
     }
 
@@ -592,15 +622,15 @@ export class GoogleDriveService {
     const targetFolderId = folderConfig.fullBackupsFolderId;
 
     if (!targetFolderId) {
-      const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: KKV DB folder ID is not established.');
+      const err = new Error('GOOGLE_DRIVE_FOLDER_NOT_FOUND: kkv finance folder ID is not established.');
       (err as any).code = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
       throw err;
     }
 
     const backupType = payload.backupType || 'FULL_BACKUP';
-    const drivePath = 'My Drive → KKV DB';
+    const drivePath = 'My Drive → KKV GOLD FINANCE → kkv finance';
 
-    console.log(`[GoogleDriveService] ☁️ Uploading ${payload.fileName} (${payload.buffer.length} bytes) to KKV DB (${targetFolderId})...`);
+    console.log(`[GoogleDriveService] ☁️ Uploading ${payload.fileName} (${payload.buffer.length} bytes) to kkv finance (${targetFolderId})...`);
 
     try {
       const bufferStream = new Readable();
@@ -667,7 +697,7 @@ export class GoogleDriveService {
         throw err;
       }
 
-      console.log(`[GoogleDriveService] ✅ Upload and round-trip SHA-256 verified for ${payload.fileName} in KKV DB.`);
+      console.log(`[GoogleDriveService] ✅ Upload and round-trip SHA-256 verified for ${payload.fileName} in kkv finance.`);
 
       const nowIso = new Date().toISOString();
       return {
@@ -706,7 +736,7 @@ export class GoogleDriveService {
   }
 
   /**
-   * Lists verified backup files located strictly inside KKV DB.
+   * Lists verified backup files located strictly inside kkv finance.
    */
   public async listFullBackups(): Promise<Array<{
     fileId: string;
@@ -744,7 +774,7 @@ export class GoogleDriveService {
         fileName: file.name!,
         createdTime: file.createdTime || new Date().toISOString(),
         sizeBytes: file.size ? parseInt(file.size, 10) : 0,
-        drivePath: 'My Drive → KKV DB',
+        drivePath: 'My Drive → KKV GOLD FINANCE → kkv finance',
         status: '✓ Verified Google Drive Backup',
         isZip
       };

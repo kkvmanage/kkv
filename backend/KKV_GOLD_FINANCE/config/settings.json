@@ -79,6 +79,23 @@
       "interestProfileName": "Fixed Rate (1.5%/mo)",
       "status": "ACTIVE",
       "issueEnabled": true
+    },
+    {
+      "id": "diamond",
+      "name": "diamond",
+      "active": true,
+      "showOnLoanIssue": true,
+      "useMasterDefaults": false,
+      "cardFeeEnabled": true,
+      "cardFee": 20,
+      "defaultMonthlyRate": 2,
+      "interestProfileId": "gold-bands",
+      "repaymentSystemId": "monthly-interest-only",
+      "calculationStrategy": "MONTHLY_INTEREST_ONLY",
+      "sortOrder": 5,
+      "configurationVersion": 1,
+      "createdAt": "2026-09-06T14:34:17.787Z",
+      "updatedAt": "2026-09-06T14:34:17.787Z"
     }
   ],
   "repaymentSystems": [
@@ -320,15 +337,83 @@
   "performanceModeEnabled": false,
   "bulkFdDateChangeEnabled": true,
   "goldRate22ct": 7000,
-  "configurationVersion": 13,
-  "fdInterestRate": 15,
+  "configurationVersion": 28,
+  "fdInterestRate": 12.5,
   "fdInterestRateEffectiveFrom": "01-08-2026",
   "fdDefaultTenureMonths": 24,
+  "fdAllowedTenures": [
+    6,
+    12,
+    24,
+    36,
+    60
+  ],
   "fdMinimumAmount": 10000,
   "fdMaximumAmount": 10000000,
+  "fdPayoutFrequency": "Monthly",
+  "fdAllowedReceivingMethods": [
+    "Cash",
+    "Bank",
+    "UPI"
+  ],
+  "fdLockinPeriodMonths": 3,
   "fdRenewalPolicy": "AUTO_RENEW_PRINCIPAL_ONLY",
-  "fdCalculationMethod": "SIMPLE_MONTHLY",
+  "fdCalculationMethod": "MONTHLY_PAYOUT",
   "fdInterestRateHistory": [
+    {
+      "id": "FD-RATE-1788760426899",
+      "rate": 12.5,
+      "previousRate": 15,
+      "effectiveFrom": "07-09-2026",
+      "changedBy": "Master Admin",
+      "changedAt": "2026-09-07T05:53:46.899Z",
+      "notes": "Updated Master FD interest rate from 15% to 12.5% p.a."
+    },
+    {
+      "id": "FD-RATE-1788760426852",
+      "rate": 15,
+      "previousRate": 12.5,
+      "effectiveFrom": "07-09-2026",
+      "changedBy": "Master Admin",
+      "changedAt": "2026-09-07T05:53:46.852Z",
+      "notes": "Updated Master FD interest rate from 12.5% to 15% p.a."
+    },
+    {
+      "id": "FD-RATE-1788760394140",
+      "rate": 12.5,
+      "previousRate": 15,
+      "effectiveFrom": "07-09-2026",
+      "changedBy": "Master Admin",
+      "changedAt": "2026-09-07T05:53:14.141Z",
+      "notes": "Updated Master FD interest rate from 15% to 12.5% p.a."
+    },
+    {
+      "id": "FD-RATE-1788760394079",
+      "rate": 15,
+      "previousRate": 12.5,
+      "effectiveFrom": "07-09-2026",
+      "changedBy": "Master Admin",
+      "changedAt": "2026-09-07T05:53:14.079Z",
+      "notes": "Updated Master FD interest rate from 12.5% to 15% p.a."
+    },
+    {
+      "id": "FD-RATE-1788760371315",
+      "rate": 12.5,
+      "previousRate": 15,
+      "effectiveFrom": "07-09-2026",
+      "changedBy": "Master Admin",
+      "changedAt": "2026-09-07T05:52:51.315Z",
+      "notes": "Updated Master FD interest rate from 15% to 12.5% p.a."
+    },
+    {
+      "id": "FD-RATE-1788759839444",
+      "rate": 15,
+      "previousRate": 11,
+      "effectiveFrom": "01-08-2026",
+      "changedBy": "Master Admin",
+      "changedAt": "2026-09-07T05:43:59.444Z",
+      "notes": "Updated Master FD interest rate from 11% to 15% p.a."
+    },
     {
       "id": "FD-RATE-001",
       "rate": 12,

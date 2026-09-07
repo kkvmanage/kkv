@@ -123,7 +123,7 @@ export const FixedDeposits: React.FC = () => {
   const [nomineeRelation, setNomineeRelation] = useState<string>('');
   const [remarks, setRemarks] = useState<string>('');
 
-  // Sync interestRatePA and tenureMonths with master settings when they change
+  // Sync interestRatePA, tenureMonths, and payoutFrequency with master settings when they change
   useEffect(() => {
     if (masterControlSettings?.fdInterestRate !== undefined) {
       setInterestRatePA(masterControlSettings.fdInterestRate);
@@ -131,7 +131,10 @@ export const FixedDeposits: React.FC = () => {
     if (masterControlSettings?.fdDefaultTenureMonths !== undefined) {
       setTenureMonths(masterControlSettings.fdDefaultTenureMonths);
     }
-  }, [masterControlSettings?.fdInterestRate, masterControlSettings?.fdDefaultTenureMonths]);
+    if (masterControlSettings?.fdPayoutFrequency) {
+      setPayoutFrequency(masterControlSettings.fdPayoutFrequency);
+    }
+  }, [masterControlSettings?.fdInterestRate, masterControlSettings?.fdDefaultTenureMonths, masterControlSettings?.fdPayoutFrequency]);
 
   // Register display filter state
   const [displaySearchText, setDisplaySearchText] = useState<string>('');
@@ -691,9 +694,15 @@ export const FixedDeposits: React.FC = () => {
 
               <div className="grid-2">
                 <div className="form-group">
-                  <label className="form-label required">PRINCIPAL AMOUNT (₹)</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="form-label required">PRINCIPAL AMOUNT (₹)</label>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      Min: ₹{(masterControlSettings?.fdMinimumAmount ?? 5000).toLocaleString('en-IN')}
+                    </span>
+                  </div>
                   <input
                     type="number"
+                    min={masterControlSettings?.fdMinimumAmount ?? 5000}
                     className="input-control"
                     style={{ fontWeight: 700, fontSize: '15px' }}
                     value={principal}
@@ -703,20 +712,19 @@ export const FixedDeposits: React.FC = () => {
                 <div className="form-group">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <label className="form-label required">INTEREST RATE (% P.A.)</label>
-                    <span className="badge badge-success" style={{ fontSize: '10px' }}>
-                      Master Rate: {(masterControlSettings?.fdInterestRate ?? 12).toFixed(2)}% p.a.
+                    <span className="badge badge-warning" style={{ fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      🔒 Master Controlled
                     </span>
                   </div>
                   <input
-                    type="number"
-                    step="0.25"
-                    className="input-control"
-                    style={{ fontWeight: 700, fontSize: '15px' }}
-                    value={interestRatePA}
-                    onChange={(e) => setInterestRatePA(Number(e.target.value) || 0)}
+                    type="text"
+                    className="input-control readonly"
+                    readOnly
+                    style={{ fontWeight: 800, fontSize: '15px', backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', cursor: 'not-allowed', color: 'var(--color-primary-dark, #059669)' }}
+                    value={`${(masterControlSettings?.fdInterestRate ?? 12).toFixed(2)}% P.A.`}
                   />
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', display: 'block' }}>
-                    Inherited from Master Control · Min Deposit: ₹{(masterControlSettings?.fdMinimumAmount ?? 5000).toLocaleString('en-IN')}
+                    Inherited from Master Control · Effective: {masterControlSettings?.fdInterestRateEffectiveFrom || 'Active'}
                   </span>
                 </div>
               </div>
@@ -724,26 +732,39 @@ export const FixedDeposits: React.FC = () => {
               <div className="grid-2">
                 <div className="form-group">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label className="form-label required">TENURE (MONTHS)</label>
-                    <span className="badge badge-info" style={{ fontSize: '10px' }}>
-                      Master Default: {masterControlSettings?.fdDefaultTenureMonths ?? 12} Mos
+                    <label className="form-label required">TENURE</label>
+                    <span className="badge badge-info" style={{ fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      🔒 Master Controlled
                     </span>
                   </div>
                   <input
-                    type="number"
-                    className="input-control"
-                    value={tenureMonths}
-                    onChange={(e) => setTenureMonths(Number(e.target.value) || 12)}
+                    type="text"
+                    className="input-control readonly"
+                    readOnly
+                    style={{ fontWeight: 700, backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', cursor: 'not-allowed' }}
+                    value={`${masterControlSettings?.fdDefaultTenureMonths ?? 12} Months`}
                   />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', display: 'block' }}>
+                    Inherited from Master Control (Default: {masterControlSettings?.fdDefaultTenureMonths ?? 12} Mos)
+                  </span>
                 </div>
                 <div className="form-group">
-                  <label className="form-label required">PAYOUT FREQUENCY</label>
-                  <select className="input-control" value={payoutFrequency} onChange={(e) => setPayoutFrequency(e.target.value)}>
-                    <option value="Monthly">Monthly Dividend</option>
-                    <option value="Quarterly">Quarterly Dividend</option>
-                    <option value="Annual">Annual Dividend</option>
-                    <option value="At Maturity">Cumulative (At Maturity)</option>
-                  </select>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="form-label required">PAYOUT FREQUENCY</label>
+                    <span className="badge badge-success" style={{ fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      🔒 Master Controlled
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    className="input-control readonly"
+                    readOnly
+                    style={{ fontWeight: 600, backgroundColor: 'var(--bg-surface-secondary, #f8fafc)', cursor: 'not-allowed' }}
+                    value={`${payoutFrequency || masterControlSettings?.fdPayoutFrequency || 'Monthly'} Dividend`}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', display: 'block' }}>
+                    Inherited from Master Control · Strategy: {masterControlSettings?.fdCalculationMethod || 'MONTHLY_DIVIDEND'}
+                  </span>
                 </div>
               </div>
 
@@ -965,12 +986,12 @@ export const FixedDeposits: React.FC = () => {
                                 <Eye size={12} />
                                 <span>View Customer</span>
                               </button>
-                              {userRole === 'ADMIN' && (
+                              {userRole === 'MASTER_ADMIN' && (
                                 <button
                                   type="button"
                                   className="btn btn-sm"
                                   style={{ height: '28px', padding: '0 8px', fontSize: '11px', gap: '4px', fontWeight: 600, color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)' }}
-                                  title="Delete Fixed Deposit (Admin Only)"
+                                  title="Delete Fixed Deposit (Master Admin Only)"
                                   onClick={() => {
                                     if (window.confirm(`Are you sure you want to delete Fixed Deposit ${f.fdNo}?`)) {
                                       deleteFixedDeposit(f.fdNo);

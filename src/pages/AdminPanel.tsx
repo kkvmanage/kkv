@@ -10,6 +10,7 @@ import { SystemRestoreModal } from '../components/admin/SystemRestoreModal';
 import { ViewCustomerModal } from '../components/common/ViewCustomerModal';
 import { EditCustomerModal } from '../components/common/EditCustomerModal';
 import { LoanConfigurationSection } from '../components/admin/LoanConfigurationSection';
+import { FDConfigurationSection } from '../components/admin/FDConfigurationSection';
 import { PurityManagementSection } from '../components/admin/PurityManagementSection';
 import { getCanonicalCustomerId, isMatchingCustomerId } from '../utils/customerUtils';
 import {
@@ -73,7 +74,7 @@ export const AdminPanel: React.FC = () => {
   const [permanentDeleteInput, setPermanentDeleteInput] = useState('');
   const [isDeletingPermanently, setIsDeletingPermanently] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
-  const [masterSubTab, setMasterSubTab] = useState<'rates' | 'loan-config' | 'purity' | 'operations' | 'messaging' | 'security' | 'danger'>('rates');
+  const [masterSubTab, setMasterSubTab] = useState<'rates' | 'loan-config' | 'fd-config' | 'purity' | 'operations' | 'messaging' | 'security' | 'danger'>('rates');
   const [ratesSubChip, setRatesSubChip] = useState<'gold' | 'silver' | 'pronote' | 'hire' | 'card' | 'overdue' | 'upi'>('gold');
 
   // ── Rental Management Summary State (Section 28 & 29) ───────────────────────
@@ -130,25 +131,25 @@ export const AdminPanel: React.FC = () => {
   const [silverAmountBands, setSilverAmountBands] = useState<AmountBand[]>(masterControlSettings?.silverAmountBands || []);
 
   // Additional rates states
-  const [silverRate, setSilverRate] = useState<number>(masterControlSettings?.silverLoanMonthlyRate ?? 2.0);
-  const [pronoteRate, setPronoteRate] = useState<number>(masterControlSettings?.pronoteRate ?? 12);
-  const [hireRate, setHireRate] = useState<number>(masterControlSettings?.hirePurchaseMonthlyRate ?? 12);
-  const [cardFee, setCardFee] = useState<number>(masterControlSettings?.defaultCardFee ?? 10);
-  const [overdueRate, setOverdueRate] = useState<number>(masterControlSettings?.overdueInterestRatePA ?? 24);
-  const [overduePenalty, setOverduePenalty] = useState<number>(masterControlSettings?.overduePenaltyPerDayPercent ?? 3.6);
-  const [graceDaysVal, setGraceDaysVal] = useState<number>(masterControlSettings?.graceDays ?? 3);
+  const [silverRate, setSilverRate] = useState<number | ''>(masterControlSettings?.silverLoanMonthlyRate ?? 2.0);
+  const [pronoteRate, setPronoteRate] = useState<number | ''>(masterControlSettings?.pronoteRate ?? 12);
+  const [hireRate, setHireRate] = useState<number | ''>(masterControlSettings?.hirePurchaseMonthlyRate ?? 12);
+  const [cardFee, setCardFee] = useState<number | ''>(masterControlSettings?.defaultCardFee ?? 10);
+  const [overdueRate, setOverdueRate] = useState<number | ''>(masterControlSettings?.overdueInterestRatePA ?? 24);
+  const [overduePenalty, setOverduePenalty] = useState<number | ''>(masterControlSettings?.overduePenaltyPerDayPercent ?? 3.6);
+  const [graceDaysVal, setGraceDaysVal] = useState<number | ''>(masterControlSettings?.graceDays ?? 3);
   const [upiIdVal, setUpiIdVal] = useState<string>(masterControlSettings?.upiId || '');
   const [upiPayeeVal, setUpiPayeeVal] = useState<string>(masterControlSettings?.upiPayeeName || '');
 
   // Card Fee configs per loan type
   const [goldCardFeeEnabled, setGoldCardFeeEnabled] = useState<boolean>(masterControlSettings?.goldCardFeeEnabled ?? true);
-  const [goldCardFeeVal, setGoldCardFeeVal] = useState<number>(masterControlSettings?.goldCardFee ?? 10);
+  const [goldCardFeeVal, setGoldCardFeeVal] = useState<number | ''>(masterControlSettings?.goldCardFee ?? 10);
   const [silverCardFeeEnabled, setSilverCardFeeEnabled] = useState<boolean>(masterControlSettings?.silverCardFeeEnabled ?? true);
-  const [silverCardFeeVal, setSilverCardFeeVal] = useState<number>(masterControlSettings?.silverCardFee ?? 10);
+  const [silverCardFeeVal, setSilverCardFeeVal] = useState<number | ''>(masterControlSettings?.silverCardFee ?? 10);
   const [pronoteCardFeeEnabled, setPronoteCardFeeEnabled] = useState<boolean>(masterControlSettings?.pronoteCardFeeEnabled ?? true);
-  const [pronoteCardFeeVal, setPronoteCardFeeVal] = useState<number>(masterControlSettings?.pronoteCardFee ?? 10);
+  const [pronoteCardFeeVal, setPronoteCardFeeVal] = useState<number | ''>(masterControlSettings?.pronoteCardFee ?? 10);
   const [hireCardFeeEnabled, setHireCardFeeEnabled] = useState<boolean>(masterControlSettings?.hireCardFeeEnabled ?? true);
-  const [hireCardFeeVal, setHireCardFeeVal] = useState<number>(masterControlSettings?.hireCardFee ?? 10);
+  const [hireCardFeeVal, setHireCardFeeVal] = useState<number | ''>(masterControlSettings?.hireCardFee ?? 10);
   const [loanTypesCardFees, setLoanTypesCardFees] = useState<{ [key: string]: { enabled: boolean; amount: number } }>({});
 
   const handleConfirmPermanentDelete = async () => {
@@ -233,7 +234,7 @@ export const AdminPanel: React.FC = () => {
   // Bulk FD Date Change states
   const [selectedFdNos, setSelectedFdNos] = useState<string[]>([]);
   const [dateMode, setDateMode] = useState<'shift' | 'set'>('shift');
-  const [offsetDaysValue, setOffsetDaysValue] = useState<number>(0);
+  const [offsetDaysValue, setOffsetDaysValue] = useState<number | ''>(0);
   const [newDepDateVal, setNewDepDateVal] = useState<string>('');
   const [fdSearchText, setFdSearchText] = useState('');
 
@@ -350,13 +351,29 @@ export const AdminPanel: React.FC = () => {
 
   const handleSaveMasterChanges = () => {
     // Validation for Amount Bands
-    for (const b of amountBands || []) {
+    const cleanedAmountBands = (amountBands || []).map(b => ({
+      ...b,
+      amount: b.amount === ('' as any) ? 0 : Number(b.amount) || 0,
+      baseRateMonthly: b.baseRateMonthly === ('' as any) ? 0 : Number(b.baseRateMonthly) || 0,
+      penaltyAfterMonths: b.penaltyAfterMonths === ('' as any) ? 0 : Number(b.penaltyAfterMonths) || 0,
+      penaltyStepUpMonthly: b.penaltyStepUpMonthly === ('' as any) ? 0 : Number(b.penaltyStepUpMonthly) || 0
+    }));
+
+    const cleanedSilverAmountBands = (silverAmountBands || []).map(b => ({
+      ...b,
+      amount: b.amount === ('' as any) ? 0 : Number(b.amount) || 0,
+      baseRateMonthly: b.baseRateMonthly === ('' as any) ? 0 : Number(b.baseRateMonthly) || 0,
+      penaltyAfterMonths: b.penaltyAfterMonths === ('' as any) ? 0 : Number(b.penaltyAfterMonths) || 0,
+      penaltyStepUpMonthly: b.penaltyStepUpMonthly === ('' as any) ? 0 : Number(b.penaltyStepUpMonthly) || 0
+    }));
+
+    for (const b of cleanedAmountBands) {
       if (b.amount < 0 || b.baseRateMonthly < 0 || b.penaltyAfterMonths < 0 || b.penaltyStepUpMonthly < 0) {
         showToast('Gold Amount Bands cannot contain negative values.', 'error');
         return;
       }
     }
-    for (const b of silverAmountBands || []) {
+    for (const b of cleanedSilverAmountBands) {
       if (b.amount < 0 || b.baseRateMonthly < 0 || b.penaltyAfterMonths < 0 || b.penaltyStepUpMonthly < 0) {
         showToast('Silver Amount Bands cannot contain negative values.', 'error');
         return;
@@ -373,11 +390,23 @@ export const AdminPanel: React.FC = () => {
         return {
           ...lt,
           cardFeeEnabled: fee.enabled,
-          cardFee: fee.amount
+          cardFee: fee.amount === ('' as any) ? 0 : Number(fee.amount) || 0
         };
       }
       return lt;
     });
+
+    const numPronoteRate = pronoteRate === '' ? 12 : Number(pronoteRate);
+    const numHireRate = hireRate === '' ? 12 : Number(hireRate);
+    const numSilverRate = silverRate === '' ? 2 : Number(silverRate);
+    const numCardFee = cardFee === '' ? 10 : Number(cardFee);
+    const numOverdueRate = overdueRate === '' ? 24 : Number(overdueRate);
+    const numOverduePenalty = overduePenalty === '' ? 3.6 : Number(overduePenalty);
+    const numGraceDays = graceDaysVal === '' ? 3 : Number(graceDaysVal);
+    const numGoldCardFee = goldCardFeeVal === '' ? 10 : Number(goldCardFeeVal);
+    const numSilverCardFee = silverCardFeeVal === '' ? 10 : Number(silverCardFeeVal);
+    const numPronoteCardFee = pronoteCardFeeVal === '' ? 10 : Number(pronoteCardFeeVal);
+    const numHireCardFee = hireCardFeeVal === '' ? 10 : Number(hireCardFeeVal);
 
     updateMasterControlSettings({
       loanTypes: updatedLoanTypes,
@@ -385,17 +414,17 @@ export const AdminPanel: React.FC = () => {
       hireShowOnLoanIssue: hireShowOnIssue,
       silverShowOnLoanIssue: silverShowOnIssue,
       pronoteShowOnLoanIssue: pronoteShowOnIssue,
-      pronoteRate,
-      amountBands: amountBands || [],
-      silverAmountBands: silverAmountBands || [],
+      pronoteRate: numPronoteRate,
+      amountBands: cleanedAmountBands,
+      silverAmountBands: cleanedSilverAmountBands,
       goldCardFeeEnabled: loanTypesCardFees['gold-loan']?.enabled ?? goldCardFeeEnabled,
-      goldCardFee: loanTypesCardFees['gold-loan']?.amount ?? goldCardFeeVal,
+      goldCardFee: loanTypesCardFees['gold-loan'] ? (Number(loanTypesCardFees['gold-loan'].amount) || 0) : numGoldCardFee,
       silverCardFeeEnabled: loanTypesCardFees['silver-loan']?.enabled ?? silverCardFeeEnabled,
-      silverCardFee: loanTypesCardFees['silver-loan']?.amount ?? silverCardFeeVal,
+      silverCardFee: loanTypesCardFees['silver-loan'] ? (Number(loanTypesCardFees['silver-loan'].amount) || 0) : numSilverCardFee,
       pronoteCardFeeEnabled: loanTypesCardFees['pronote']?.enabled ?? pronoteCardFeeEnabled,
-      pronoteCardFee: loanTypesCardFees['pronote']?.amount ?? pronoteCardFeeVal,
+      pronoteCardFee: loanTypesCardFees['pronote'] ? (Number(loanTypesCardFees['pronote'].amount) || 0) : numPronoteCardFee,
       hireCardFeeEnabled: loanTypesCardFees['hire-purchase']?.enabled ?? hireCardFeeEnabled,
-      hireCardFee: loanTypesCardFees['hire-purchase']?.amount ?? hireCardFeeVal,
+      hireCardFee: loanTypesCardFees['hire-purchase'] ? (Number(loanTypesCardFees['hire-purchase'].amount) || 0) : numHireCardFee,
       overdueCalculationMethod: overdueCalMethod,
       adminPassword: adminPass,
       managerPassword: managerPass,
@@ -404,13 +433,13 @@ export const AdminPanel: React.FC = () => {
       performanceModeEnabled,
       bulkFdDateChangeEnabled,
       lockersEnabled,
-      silverLoanMonthlyRate: silverRate,
-      pronoteMonthlyRate: pronoteRate, // keep in sync
-      hirePurchaseMonthlyRate: hireRate,
-      defaultCardFee: cardFee,
-      overdueInterestRatePA: overdueRate,
-      overduePenaltyPerDayPercent: overduePenalty,
-      graceDays: graceDaysVal,
+      silverLoanMonthlyRate: numSilverRate,
+      pronoteMonthlyRate: numPronoteRate, // keep in sync
+      hirePurchaseMonthlyRate: numHireRate,
+      defaultCardFee: numCardFee,
+      overdueInterestRatePA: numOverdueRate,
+      overduePenaltyPerDayPercent: numOverduePenalty,
+      graceDays: numGraceDays,
       upiId: upiIdVal,
       upiPayeeName: upiPayeeVal,
       areas: areasVal,
@@ -1070,7 +1099,7 @@ export const AdminPanel: React.FC = () => {
                                       <RotateCcw size={12} />
                                       <span>Restore</span>
                                     </button>
-                                    {userRole === 'ADMIN' && (
+                                    {userRole === 'MASTER_ADMIN' && (
                                       <button
                                         className="btn btn-sm"
                                         style={{
@@ -1085,7 +1114,7 @@ export const AdminPanel: React.FC = () => {
                                           fontWeight: 700,
                                           cursor: 'pointer'
                                         }}
-                                        title="Delete Completely (Admin Only)"
+                                        title="Delete Completely (Master Admin Only)"
                                         onClick={() => {
                                           setPermanentDeleteTarget(c);
                                           setPermanentDeleteInput('');
@@ -1118,11 +1147,11 @@ export const AdminPanel: React.FC = () => {
                                     >
                                       <Edit3 size={13} />
                                     </button>
-                                    {userRole === 'ADMIN' && (
+                                    {userRole === 'MASTER_ADMIN' && (
                                       <button
                                         className="icon-button"
                                         style={{ width: '28px', height: '28px', color: 'var(--color-danger, #ef4444)' }}
-                                        title="Delete Customer (Admin Only)"
+                                        title="Delete Customer (Master Admin Only)"
                                         onClick={() => setDeletingCustomer(c)}
                                       >
                                         <Trash2 size={13} />
@@ -1206,8 +1235,8 @@ export const AdminPanel: React.FC = () => {
                         type="number"
                         className="input-control"
                         placeholder="e.g. 5 or -10"
-                        value={offsetDaysValue || ''}
-                        onChange={(e) => setOffsetDaysValue(Number(e.target.value))}
+                        value={offsetDaysValue}
+                        onChange={(e) => setOffsetDaysValue(e.target.value === '' ? '' : Number(e.target.value))}
                       />
                     </div>
                   ) : (
@@ -1237,7 +1266,7 @@ export const AdminPanel: React.FC = () => {
                       const success = await bulkUpdateFixedDepositDates(
                         selectedFdNos,
                         formattedDate,
-                        dateMode === 'shift' ? offsetDaysValue : undefined
+                        dateMode === 'shift' ? (Number(offsetDaysValue) || 0) : undefined
                       );
                       if (success) {
                         setSelectedFdNos([]);
@@ -1338,9 +1367,9 @@ export const AdminPanel: React.FC = () => {
         const otherActiveSessions = activeSessions.filter((s) => s.sessionId !== currentSessionId);
         const currentDeviceSession = allSessions.find((s) => s.sessionId === currentSessionId) || {
           sessionId: currentSessionId,
-          userId: userRole === 'ADMIN' ? 'kkv_admin' : 'kkv_user',
-          userRole: userRole || 'ADMIN',
-          userEmail: 'kkvgoldfinance@gmail.com',
+          userId: userRole === 'MASTER_ADMIN' ? 'kkv_master_admin' : 'kkv_staff',
+          userRole: userRole || 'MASTER_ADMIN',
+          userEmail: 'goldfinancekkv@gmail.com',
           deviceType: 'DESKTOP',
           deviceName: 'Windows PC (This Device)',
           operatingSystem: 'Windows 11',
@@ -1407,7 +1436,7 @@ export const AdminPanel: React.FC = () => {
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '12px', backgroundColor: 'rgba(23, 107, 82, 0.08)', color: 'var(--color-primary-dark)', padding: '6px 14px', borderRadius: 'var(--radius-full)', fontWeight: 700, border: '1px solid rgba(23, 107, 82, 0.2)' }}>
-                    Signed in as {userRole === 'ADMIN' ? 'Master Admin' : userRole === 'MANAGER' ? 'Manager' : 'Operator'} (kkvgoldfinance@gmail.com)
+                    Signed in as Master Admin (goldfinancekkv@gmail.com)
                   </span>
 
                   <button
@@ -1895,7 +1924,7 @@ export const AdminPanel: React.FC = () => {
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: 'var(--bg-card-muted, #f8fafc)', borderRadius: '6px' }}>
                       <span style={{ color: 'var(--text-muted)' }}>User Account:</span>
-                      <strong>{selectedSessionForDetails.userEmail || 'kkvgoldfinance@gmail.com'} ({selectedSessionForDetails.userRole})</strong>
+                      <strong>{selectedSessionForDetails.userEmail || 'goldfinancekkv@gmail.com'} ({selectedSessionForDetails.userRole})</strong>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: 'var(--bg-card-muted, #f8fafc)', borderRadius: '6px' }}>
@@ -2004,6 +2033,7 @@ export const AdminPanel: React.FC = () => {
                   {[
                     { key: 'rates', label: 'Rates & Payments' },
                     { key: 'loan-config', label: 'Loan Configuration' },
+                    { key: 'fd-config', label: 'FD Configuration' },
                     { key: 'purity', label: 'Purity Management' },
                     { key: 'operations', label: 'Operations' },
                     { key: 'messaging', label: 'Messaging' },
@@ -2142,7 +2172,7 @@ export const AdminPanel: React.FC = () => {
                                       value={band.amount}
                                       onChange={(e) => {
                                         const u = [...(amountBands || [])];
-                                        u[idx] = { ...u[idx], amount: Number(e.target.value) };
+                                        u[idx] = { ...u[idx], amount: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                         setAmountBands(u);
                                       }}
                                     />
@@ -2156,7 +2186,7 @@ export const AdminPanel: React.FC = () => {
                                       value={band.baseRateMonthly}
                                       onChange={(e) => {
                                         const u = [...(amountBands || [])];
-                                        u[idx] = { ...u[idx], baseRateMonthly: Number(e.target.value) };
+                                        u[idx] = { ...u[idx], baseRateMonthly: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                         setAmountBands(u);
                                       }}
                                     />
@@ -2169,7 +2199,7 @@ export const AdminPanel: React.FC = () => {
                                       value={band.penaltyAfterMonths}
                                       onChange={(e) => {
                                         const u = [...(amountBands || [])];
-                                        u[idx] = { ...u[idx], penaltyAfterMonths: Number(e.target.value) };
+                                        u[idx] = { ...u[idx], penaltyAfterMonths: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                         setAmountBands(u);
                                       }}
                                     />
@@ -2183,7 +2213,7 @@ export const AdminPanel: React.FC = () => {
                                       value={band.penaltyStepUpMonthly}
                                       onChange={(e) => {
                                         const u = [...(amountBands || [])];
-                                        u[idx] = { ...u[idx], penaltyStepUpMonthly: Number(e.target.value) };
+                                        u[idx] = { ...u[idx], penaltyStepUpMonthly: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                         setAmountBands(u);
                                       }}
                                     />
@@ -2235,7 +2265,7 @@ export const AdminPanel: React.FC = () => {
                                 step="0.1"
                                 className="input-control"
                                 value={overduePenalty}
-                                onChange={(e) => setOverduePenalty(Number(e.target.value))}
+                                onChange={(e) => setOverduePenalty(e.target.value === '' ? '' : Number(e.target.value))}
                               />
                             </div>
                             <div className="form-group" style={{ margin: 0 }}>
@@ -2244,7 +2274,7 @@ export const AdminPanel: React.FC = () => {
                                 type="number"
                                 className="input-control"
                                 value={graceDaysVal}
-                                onChange={(e) => setGraceDaysVal(Number(e.target.value))}
+                                onChange={(e) => setGraceDaysVal(e.target.value === '' ? '' : Number(e.target.value))}
                               />
                             </div>
                           </div>
@@ -2335,7 +2365,7 @@ export const AdminPanel: React.FC = () => {
                                           value={band.amount}
                                           onChange={(e) => {
                                             const u = [...(silverAmountBands || [])];
-                                            u[idx] = { ...u[idx], amount: Number(e.target.value) };
+                                            u[idx] = { ...u[idx], amount: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                             setSilverAmountBands(u);
                                           }}
                                           style={{ fontSize: '11.5px', height: '36px' }}
@@ -2350,7 +2380,7 @@ export const AdminPanel: React.FC = () => {
                                           value={band.baseRateMonthly}
                                           onChange={(e) => {
                                             const u = [...(silverAmountBands || [])];
-                                            u[idx] = { ...u[idx], baseRateMonthly: Number(e.target.value) };
+                                            u[idx] = { ...u[idx], baseRateMonthly: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                             setSilverAmountBands(u);
                                           }}
                                           style={{ fontSize: '11.5px', height: '36px' }}
@@ -2378,7 +2408,7 @@ export const AdminPanel: React.FC = () => {
                                           value={band.penaltyAfterMonths}
                                           onChange={(e) => {
                                             const u = [...(silverAmountBands || [])];
-                                            u[idx] = { ...u[idx], penaltyAfterMonths: Number(e.target.value) };
+                                            u[idx] = { ...u[idx], penaltyAfterMonths: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                             setSilverAmountBands(u);
                                           }}
                                           style={{ fontSize: '11.5px', height: '36px' }}
@@ -2393,7 +2423,7 @@ export const AdminPanel: React.FC = () => {
                                           value={band.penaltyStepUpMonthly}
                                           onChange={(e) => {
                                             const u = [...(silverAmountBands || [])];
-                                            u[idx] = { ...u[idx], penaltyStepUpMonthly: Number(e.target.value) };
+                                            u[idx] = { ...u[idx], penaltyStepUpMonthly: e.target.value === '' ? ('' as any) : Number(e.target.value) };
                                             setSilverAmountBands(u);
                                           }}
                                           style={{ fontSize: '11.5px', height: '36px' }}
@@ -2438,7 +2468,7 @@ export const AdminPanel: React.FC = () => {
                                   step="0.1"
                                   className="input-control"
                                   value={overduePenalty}
-                                  onChange={(e) => setOverduePenalty(Number(e.target.value))}
+                                  onChange={(e) => setOverduePenalty(e.target.value === '' ? '' : Number(e.target.value))}
                                 />
                               </div>
                               <div className="form-group" style={{ margin: 0 }}>
@@ -2447,7 +2477,7 @@ export const AdminPanel: React.FC = () => {
                                   type="number"
                                   className="input-control"
                                   value={graceDaysVal}
-                                  onChange={(e) => setGraceDaysVal(Number(e.target.value))}
+                                  onChange={(e) => setGraceDaysVal(e.target.value === '' ? '' : Number(e.target.value))}
                                 />
                               </div>
                             </div>
@@ -2501,7 +2531,7 @@ export const AdminPanel: React.FC = () => {
                                   type="number"
                                   className="input-control"
                                   value={pronoteRate}
-                                  onChange={(e) => setPronoteRate(Number(e.target.value))}
+                                  onChange={(e) => setPronoteRate(e.target.value === '' ? '' : Number(e.target.value))}
                                 />
                               </div>
                             </div>
@@ -2523,7 +2553,7 @@ export const AdminPanel: React.FC = () => {
                                   step="0.1"
                                   className="input-control"
                                   value={overduePenalty}
-                                  onChange={(e) => setOverduePenalty(Number(e.target.value))}
+                                  onChange={(e) => setOverduePenalty(e.target.value === '' ? '' : Number(e.target.value))}
                                 />
                               </div>
                               <div className="form-group" style={{ margin: 0 }}>
@@ -2532,7 +2562,7 @@ export const AdminPanel: React.FC = () => {
                                   type="number"
                                   className="input-control"
                                   value={graceDaysVal}
-                                  onChange={(e) => setGraceDaysVal(Number(e.target.value))}
+                                  onChange={(e) => setGraceDaysVal(e.target.value === '' ? '' : Number(e.target.value))}
                                 />
                               </div>
                             </div>
@@ -2585,7 +2615,7 @@ export const AdminPanel: React.FC = () => {
                                 type="number"
                                 className="input-control"
                                 value={hireRate}
-                                onChange={(e) => setHireRate(Number(e.target.value))}
+                                onChange={(e) => setHireRate(e.target.value === '' ? '' : Number(e.target.value))}
                               />
                             </div>
                           </div>
@@ -2603,7 +2633,7 @@ export const AdminPanel: React.FC = () => {
                                   step="0.1"
                                   className="input-control"
                                   value={overduePenalty}
-                                  onChange={(e) => setOverduePenalty(Number(e.target.value))}
+                                  onChange={(e) => setOverduePenalty(e.target.value === '' ? '' : Number(e.target.value))}
                                 />
                               </div>
                               <div className="form-group" style={{ margin: 0 }}>
@@ -2612,7 +2642,7 @@ export const AdminPanel: React.FC = () => {
                                   type="number"
                                   className="input-control"
                                   value={graceDaysVal}
-                                  onChange={(e) => setGraceDaysVal(Number(e.target.value))}
+                                  onChange={(e) => setGraceDaysVal(e.target.value === '' ? '' : Number(e.target.value))}
                                 />
                               </div>
                             </div>
@@ -2691,7 +2721,7 @@ export const AdminPanel: React.FC = () => {
                                       type="number"
                                       className="input-control"
                                       value={feeConfig.amount}
-                                      onChange={(e) => setLoanTypesCardFees((prev) => ({ ...prev, [lt.id]: { ...feeConfig, amount: Math.max(0, Number(e.target.value)) } }))}
+                                      onChange={(e) => setLoanTypesCardFees((prev) => ({ ...prev, [lt.id]: { ...feeConfig, amount: e.target.value === '' ? ('' as any) : Math.max(0, Number(e.target.value)) } }))}
                                       style={{ width: '80px', height: '30px', fontSize: '12px', padding: '4px 8px' }}
                                     />
                                   </div>
@@ -2771,6 +2801,10 @@ export const AdminPanel: React.FC = () => {
 
                 {masterSubTab === 'loan-config' && (
                   <LoanConfigurationSection />
+                )}
+
+                {masterSubTab === 'fd-config' && (
+                  <FDConfigurationSection />
                 )}
 
                 {masterSubTab === 'purity' && (
@@ -3109,7 +3143,7 @@ export const AdminPanel: React.FC = () => {
                         <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)' }}>GOOGLE DRIVE ACCOUNT SYNC</span>
                         <div>
                           <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>SIGNED IN AS</label>
-                          <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>kkvgoldfinance@gmail.com</div>
+                          <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>goldfinancekkv@gmail.com</div>
                         </div>
                         <button
                           type="button"

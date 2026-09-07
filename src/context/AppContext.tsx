@@ -38,12 +38,6 @@ import {
   sendPasswordResetEmail
 } from '../config/firebase';
 import { detectCurrentDeviceInfo, generateSessionId } from '../utils/deviceUtils';
-import {
-  initialCustomers,
-  initialFixedDeposits,
-  initialLoans,
-  initialReceipts
-} from '../mockData/initialData';
 import { apiService } from '../services/api';
 import { calculateFDInterestSchedule, normalizeDateString, calculateInterestPeriodKey, addCalendarMonths, formatFDDate } from '../utils/fdInterestUtils';
 import { generateAllNotifications } from '../utils/notificationUtils';
@@ -53,63 +47,6 @@ interface Toast {
   message: string;
   type: 'success' | 'info' | 'warning' | 'error';
 }
-
-const initialDayBook: DayBookEntry[] = [
-  {
-    id: 'db-1',
-    time: '10:14 AM',
-    billNo: '1',
-    particulars: 'New Loan Disbursement (GL-01) - thayba',
-    accountHead: 'Gold Loan Portfolio',
-    mode: 'UPI',
-    cashIn: 0,
-    cashOut: 0,
-    bankIn: 0,
-    bankOut: 100000,
-    cashBal: 50000,
-    bankBal: -100000,
-    tdsAmount: 0,
-    customerName: 'thayba',
-    loanNo: 'GL-01',
-    date: '25-08-2026'
-  },
-  {
-    id: 'db-2',
-    time: '11:30 AM',
-    billNo: '2',
-    particulars: 'Repayment Collection - thayba',
-    accountHead: 'Cash Collections',
-    mode: 'Cash',
-    cashIn: 1500,
-    cashOut: 0,
-    bankIn: 0,
-    bankOut: 0,
-    cashBal: 51500,
-
-    bankBal: -100000,
-    tdsAmount: 0,
-    customerName: 'thayba',
-    loanNo: 'GL-01',
-    date: '25-08-2026'
-  },
-  {
-    id: 'db-3',
-    time: '12:45 PM',
-    billNo: 'FD-01',
-    particulars: 'Fixed Deposit Receipt - Thayba Begum',
-    accountHead: 'Fixed Deposits',
-    mode: 'Cash',
-    cashIn: 200000,
-    cashOut: 0,
-    bankIn: 0,
-    bankOut: 0,
-    cashBal: 251500,
-    bankBal: -100000,
-    tdsAmount: 0,
-    customerName: 'Thayba Begum',
-    date: '25-08-2026'
-  }
-];
 
 export const defaultLoanTypes: LoanTypeConfig[] = [
   {
@@ -437,6 +374,7 @@ interface AppContextType {
   setSelectedProfileCustomerId: (id: string | null) => void;
   resetAllData: () => void;
   restoreDataFromJSON: (jsonStr: string) => boolean;
+  reloadAllData: () => Promise<void>;
 
   // Device & Active Session Management
   sessions: DeviceSession[];
@@ -526,36 +464,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [darkMode, setDarkMode] = useState<boolean>(() => getStored('darkMode', false));
-  const [loans, setLoans] = useState<Loan[]>(() => {
-    const stored = getStored<Loan[]>('loans', initialLoans);
-    for (const initL of initialLoans) {
-      if (!stored.some((l) => l.loanNo === initL.loanNo || l.id === initL.id)) {
-        stored.push(initL);
-      }
-    }
-    return stored;
-  });
-
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    const stored = getStored<Customer[]>('customers', initialCustomers);
-    for (const initC of initialCustomers) {
-      if (!stored.some((c) => c.id === initC.id || (initC.customerId && c.customerId === initC.customerId))) {
-        stored.push(initC);
-      }
-    }
-    return stored;
-  });
-  const [receipts, setReceipts] = useState<Receipt[]>(() => getStored('receipts', initialReceipts));
-  const [fixedDeposits, setFixedDeposits] = useState<FixedDeposit[]>(() => {
-    const stored = getStored<FixedDeposit[]>('fixedDeposits', initialFixedDeposits);
-    for (const initFd of initialFixedDeposits) {
-      if (!stored.some((f) => f.fdNo === initFd.fdNo || f.id === initFd.id)) {
-        stored.push(initFd);
-      }
-    }
-    return stored;
-  });
-  const [dayBookEntries, setDayBookEntries] = useState<DayBookEntry[]>(() => getStored('dayBookEntries', initialDayBook));
+  const [loans, setLoans] = useState<Loan[]>(() => getStored<Loan[]>('loans', []));
+  const [customers, setCustomers] = useState<Customer[]>(() => getStored<Customer[]>('customers', []));
+  const [receipts, setReceipts] = useState<Receipt[]>(() => getStored<Receipt[]>('receipts', []));
+  const [fixedDeposits, setFixedDeposits] = useState<FixedDeposit[]>(() => getStored<FixedDeposit[]>('fixedDeposits', []));
+  const [dayBookEntries, setDayBookEntries] = useState<DayBookEntry[]>(() => getStored<DayBookEntry[]>('dayBookEntries', []));
   const [isWorkspaceSelected, setIsWorkspaceSelected] = useState<boolean>(() => getStored('isWorkspaceSelected', true));
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>(() => getStored('selectedWorkspace', 'KKV GOLD FINANCE'));
   const [userRole, setUserRole] = useState<UserRole | null>(() => getStored('userRole', null));
@@ -564,17 +477,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [staffList, setStaffList] = useState<UserProfile[]>([]);
   const [staffAuditLogs, setStaffAuditLogs] = useState<StaffAuditLog[]>([]);
 
-  const [fdCustomers, setFdCustomers] = useState<FDCustomer[]>(() => getStored('fdCustomers', [
-    {
-      id: 'fd-c1',
-      name: 'Ramesh Kumar',
-      phone: '9876543210',
-      email: 'ramesh@example.com',
-      idProofType: 'Aadhaar Card',
-      address: '123 Main Road, City',
-      createdAt: '2026-08-20'
-    }
-  ]));
+  const [fdCustomers, setFdCustomers] = useState<FDCustomer[]>(() => getStored<FDCustomer[]>('fdCustomers', []));
   const [fdInterestPayouts, setFdInterestPayouts] = useState<FDInterestPayout[]>(() => getStored('fdInterestPayouts', []));
   const [fdWithdrawals, setFdWithdrawals] = useState<FDWithdrawal[]>(() => getStored('fdWithdrawals', []));
   const [fdRenewals, setFdRenewals] = useState<FDRenewal[]>(() => getStored('fdRenewals', []));
@@ -595,7 +498,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>(() => getStored('tgConfig', defaultTelegramConfig));
 
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
-  const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(receipts[0] || null);
+  const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
   const [selectedProfileCustomerId, setSelectedProfileCustomerId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -648,45 +551,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [darkMode]);
 
+  const reloadAllData = async () => {
+    try {
+      const [cList, lList, rList, fdList, dbList, fdcList, mSettings, waTpls, tgConfig] = await Promise.all([
+        apiService.getCustomers(),
+        apiService.getLoans(),
+        apiService.getReceipts(),
+        apiService.getFixedDeposits(),
+        apiService.getDayBook(),
+        apiService.getFDCustomers(),
+        apiService.getMasterSettings(),
+        apiService.getWhatsAppTemplates(),
+        apiService.getTelegramConfig()
+      ]);
+      if (Array.isArray(cList)) setCustomers(cList);
+      if (Array.isArray(lList)) setLoans(lList);
+      if (Array.isArray(rList)) setReceipts(rList);
+      if (Array.isArray(fdList)) setFixedDeposits(fdList);
+      if (Array.isArray(dbList)) setDayBookEntries(dbList);
+      if (Array.isArray(fdcList)) setFdCustomers(fdcList);
+      if (mSettings) {
+        setMasterControlSettings({
+          ...mSettings,
+          loanTypes: mSettings.loanTypes && mSettings.loanTypes.length > 0 ? mSettings.loanTypes : defaultLoanTypes,
+          repaymentSystems: mSettings.repaymentSystems && mSettings.repaymentSystems.length > 0 ? mSettings.repaymentSystems : defaultRepaymentSystems,
+          purityOptions: mSettings.purityOptions && mSettings.purityOptions.length > 0 ? mSettings.purityOptions : defaultPurityOptions,
+          goldRate22ct: mSettings.goldRate22ct ?? 6400
+        });
+      }
+      if (waTpls) setWhatsAppTemplates(waTpls);
+      if (tgConfig) setTelegramConfig(tgConfig);
+    } catch (err) {
+      console.warn('Backend API reload error:', err);
+    }
+  };
+
   // Fetch initial authoritative data from Express Backend & Google Drive on mount
   useEffect(() => {
     async function loadBackendData() {
       try {
-        const [cList, lList, rList, fdList, dbList, fdcList, mSettings, waTpls, tgConfig] = await Promise.all([
-          apiService.getCustomers(),
-          apiService.getLoans(),
-          apiService.getReceipts(),
-          apiService.getFixedDeposits(),
-          apiService.getDayBook(),
-          apiService.getFDCustomers(),
-          apiService.getMasterSettings(),
-          apiService.getWhatsAppTemplates(),
-          apiService.getTelegramConfig()
-        ]);
-        if (cList && cList.length > 0) {
-          setCustomers((prev) => {
-            const map = new Map<string, Customer>();
-            cList.forEach((c: Customer) => map.set(c.id, c));
-            prev.forEach((c: Customer) => map.set(c.id, c));
-            return Array.from(map.values());
-          });
+        // Auto-restore check on startup if local DB is empty
+        try {
+          const restoreCheck = await apiService.checkAutoRestore();
+          if (restoreCheck?.autoRestored) {
+            console.log('[AppContext] Auto-restored cloud backup on startup:', restoreCheck);
+            showToast(`Restored latest verified backup from Google Drive (${restoreCheck.restoredBackupId || 'Verified Package'}).`, 'success');
+          }
+        } catch (rErr) {
+          // Continue normal load if check encounters network error
         }
-        if (lList && lList.length > 0) setLoans(lList);
-        if (rList && rList.length > 0) setReceipts(rList);
-        if (fdList && fdList.length > 0) setFixedDeposits(fdList);
-        if (dbList && dbList.length > 0) setDayBookEntries(dbList);
-        if (fdcList && fdcList.length > 0) setFdCustomers(fdcList);
-        if (mSettings) {
-          setMasterControlSettings({
-            ...mSettings,
-            loanTypes: mSettings.loanTypes && mSettings.loanTypes.length > 0 ? mSettings.loanTypes : defaultLoanTypes,
-            repaymentSystems: mSettings.repaymentSystems && mSettings.repaymentSystems.length > 0 ? mSettings.repaymentSystems : defaultRepaymentSystems,
-            purityOptions: mSettings.purityOptions && mSettings.purityOptions.length > 0 ? mSettings.purityOptions : defaultPurityOptions,
-            goldRate22ct: mSettings.goldRate22ct ?? 6400
-          });
-        }
-        if (waTpls) setWhatsAppTemplates(waTpls);
-        if (tgConfig) setTelegramConfig(tgConfig);
+
+        await reloadAllData();
       } catch (err) {
         console.warn('Backend API not reachable; operating in local mode:', err);
       }
@@ -703,8 +618,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (userRole === 'RENTAL_STAFF') {
       return key === 'rentalManagement';
     }
-    if (userRole === 'ADMIN' && key === 'rentalManagement') {
-      return true;
+    if (userRole === 'STAFF') {
+      const operationalKeys: (keyof UserPermissions)[] = [
+        'customers',
+        'loans',
+        'loanReceipts',
+        'pendingLoans',
+        'fixedDeposits',
+        'fdInterest',
+        'fdWithdrawal',
+        'notifications'
+      ];
+      if (operationalKeys.includes(key)) {
+        return true;
+      }
+      return false;
     }
     return Boolean(currentUser.permissions?.[key]);
   };
@@ -895,13 +823,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Validate Role Passwords or Staff Passwords
         let valid = false;
         if (firebaseUser) valid = true;
-        if (foundStaff.role === 'ADMIN' && (password === (masterControlSettings.adminPassword || 'admin123') || password === 'admin')) valid = true;
-        if (foundStaff.role === 'MANAGER' && (password === (masterControlSettings.managerPassword || 'manager123') || password === 'manager')) valid = true;
-        if (foundStaff.role === 'OPERATOR' && (password === (masterControlSettings.operatorPassword || 'operator123') || password === '1234' || password === 'operator')) valid = true;
-        if (foundStaff.role === 'RENTAL_STAFF' && (password === (masterControlSettings.operatorPassword || 'rental123') || password === '1234' || password === 'rental' || password === 'rental123')) valid = true;
+        if (foundStaff.role === 'STAFF' && (password === (masterControlSettings.operatorPassword || '1234') || password === '1234' || password === 'staff' || password === 'staff123')) valid = true;
+        if (foundStaff.role === 'RENTAL_STAFF' && (password === 'rental123' || password === '1234' || password === 'rental')) valid = true;
         if (!valid) {
           setAuthLoading(false);
           return { success: false, message: 'Invalid credentials for staff account.' };
+        }
+
+        if (foundStaff.role === 'RENTAL_STAFF') {
+          setAuthLoading(false);
+          return {
+            success: false,
+            message: 'Rental Staff accounts must use the Rental Management Portal at http://localhost:5174. Please sign in there.'
+          };
         }
 
         const updatedProfile: UserProfile = {
@@ -912,10 +846,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setCurrentUser(updatedProfile);
         setUserRole(foundStaff.role);
-        if (foundStaff.role === 'RENTAL_STAFF') {
-          setCurrentPage('rental-dashboard');
-        }
-        showToast(`Signed in as ${foundStaff.displayName} (${foundStaff.role})`, 'success');
+        const roleLabel = foundStaff.role === 'STAFF' ? 'Staff' : 'Master Admin';
+        showToast(`Signed in as ${foundStaff.displayName} (${roleLabel})`, 'success');
         setAuthLoading(false);
         return { success: true };
       }
@@ -926,15 +858,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           uid: firebaseUser.uid,
           email: firebaseUser.email || cleanEmail,
           displayName: firebaseUser.displayName || 'Authorized User',
-          role: 'OPERATOR',
+          role: 'STAFF',
           isActive: true,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           lastLoginAt: new Date().toISOString(),
-          permissions: getDefaultPermissionsForRole('OPERATOR')
+          permissions: getDefaultPermissionsForRole('STAFF')
         };
         setCurrentUser(dynamicProfile);
-        setUserRole('OPERATOR');
+        setUserRole('STAFF');
         showToast('Signed in successfully with Firebase', 'success');
         setAuthLoading(false);
         return { success: true };
@@ -1001,6 +933,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return {
             success: false,
             message: 'Your KKV Gold Finance account has been disabled. Please contact the Master Admin.'
+          };
+        }
+
+        if (foundStaff.role === 'RENTAL_STAFF') {
+          setAuthLoading(false);
+          await signOut(auth);
+          return {
+            success: false,
+            message: 'Rental Staff accounts must use the Rental Management Portal at http://localhost:5174. Please sign in there.'
           };
         }
 
@@ -1222,15 +1163,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         (newSetts.fdInterestRate !== undefined && newSetts.fdInterestRate !== prev.fdInterestRate) ||
         (newSetts.fdDefaultTenureMonths !== undefined && newSetts.fdDefaultTenureMonths !== prev.fdDefaultTenureMonths) ||
         (newSetts.fdMinimumAmount !== undefined && newSetts.fdMinimumAmount !== prev.fdMinimumAmount) ||
+        (newSetts.fdMaximumAmount !== undefined && newSetts.fdMaximumAmount !== prev.fdMaximumAmount) ||
         (newSetts.fdRenewalPolicy !== undefined && newSetts.fdRenewalPolicy !== prev.fdRenewalPolicy) ||
-        (newSetts.fdCalculationMethod !== undefined && newSetts.fdCalculationMethod !== prev.fdCalculationMethod);
+        (newSetts.fdCalculationMethod !== undefined && newSetts.fdCalculationMethod !== prev.fdCalculationMethod) ||
+        (newSetts.fdPayoutFrequency !== undefined && newSetts.fdPayoutFrequency !== prev.fdPayoutFrequency);
 
       const nextVersion = isFinancialChanged
         ? (prev.configurationVersion || 1) + 1
         : (newSetts.configurationVersion || prev.configurationVersion || 1);
 
-      const updated: MasterControlSettings = { ...prev, ...newSetts, configurationVersion: nextVersion };
-      apiService.updateMasterSettings(updated).catch(e => console.error(e));
+      let updatedHistory = newSetts.fdInterestRateHistory || prev.fdInterestRateHistory || [];
+      if (newSetts.fdInterestRate !== undefined && newSetts.fdInterestRate !== prev.fdInterestRate) {
+        const historyItem: FDRateHistoryItem = {
+          id: `FD-RATE-${Date.now()}`,
+          rate: Number(newSetts.fdInterestRate),
+          previousRate: prev.fdInterestRate,
+          effectiveFrom: newSetts.fdInterestRateEffectiveFrom || new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
+          changedBy: currentUser?.email || 'Master Admin',
+          changedAt: new Date().toISOString(),
+          notes: `Updated Master FD interest rate from ${prev.fdInterestRate ?? 12}% to ${newSetts.fdInterestRate}% p.a.`
+        };
+        updatedHistory = [historyItem, ...updatedHistory];
+      }
+
+      const updated: MasterControlSettings = {
+        ...prev,
+        ...newSetts,
+        fdInterestRateHistory: updatedHistory,
+        configurationVersion: nextVersion
+      };
+
+      apiService.updateMasterSettings(updated, userRole || 'MASTER_ADMIN').catch(e => console.error(e));
       return updated;
     });
     logMasterConfigAudit('MASTER_CONFIG_UPDATED', 'master_control', 'Updated Master Control global financial parameters');
@@ -1264,7 +1227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     repaymentSystemId?: string;
     calculationStrategy?: CalculationStrategy;
   }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can add loan types.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1322,7 +1285,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateLoanType = (id: string, updates: Partial<LoanTypeConfig>): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can modify loan types.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1380,7 +1343,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleLoanTypeStatus = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can toggle loan type status.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1403,7 +1366,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleLoanTypeVisibility = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can change loan type visibility.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1426,7 +1389,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteLoanType = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can delete loan types.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1461,7 +1424,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addRepaymentSystem = (config: { name: string; description?: string; calculationStrategy: CalculationStrategy; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can add repayment systems.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1516,7 +1479,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateRepaymentSystem = (id: string, updates: { name?: string; description?: string; calculationStrategy?: CalculationStrategy; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can modify repayment systems.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1574,7 +1537,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleRepaymentSystemStatus = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can toggle repayment system status.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1633,7 +1596,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addPurityOption = (config: { name: string; category?: PurityCategory; purityValue?: number; ratePerGram?: number; description?: string; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can add purity options.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1696,7 +1659,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updatePurityOption = (id: string, updates: { name?: string; category?: PurityCategory; purityValue?: number; ratePerGram?: number; description?: string; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can modify purity options.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1764,7 +1727,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const togglePurityStatus = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can toggle purity status.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1787,7 +1750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deletePurityOption = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can delete purity options.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1817,7 +1780,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateFDInterestRate = (newRate: number, effectiveFrom?: string, notes?: string): boolean => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'ADMIN' && !masterControlUnlocked && !hasPermission('settings') && !hasPermission('masterControl')) {
+    if (userRole !== 'MASTER_ADMIN' && !masterControlUnlocked && !hasPermission('settings') && !hasPermission('masterControl')) {
       showToast('Permission denied. Only Master Admin can change default FD interest rate.', 'error');
       return false;
     }
@@ -2202,7 +2165,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteCustomer = (id: string): boolean => {
-    if (userRole !== 'ADMIN') {
+    if (userRole !== 'MASTER_ADMIN') {
       showToast('You do not have permission to delete customer records.', 'error');
       return false;
     }
@@ -2212,10 +2175,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Soft delete: Mark isDeleted = true
     setCustomers((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, isDeleted: true, deletedAt: new Date().toISOString(), deletedBy: 'ADMIN' } : c))
+      prev.map((c) => (c.id === id ? { ...c, isDeleted: true, deletedAt: new Date().toISOString(), deletedBy: 'MASTER_ADMIN' } : c))
     );
 
-    apiService.deleteCustomer(id, userRole).catch((err) => {
+    apiService.deleteCustomer(id, userRole || 'MASTER_ADMIN').catch((err) => {
       console.warn('[AppContext] Customer backend delete sync warning:', err);
     });
 
@@ -2224,7 +2187,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const restoreCustomer = (id: string): boolean => {
-    if (userRole !== 'ADMIN') {
+    if (userRole !== 'MASTER_ADMIN') {
       showToast('You do not have permission to restore customer records.', 'error');
       return false;
     }
@@ -2237,7 +2200,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((c) => (c.id === id ? { ...c, isDeleted: false, deletedAt: null, deletedBy: null } : c))
     );
 
-    apiService.restoreCustomer(id, userRole).catch((err) => {
+    apiService.restoreCustomer(id, userRole || 'MASTER_ADMIN').catch((err) => {
       console.warn('[AppContext] Customer backend restore sync warning:', err);
     });
 
@@ -2246,8 +2209,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteCustomerPermanently = async (id: string): Promise<boolean> => {
-    if (userRole !== 'ADMIN') {
-      showToast('Only Admin users have permission to permanently delete customer records.', 'error');
+    if (userRole !== 'MASTER_ADMIN') {
+      showToast('Only Master Admin has permission to permanently delete customer records.', 'error');
       return false;
     }
 
@@ -2541,8 +2504,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const renewFD = (fdNo: string, periodMonths: number, notes?: string): boolean => {
-    if (userRole !== 'ADMIN') {
-      showToast('Only Admin users can renew Fixed Deposits.', 'error');
+    if (userRole !== 'MASTER_ADMIN' && userRole !== 'STAFF') {
+      showToast('You do not have permission to renew Fixed Deposits.', 'error');
       return false;
     }
     const targetFD = fixedDeposits.find(f => f.fdNo === fdNo);
@@ -2615,8 +2578,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteFixedDeposit = (fdNo: string): boolean => {
-    if (userRole !== 'ADMIN') {
-      showToast('Only Admin users have permission to delete Fixed Deposit contracts.', 'error');
+    if (userRole !== 'MASTER_ADMIN') {
+      showToast('Only Master Admin has permission to delete Fixed Deposit contracts.', 'error');
       return false;
     }
     const target = fixedDeposits.find((f) => f.fdNo === fdNo);
@@ -2809,6 +2772,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedProfileCustomerId,
         resetAllData,
         restoreDataFromJSON,
+        reloadAllData,
 
         // RBAC & Authentication State
         currentUser,

@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
+import { syncQueueService } from './syncQueue.service.js';
 import { FixedDeposit, FDCustomer, FDInterestPayout, FDWithdrawal, DayBookEntry } from '../types/index.js';
 import { accountingService } from './accounting.service.js';
 import { adminService } from './admin.service.js';
@@ -9,45 +10,13 @@ const FD_DEPOSITS_FILE = 'fixed_deposits.json';
 const FD_PAYOUTS_FILE = 'fd_interest_payouts.json';
 const FD_WITHDRAWALS_FILE = 'fd_withdrawals.json';
 
-const initialFDCustomers: FDCustomer[] = [
-  {
-    id: 'fd-c1',
-    name: 'Thayba Begum',
-    phone: '9123456789',
-    email: 'thaybabegum@example.com',
-    idProofType: 'PAN Card',
-    address: '45 Lake View Road',
-    createdAt: '25/08/2026'
-  }
-];
-
-const initialDeposits: FixedDeposit[] = [
-  {
-    id: 'FD-1',
-    fdNo: 'FD-01',
-    customerId: 'fd-c1',
-    depositorName: 'Thayba Begum',
-    phone: '9123456789',
-    idProofType: 'PAN Card',
-    idProofNumber: 'ABCDE1234F',
-    address: '45 Lake View Road',
-    depositDate: '25/08/2026',
-    maturityDate: '25/08/2027',
-    principal: 200000,
-    interestRatePA: 12,
-    receivingMethod: 'Cash',
-    monthlyPayout: 2000,
-    status: 'ACTIVE',
-    fdInterestRateSnapshot: 12,
-    fdTenureSnapshot: 12,
-    calculationMethodSnapshot: 'MONTHLY_DIVIDEND',
-    configurationVersion: 1
-  }
-];
+const initialFDCustomers: FDCustomer[] = [];
+const initialDeposits: FixedDeposit[] = [];
 
 export class FDService {
   public getCustomers(): FDCustomer[] {
-    return googleDriveRepository.readJson<FDCustomer[]>(FD_CUST_FILE, initialFDCustomers);
+    const list = googleDriveRepository.readJson<FDCustomer[]>(FD_CUST_FILE, initialFDCustomers);
+    return Array.isArray(list) ? list : [];
   }
 
   public createCustomer(data: Omit<FDCustomer, 'id' | 'createdAt'>): FDCustomer {
@@ -59,11 +28,13 @@ export class FDService {
     };
     customers.unshift(newCust);
     googleDriveRepository.writeJson(FD_CUST_FILE, customers);
+    syncQueueService.enqueue('fd_customer', newCust.id, 'CREATE', newCust);
     return newCust;
   }
 
   public getDeposits(): FixedDeposit[] {
-    return googleDriveRepository.readJson<FixedDeposit[]>(FD_DEPOSITS_FILE, initialDeposits);
+    const list = googleDriveRepository.readJson<FixedDeposit[]>(FD_DEPOSITS_FILE, initialDeposits);
+    return Array.isArray(list) ? list : [];
   }
 
   public createDeposit(data: Omit<FixedDeposit, 'id' | 'fdNo'>): FixedDeposit {
@@ -109,6 +80,7 @@ export class FDService {
 
     deposits.unshift(newFD);
     googleDriveRepository.writeJson(FD_DEPOSITS_FILE, deposits);
+    syncQueueService.enqueue('fixed_deposit', newFD.fdNo, 'CREATE', newFD);
 
     // Create DayBook Entry
     const isCash = data.receivingMethod === 'Cash';
@@ -153,6 +125,7 @@ export class FDService {
     const payouts = this.getPayouts();
     payouts.unshift(payout);
     googleDriveRepository.writeJson(FD_PAYOUTS_FILE, payouts);
+    syncQueueService.enqueue('fd_interest_payout', payout.id, 'CREATE', payout);
 
     // Accounting Entry
     const isCash = mode === 'Cash';
@@ -201,6 +174,7 @@ export class FDService {
     const withdrawals = this.getWithdrawals();
     withdrawals.unshift(withdrawal);
     googleDriveRepository.writeJson(FD_WITHDRAWALS_FILE, withdrawals);
+    syncQueueService.enqueue('fd_withdrawal', withdrawal.id, 'CREATE', withdrawal);
 
     // Accounting Entry
     const isCash = mode === 'Cash';

@@ -5,8 +5,8 @@ class SessionService {
     {
       sessionId: 'sess_master_current',
       userId: 'kkv_admin',
-      userRole: 'ADMIN',
-      userEmail: 'kkvgoldfinance@gmail.com',
+      userRole: 'MASTER_ADMIN',
+      userEmail: 'goldfinancekkv@gmail.com',
       deviceType: 'DESKTOP',
       deviceName: 'Windows PC',
       operatingSystem: 'Windows 11',
@@ -24,8 +24,8 @@ class SessionService {
     {
       sessionId: 'sess_android_branch',
       userId: 'kkv_admin',
-      userRole: 'ADMIN',
-      userEmail: 'kkvgoldfinance@gmail.com',
+      userRole: 'MASTER_ADMIN',
+      userEmail: 'goldfinancekkv@gmail.com',
       deviceType: 'MOBILE',
       deviceName: 'Android Phone',
       operatingSystem: 'Android 15',
@@ -43,8 +43,8 @@ class SessionService {
     {
       sessionId: 'sess_laptop_backup',
       userId: 'kkv_admin',
-      userRole: 'ADMIN',
-      userEmail: 'kkvgoldfinance@gmail.com',
+      userRole: 'MASTER_ADMIN',
+      userEmail: 'goldfinancekkv@gmail.com',
       deviceType: 'LAPTOP',
       deviceName: 'Branch Laptop',
       operatingSystem: 'Windows 11',
@@ -101,8 +101,8 @@ class SessionService {
     const newSession: DeviceSession = {
       sessionId: sessionData.sessionId,
       userId: sessionData.userId || 'kkv_admin',
-      userRole: sessionData.userRole || 'ADMIN',
-      userEmail: sessionData.userEmail || 'kkvgoldfinance@gmail.com',
+      userRole: sessionData.userRole || 'MASTER_ADMIN',
+      userEmail: sessionData.userEmail || 'goldfinancekkv@gmail.com',
       deviceType: sessionData.deviceType || 'DESKTOP',
       deviceName: sessionData.deviceName || 'Windows PC',
       operatingSystem: sessionData.operatingSystem || 'Windows',

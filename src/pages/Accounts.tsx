@@ -11,8 +11,9 @@ export const Accounts: React.FC = () => {
       setActiveTab(currentPage as any);
     }
   }, [currentPage]);
-  const [fromDate, setFromDate] = useState('2026-08-25');
-  const [toDate, setToDate] = useState('2026-08-25');
+  const todayISO = new Date().toISOString().split('T')[0];
+  const [fromDate, setFromDate] = useState(todayISO);
+  const [toDate, setToDate] = useState(todayISO);
   const [pnlPeriod, setPnlPeriod] = useState<'this-month' | 'last-month' | 'this-year' | 'all-time'>('this-month');
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
 
@@ -21,7 +22,7 @@ export const Accounts: React.FC = () => {
   const [accountHead, setAccountHead] = useState('Office Expenses');
   const [entryType, setEntryType] = useState<'CASH_IN' | 'CASH_OUT' | 'BANK_IN' | 'BANK_OUT'>('CASH_OUT');
   const [amount, setAmount] = useState<number>(500);
-  const [entryDate, setEntryDate] = useState('25-08-2026');
+  const [entryDate, setEntryDate] = useState(new Date().toLocaleDateString('en-GB').replace(/\//g, '-'));
 
   // Calculations for Today In / Out
   const todayIn = dayBookEntries.reduce((acc, e) => acc + (e.cashIn + e.bankIn), 0);
@@ -31,7 +32,7 @@ export const Accounts: React.FC = () => {
   const totalGoldLoansOutstanding = loans.reduce((acc, l) => acc + l.outstandingPrincipal, 0);
   const totalInterestEarned = dayBookEntries
     .filter((e) => e.accountHead === 'Interest Income')
-    .reduce((acc, e) => acc + e.cashIn + e.bankIn, 0) || 3000;
+    .reduce((acc, e) => acc + e.cashIn + e.bankIn, 0);
   const cardFeesEarned = loans.length * 10;
   const totalIncome = totalInterestEarned + cardFeesEarned;
   const interestPaidOnDeposits = fixedDeposits.reduce((acc, f) => acc + f.monthlyPayout, 0);
@@ -241,7 +242,7 @@ export const Accounts: React.FC = () => {
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
                 />
-                <button className="btn btn-secondary btn-sm" onClick={() => { setFromDate('2026-08-25'); setToDate('2026-08-25'); }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setFromDate(todayISO); setToDate(todayISO); }}>
                   Today
                 </button>
                 <button className="btn btn-primary btn-sm" onClick={() => setShowAddEntryModal(true)}>
@@ -496,7 +497,7 @@ export const Accounts: React.FC = () => {
                   <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--badge-success-text)', margin: 0 }}>
                     Income
                   </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>everything up to 25/08/2026</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>all recorded transactions</span>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: '13px' }}>
@@ -521,7 +522,7 @@ export const Accounts: React.FC = () => {
                   <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--badge-danger-text)', margin: 0 }}>
                     Expenses
                   </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>everything up to 25/08/2026</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>all recorded transactions</span>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: '13px' }}>

@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { googleDriveService } from './googleDriveService.js';
+import { syncQueueService } from './syncQueue.service.js';
 import { Loan, Receipt, LoanTypeConfig } from '../types/index.js';
 import { customerService } from './customer.service.js';
 import { receiptService } from './receipt.service.js';
@@ -9,74 +10,15 @@ import { adminService } from './admin.service.js';
 
 const FILE_NAME = 'loans.json';
 
-const initialLoans: Loan[] = [
-  {
-    id: 'L-1',
-    receiptBillNo: 1,
-    loanNo: 'GL-01',
-    customerId: 'CUST-001',
-    customerName: 'thayba',
-    customerPhone: '9876543210',
-    customerGender: 'Female',
-    customerAge: 28,
-    customerOccupation: 'Business',
-    customerEmail: 'thayba@example.com',
-    customerCurrentAddress: '123 Market Street, Main Town',
-    customerPermanentAddress: '123 Market Street, Main Town',
-    date: '25/08/2026',
-    loanType: 'Gold Loan',
-    loanTypeId: 'gold-loan',
-    loanTypeName: 'Gold Loan',
-    loanTypeNameSnapshot: 'Gold Loan',
-    cardFeeSnapshot: 25,
-    interestProfileIdSnapshot: 'gold-bands',
-    interestProfileNameSnapshot: 'Gold Monthly Interest Bands',
-    configurationVersion: 1,
-    repaymentSystem: 'Monthly Interest Only',
-    repaymentSystemId: 'monthly-interest-only',
-    area: 'Main Town',
-    showroom: 'Main Branch',
-    principal: 100000,
-    interestRate: 1.5,
-    bankMode: 'UPI',
-    cashAmount: 0,
-    bankAmount: 100000,
-    deductAdvanceInterest: false,
-    advanceDays: 30,
-    advanceInterestAmount: 1500,
-    cardFee: 25,
-    cardFeeEnabled: true,
-    cardFeePaymentMode: 'Cash',
-    items: [
-      {
-        id: 'item-1',
-        item: 'Gold Chain & Bangle',
-        qty: 2,
-        purity: '22ct',
-        grossWeight: 25.5,
-        netWeight: 24.0
-      }
-    ],
-    totalGrossWeight: 25.5,
-    totalNetWeight: 24.0,
-    marketValue: 144000,
-    ltv: 69.4,
-    monthlyInterest: 1500,
-    notes: 'Sample Gold Loan',
-    photos: [],
-    status: 'ACTIVE',
-    disbursedAmount: 100000,
-    outstandingPrincipal: 100000,
-    accruedInterest: 1500,
-    renewalDate: '25/08/2027',
-    lastInterestPaidDate: '25/08/2026',
-    nextDueDate: '25/09/2026'
-  }
-];
+const initialLoans: Loan[] = [];
 
 export class LoanService {
   public getAll(): Loan[] {
-    return googleDriveRepository.readJson<Loan[]>(FILE_NAME, initialLoans);
+    let list = googleDriveRepository.readJson<Loan[]>(FILE_NAME, initialLoans);
+    if (!Array.isArray(list)) {
+      list = [];
+    }
+    return list;
   }
 
   public getById(id: string): Loan | null {
@@ -255,6 +197,9 @@ export class LoanService {
     loans.unshift(newLoan);
     googleDriveRepository.writeJson(FILE_NAME, loans);
 
+    // Enqueue background sync event
+    syncQueueService.enqueue('loan', newLoan.loanNo, 'CREATE', newLoan);
+
     // Update customer active loans count
     const customer = customerService.getById(newLoan.customerId);
     if (customer) {
@@ -322,6 +267,7 @@ export class LoanService {
     loans[index].status = 'CLOSED';
 
     googleDriveRepository.writeJson(FILE_NAME, loans);
+    syncQueueService.enqueue('loan', loans[index].loanNo, 'UPDATE', loans[index]);
     return loans[index];
   }
 
@@ -331,6 +277,7 @@ export class LoanService {
     if (index === -1) return null;
     loans[index] = { ...loans[index], ...updates };
     googleDriveRepository.writeJson(FILE_NAME, loans);
+    syncQueueService.enqueue('loan', loans[index].loanNo, 'UPDATE', loans[index]);
     return loans[index];
   }
 
@@ -339,6 +286,7 @@ export class LoanService {
     const filtered = loans.filter((l) => l.id !== id && l.loanNo.toLowerCase() !== id.toLowerCase());
     if (filtered.length === loans.length) return false;
     googleDriveRepository.writeJson(FILE_NAME, filtered);
+    syncQueueService.enqueue('loan', id, 'DELETE', { id, isDeleted: true });
     return true;
   }
 }

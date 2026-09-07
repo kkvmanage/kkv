@@ -12,6 +12,45 @@ export const getMasterSettings = (req: Request, res: Response) => {
 };
 
 export const updateMasterSettings = (req: Request, res: Response) => {
+  const userRole = (req.headers['user-role'] as string) || (req.headers['x-user-role'] as string) || (req.headers['x-actor-role'] as string) || req.body?.userRole || req.query?.userRole || '';
+  const userEmail = (req.headers['user-email'] as string) || (req.headers['x-user-email'] as string) || (req.headers['x-actor-email'] as string) || '';
+  const isMasterAdmin = userRole === 'MASTER_ADMIN' || userRole === 'ADMIN' || userEmail.toLowerCase() === 'goldfinancekkv@gmail.com';
+
+  if (!isMasterAdmin) {
+    return res.status(403).json({
+      success: false,
+      message: 'Forbidden: Only Master Admin has permission to modify Master Control configuration'
+    });
+  }
+
+  // Validate FD parameters if present
+  if (req.body.fdInterestRate !== undefined) {
+    const rate = Number(req.body.fdInterestRate);
+    if (isNaN(rate) || rate <= 0 || rate > 100) {
+      return res.status(400).json({ success: false, message: 'FD Interest Rate must be a valid positive percentage between 0 and 100.' });
+    }
+  }
+
+  if (req.body.fdDefaultTenureMonths !== undefined) {
+    const tenure = Number(req.body.fdDefaultTenureMonths);
+    if (isNaN(tenure) || tenure < 1) {
+      return res.status(400).json({ success: false, message: 'FD Default Tenure must be at least 1 month.' });
+    }
+  }
+
+  if (req.body.fdMinimumAmount !== undefined) {
+    const minAmt = Number(req.body.fdMinimumAmount);
+    if (isNaN(minAmt) || minAmt < 0) {
+      return res.status(400).json({ success: false, message: 'FD Minimum Amount cannot be negative.' });
+    }
+  }
+
+  if (req.body.fdMaximumAmount !== undefined && req.body.fdMinimumAmount !== undefined) {
+    if (Number(req.body.fdMaximumAmount) < Number(req.body.fdMinimumAmount)) {
+      return res.status(400).json({ success: false, message: 'FD Maximum Amount cannot be less than Minimum Amount.' });
+    }
+  }
+
   const updated = adminService.updateMasterSettings(req.body);
   return res.json({ success: true, message: 'Master control settings updated', data: updated });
 };
@@ -38,19 +77,26 @@ export const unlockMasterControl = (req: Request, res: Response) => {
 export const getDriveHealth = async (req: Request, res: Response) => {
   try {
     const health = await googleDriveService.getDriveHealth();
-    const folderId = health.rootFolderId || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv';
+    const folderId = health.folderId || health.rootFolderId || env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '';
+    const principal = health.principal || health.googleAccount || env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';
+
     return res.status(200).json({
       enabled: health.configured,
       authMode: health.authMode,
-      connected: health.success,
-      googleAccount: health.googleAccount,
+      principal: principal,
+      sharedDrive: health.sharedDrive,
+      sharedDriveId: health.sharedDriveId,
       folderId,
+      folderName: health.folderName || 'kkv finance',
       folderAccessible: health.folderAccessible,
       canUpload: health.canUpload,
       status: health.status,
       success: health.success,
+      connected: health.success,
       configured: health.configured,
-      folderName: health.folderName || 'KKV DB',
+      driveAccessible: health.driveAccessible,
+      folderIdConfigured: health.folderIdConfigured,
+      writable: health.writable,
       errorCode: health.errorCode,
       message: health.message,
       data: {
@@ -61,25 +107,29 @@ export const getDriveHealth = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error('[AdminController] getDriveHealth error:', err?.message || err);
-    const folderId = env.GOOGLE_DRIVE_ROOT_FOLDER_ID || env.GOOGLE_DRIVE_FOLDER_ID || '1PYqtIQ-Uyz-pgdKUu33r4W9bhSzcZHjv';
+    const folderId = env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx';
     return res.status(200).json({
       enabled: false,
-      authMode: 'NONE',
-      connected: false,
-      googleAccount: '',
+      authMode: 'OAUTH',
+      principal: env.GOOGLE_DRIVE_ACCOUNT_EMAIL || 'goldfinancekkv@gmail.com',
+      sharedDrive: false,
+      sharedDriveId: undefined,
       folderId,
+      folderName: 'kkv finance',
       folderAccessible: false,
       canUpload: false,
-      status: 'NOT_CONNECTED',
+      status: 'FAILED',
       success: false,
+      connected: false,
       configured: false,
-      folderName: 'KKV DB',
+      driveAccessible: false,
+      folderIdConfigured: !!folderId,
       errorCode: 'GOOGLE_DRIVE_HEALTH_CHECK_FAILED',
       message: err?.message || 'Failed to check Google Drive health',
       data: {
         enabled: false,
         configured: false,
-        authMode: 'NONE',
+        authMode: 'OAUTH',
         connected: false,
         canUpload: false,
         folderId
@@ -655,5 +705,41 @@ export const downloadDriveBackupFile = async (req: Request, res: Response) => {
     });
   }
 };
+export const getDatabaseStatus = async (req: Request, res: Response) => {
+  try {
+    const { checkMongoHealth } = await import('../config/database.js');
+    const health = await checkMongoHealth();
+    return res.json({
+      success: true,
+      data: {
+        databaseEngine: health.connected ? 'MONGODB_ATLAS' : 'LOCAL_STORAGE_STANDBY',
+        ...health
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || 'Failed to check database status'
+    });
+  }
+};
+
+export const migrateToAtlas = async (req: Request, res: Response) => {
+  try {
+    const { dbService } = await import('../services/database.service.js');
+    const result = await dbService.migrateLocalToAtlas();
+    return res.json({
+      success: result.success,
+      message: result.message,
+      data: result.migratedCounts
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || 'Database migration failed'
+    });
+  }
+};
+
 
 

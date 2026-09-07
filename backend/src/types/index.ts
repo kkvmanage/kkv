@@ -388,8 +388,12 @@ export interface MasterControlSettings {
   fdInterestRateEffectiveFrom?: string;
   fdInterestRateHistory?: FDRateHistoryItem[];
   fdDefaultTenureMonths?: number;
+  fdAllowedTenures?: number[];
   fdMinimumAmount?: number;
   fdMaximumAmount?: number;
+  fdPayoutFrequency?: 'Monthly' | 'Quarterly' | 'Annual' | 'At Maturity' | string;
+  fdAllowedReceivingMethods?: ('Cash' | 'Bank' | 'UPI' | string)[];
+  fdLockinPeriodMonths?: number;
   fdRenewalPolicy?: 'MANUAL' | 'AUTO_RENEW_PRINCIPAL' | 'AUTO_RENEW_ALL' | string;
   fdCalculationMethod?: 'MONTHLY_DIVIDEND' | 'QUARTERLY_COMPOUNDING' | 'CUMULATIVE_AT_MATURITY' | 'SIMPLE' | string;
 }
@@ -430,7 +434,7 @@ export interface Reminder {
   createdAt: string;
 }
 
-export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF' | 'RENTAL_ADMIN';
+export type UserRole = 'MASTER_ADMIN' | 'STAFF' | 'RENTAL_STAFF';
 
 export interface UserPermissions {
   customers: boolean;

@@ -21,6 +21,7 @@ import { formatIdProofDisplay } from '../utils/kycValidation';
 import { EditCustomerModal } from '../components/common/EditCustomerModal';
 import { ViewFDModal } from '../components/common/ViewFDModal';
 import { isMatchingCustomerId, getCanonicalCustomerId } from '../utils/customerUtils';
+import { toDisplayDate } from '../components/common/AgeDobInput';
 import {
   formatFDDate,
   normalizeDateString,
@@ -727,7 +728,7 @@ export const CustomerProfile: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>AGE / DOB</span>
                 <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-dark)' }}>
-                  {customer.dateOfBirth ? `${customer.dateOfBirth} (${customer.age || 30} yrs)` : `${customer.age || 30} Years`}
+                  {customer.dateOfBirth ? `${toDisplayDate(customer.dateOfBirth)} (${customer.age || 30} yrs)` : `${customer.age || 30} Years`}
                 </span>
               </div>
 
