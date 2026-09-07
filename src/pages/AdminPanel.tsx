@@ -23,6 +23,7 @@ import {
 import { rentalApi } from '../modules/rental/services/rentalApi';
 import { AdminRentalSummary } from '../modules/rental/types/rental.types';
 import { RentalAdminView } from '../modules/rental/components/RentalAdminView';
+import { getApiBaseUrl } from '../services/api';
 
 export const AdminPanel: React.FC = () => {
   const [showWipeModal, setShowWipeModal] = useState(false);
@@ -86,7 +87,7 @@ export const AdminPanel: React.FC = () => {
       setRentalSummaryLoading(true);
       try {
         const token = localStorage.getItem('auth_token');
-        const res = await fetch('http://localhost:8080/api/admin/rental-summary', {
+        const res = await fetch(`${getApiBaseUrl()}/admin/rental-summary`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         }).then(r => r.json()).catch(() => null);
 

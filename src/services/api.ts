@@ -5,19 +5,21 @@ let customApiBaseUrl: string | null = null;
 
 export const getApiBaseUrl = (): string => {
   if (customApiBaseUrl) return customApiBaseUrl;
-  return (
+
+  const envValue =
+    ((import.meta as any).env?.VITE_FINANCE_API_BASE_URL) ||
     ((import.meta as any).env?.VITE_API_BASE_URL) ||
     ((import.meta as any).env?.FINANCE_API_BASE_URL) ||
-    (typeof window !== 'undefined' && (window as any).__FINANCE_API_URL__) ||
-    'http://localhost:8080/api'
-  );
+    (typeof window !== 'undefined' && (window as any).__FINANCE_API_URL__);
+
+  const raw = envValue || 'https://kkv-smoky.vercel.app';
+  const clean = raw.endsWith('/') ? raw.slice(0, -1) : raw;
+  return clean.endsWith('/api') ? clean : `${clean}/api`;
 };
 
 export const setApiBaseUrl = (url: string) => {
   customApiBaseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
 };
-
-const API_BASE_URL = getApiBaseUrl();
 
 function generateIdempotencyKey(): string {
   return 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
@@ -83,7 +85,7 @@ function uploadWithProgress<T>(
 ): Promise<{ success: boolean; data?: T; message?: string }> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE_URL}${endpoint}`);
+    xhr.open('POST', `${getApiBaseUrl()}${endpoint}`);
 
     if (onProgress && xhr.upload) {
       xhr.upload.onprogress = (event) => {
@@ -131,7 +133,7 @@ export const apiService = {
   },
   async resolveLocationLink(url: string) {
     try {
-      const res = await fetch(`${API_BASE_URL}/location/resolve-link`, {
+      const res = await fetch(`${getApiBaseUrl()}/location/resolve-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url })
@@ -148,7 +150,7 @@ export const apiService = {
   },
   async createCloudBackup(backupData?: any, deviceId?: string) {
     try {
-      const res = await fetch(`${API_BASE_URL}/backup/create`, {
+      const res = await fetch(`${getApiBaseUrl()}/backup/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backupData, deviceId })
@@ -449,7 +451,7 @@ export const apiService = {
     message?: string;
   }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/backup/drive-health`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/backup/drive-health`);
       const json = await res.json();
       return json;
     } catch (err: any) {
@@ -469,7 +471,7 @@ export const apiService = {
 
   async getGoogleDriveAuthUrl(): Promise<{ success: boolean; url?: string; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/google-drive/start?json=true`);
+      const res = await fetch(`${getApiBaseUrl()}/auth/google-drive/start?json=true`);
       const json = await res.json();
       return json;
     } catch (err: any) {
@@ -479,7 +481,7 @@ export const apiService = {
 
   async disconnectGoogleDrive(): Promise<{ success: boolean; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/drive/disconnect`, {
+      const res = await fetch(`${getApiBaseUrl()}/drive/disconnect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -493,7 +495,7 @@ export const apiService = {
   // Production Backup Package Management
   async createBackupPackage(): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/backup/create`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/backup/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -510,7 +512,7 @@ export const apiService = {
 
   async getBackupHistory(): Promise<{ success: boolean; data?: any[]; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/backup/history`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/backup/history`);
       const json = await res.json();
       return {
         success: res.ok && json.success,
@@ -522,12 +524,12 @@ export const apiService = {
   },
 
   getBackupDownloadUrl(backupId: string): string {
-    return `${API_BASE_URL}/admin/backup/${encodeURIComponent(backupId)}/download`;
+    return `${getApiBaseUrl()}/admin/backup/${encodeURIComponent(backupId)}/download`;
   },
 
   async acknowledgeBackupDownload(backupId: string): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/backup/${encodeURIComponent(backupId)}/acknowledge-download`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/backup/${encodeURIComponent(backupId)}/acknowledge-download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -544,7 +546,7 @@ export const apiService = {
 
   async uploadBackupToDrive(backupId: string): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/backup/${encodeURIComponent(backupId)}/upload-to-drive`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/backup/${encodeURIComponent(backupId)}/upload-to-drive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -582,7 +584,7 @@ export const apiService = {
     message?: string;
   }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/wipe-all-data/preview`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/wipe-all-data/preview`);
       const json = await res.json();
       return {
         success: res.ok && json.success,
@@ -596,7 +598,7 @@ export const apiService = {
 
   async initiateWipeBackup(confirmationText: string): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/wipe-all-data/initiate`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/wipe-all-data/initiate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmationText })
@@ -614,7 +616,7 @@ export const apiService = {
 
   async confirmSystemWipe(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/wipe-all-data/confirm`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/wipe-all-data/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, confirmationText })
@@ -633,7 +635,7 @@ export const apiService = {
   // System Restore Integration
   async getRestoreBackups(): Promise<{ success: boolean; data?: any[]; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/system/backups`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/system/backups`);
       const json = await res.json();
       return {
         success: res.ok && json.success,
@@ -656,12 +658,12 @@ export const apiService = {
       if (payload.file) {
         const formData = new FormData();
         formData.append('backupFile', payload.file);
-        res = await fetch(`${API_BASE_URL}/admin/system/restore/validate`, {
+        res = await fetch(`${getApiBaseUrl()}/admin/system/restore/validate`, {
           method: 'POST',
           body: formData
         });
       } else {
-        res = await fetch(`${API_BASE_URL}/admin/system/restore/validate`, {
+        res = await fetch(`${getApiBaseUrl()}/admin/system/restore/validate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -684,7 +686,7 @@ export const apiService = {
 
   async executeSystemRestore(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string; restore?: any; googleDrive?: any; recordCounts?: any }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/system/restore`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/system/restore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, confirmationText })
@@ -705,7 +707,7 @@ export const apiService = {
 
   async getRestoreHistory(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/system/restore/history`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/system/restore/history`);
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data || [] };
     } catch (err: any) {
@@ -715,7 +717,7 @@ export const apiService = {
 
   async retryRestoreDriveSync(restoreId: string): Promise<{ success: boolean; data?: any; message?: string; errorCode?: string; restore?: any; googleDrive?: any; recordCounts?: any }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/system/restore/${restoreId}/sync-drive`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/system/restore/${restoreId}/sync-drive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -737,7 +739,7 @@ export const apiService = {
   // ── Device & Active Session Management ─────────────────────────────────────
   async getSessions(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/sessions`);
+      const res = await fetch(`${getApiBaseUrl()}/sessions`);
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data || [] };
     } catch (err: any) {
@@ -747,7 +749,7 @@ export const apiService = {
 
   async registerSession(sessionData: any): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/sessions/register`, {
+      const res = await fetch(`${getApiBaseUrl()}/sessions/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sessionData)
@@ -761,7 +763,7 @@ export const apiService = {
 
   async revokeSession(sessionId: string): Promise<{ success: boolean; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/revoke`, {
+      const res = await fetch(`${getApiBaseUrl()}/sessions/${sessionId}/revoke`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -774,7 +776,7 @@ export const apiService = {
 
   async revokeOtherSessions(currentSessionId: string): Promise<{ success: boolean; revokedCount?: number; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/sessions/revoke-others`, {
+      const res = await fetch(`${getApiBaseUrl()}/sessions/revoke-others`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentSessionId })
@@ -788,7 +790,7 @@ export const apiService = {
 
   async revokeAllSessions(): Promise<{ success: boolean; revokedCount?: number; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/sessions/revoke-all`, {
+      const res = await fetch(`${getApiBaseUrl()}/sessions/revoke-all`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -801,7 +803,7 @@ export const apiService = {
 
   async checkSessionStatus(sessionId: string): Promise<{ success: boolean; data?: { isValid: boolean; session?: any }; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/sessions/check/${sessionId}`);
+      const res = await fetch(`${getApiBaseUrl()}/sessions/check/${sessionId}`);
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data };
     } catch (err: any) {
@@ -812,7 +814,7 @@ export const apiService = {
   // ── Staff & Role-Based Access Control ──────────────────────────────────────
   async getStaffList(actorHeaders?: { uid?: string; email?: string }): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/staff`, {
+      const res = await fetch(`${getApiBaseUrl()}/staff`, {
         headers: {
           'x-actor-uid': actorHeaders?.uid || '',
           'x-actor-email': actorHeaders?.email || ''
@@ -830,7 +832,7 @@ export const apiService = {
     actorHeaders?: { uid?: string; email?: string }
   ): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/staff/create`, {
+      const res = await fetch(`${getApiBaseUrl()}/staff/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -852,7 +854,7 @@ export const apiService = {
     actorHeaders?: { uid?: string; email?: string }
   ): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/staff/${uid}`, {
+      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -874,7 +876,7 @@ export const apiService = {
     actorHeaders?: { uid?: string; email?: string }
   ): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/staff/${uid}/status`, {
+      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}/status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -895,7 +897,7 @@ export const apiService = {
     actorHeaders?: { uid?: string; email?: string }
   ): Promise<{ success: boolean; revokedCount?: number; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/staff/${uid}/revoke-sessions`, {
+      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}/revoke-sessions`, {
         method: 'POST',
         headers: {
           'x-actor-uid': actorHeaders?.uid || '',
@@ -914,7 +916,7 @@ export const apiService = {
     actorHeaders?: { uid?: string; email?: string }
   ): Promise<{ success: boolean; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/staff/${uid}`, {
+      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}`, {
         method: 'DELETE',
         headers: {
           'x-actor-uid': actorHeaders?.uid || '',
@@ -930,7 +932,7 @@ export const apiService = {
 
   async getStaffAuditLogs(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/staff/audit`);
+      const res = await fetch(`${getApiBaseUrl()}/staff/audit`);
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data || [] };
     } catch (err: any) {

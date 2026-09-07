@@ -12,12 +12,11 @@ import {
   ExpenseCategory,
   PaymentMode
 } from '../types/rental.types';
-
-const API_BASE = ((import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:8080/api';
+import { getApiBaseUrl } from '../../../services/api';
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<{ success: boolean; data?: T; message?: string }> {
   try {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
+    const res = await fetch(`${getApiBaseUrl()}${endpoint}`, {
       headers: {
         'Content-Type': 'application/json',
         ...options?.headers,
