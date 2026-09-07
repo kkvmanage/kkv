@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import JSZip from 'jszip';
+import { getBackupsDirectory, ensureDirectoryExists } from '../config/storage.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { googleDriveService } from './googleDriveService.js';
 import { customerService } from './customer.service.js';
@@ -55,14 +56,18 @@ function formatBackupTimestamp(d: Date = new Date()): string {
 }
 
 class BackupPackageService {
-  private backupsDir: string;
   private historyFile = 'backups_history.json';
   private downloadAcknowledgments: Map<string, { userId: string; timestamp: string }> = new Map();
 
+  private get backupsDir(): string {
+    return getBackupsDirectory();
+  }
+
   constructor() {
-    this.backupsDir = path.resolve(process.cwd(), 'KKV_GOLD_FINANCE', 'backups');
-    if (!fs.existsSync(this.backupsDir)) {
-      fs.mkdirSync(this.backupsDir, { recursive: true });
+    try {
+      ensureDirectoryExists(this.backupsDir);
+    } catch (err) {
+      console.warn('[BackupPackageService] Notice: Backups directory initialization warning:', (err as any)?.message || err);
     }
   }
 

@@ -1,17 +1,26 @@
-import fs from 'fs';
 import path from 'path';
 import { driveService } from './DriveService.js';
+import {
+  getStorageBaseDir,
+  ensureDirectoryExists
+} from '../../config/storage.js';
 
 export class DriveFolderService {
-  private baseDir: string;
   private folderMap: Record<string, string> = {};
+  private localInitialized = false;
+
+  private get baseDir(): string {
+    return getStorageBaseDir();
+  }
 
   constructor() {
-    this.baseDir = path.resolve(process.cwd(), 'KKV_GOLD_FINANCE');
+    // Safe non-blocking initialization
     this.initLocalStructure();
   }
 
-  private initLocalStructure(): void {
+  public initLocalStructure(): void {
+    if (this.localInitialized) return;
+
     const folders = [
       'config',
       'customers',
@@ -29,11 +38,15 @@ export class DriveFolderService {
       'system/audit-logs'
     ];
 
-    for (const f of folders) {
-      const fullPath = path.join(this.baseDir, f);
-      if (!fs.existsSync(fullPath)) {
-        fs.mkdirSync(fullPath, { recursive: true });
+    try {
+      ensureDirectoryExists(this.baseDir);
+      for (const f of folders) {
+        const fullPath = path.join(this.baseDir, f);
+        ensureDirectoryExists(fullPath);
       }
+      this.localInitialized = true;
+    } catch (err) {
+      console.warn('[DriveFolderService] Notice: Storage directory initialization warning:', (err as any)?.message || err);
     }
   }
 
@@ -67,16 +80,15 @@ export class DriveFolderService {
         }
         console.log('[DriveFolderService] Google Drive folder tree initialized successfully.');
       } catch (err) {
-        console.error('[DriveFolderService] Error initializing Google Drive folders:', err);
+        console.warn('[DriveFolderService] Warning initializing Google Drive folders:', (err as any)?.message || err);
       }
     }
   }
 
   public getLocalFolderPath(subFolder: string): string {
+    this.initLocalStructure();
     const p = path.join(this.baseDir, subFolder);
-    if (!fs.existsSync(p)) {
-      fs.mkdirSync(p, { recursive: true });
-    }
+    ensureDirectoryExists(p);
     return p;
   }
 

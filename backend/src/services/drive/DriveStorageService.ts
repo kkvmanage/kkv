@@ -4,12 +4,21 @@ import { driveService } from './DriveService.js';
 import { driveFolderService } from './DriveFolderService.js';
 
 export class DriveStorageService {
+  private memoryCache: Map<string, any> = new Map();
+
+  private getCacheKey(subFolder: string, fileName: string): string {
+    return `${subFolder}:${fileName}`;
+  }
+
   public async createFile<T>(subFolder: string, fileName: string, data: T): Promise<boolean> {
+    const key = this.getCacheKey(subFolder, fileName);
+    this.memoryCache.set(key, data);
+
     try {
-      // 1. Local disk persistent storage
+      // 1. Local / Serverless disk storage
       const dirPath = driveFolderService.getLocalFolderPath(subFolder);
       const filePath = path.join(dirPath, fileName);
-      const tempPath = `${filePath}.tmp`;
+      const tempPath = `${filePath}.${Date.now()}.tmp`;
       fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
       fs.renameSync(tempPath, filePath);
 
@@ -20,32 +29,42 @@ export class DriveStorageService {
       }
       return true;
     } catch (err) {
-      console.error(`[DriveStorageService] Error creating file ${subFolder}/${fileName}:`, err);
-      return false;
+      console.warn(`[DriveStorageService] Notice: File write for ${subFolder}/${fileName} preserved in-memory:`, (err as any)?.message || err);
+      return true;
     }
   }
 
   public async readFile<T>(subFolder: string, fileName: string, fallback: T): Promise<T> {
+    const key = this.getCacheKey(subFolder, fileName);
+    if (this.memoryCache.has(key)) {
+      return this.memoryCache.get(key) as T;
+    }
+
     try {
       // 1. Try Google Drive if connected
       if (driveService.isConnected()) {
         const folderId = driveFolderService.getDriveFolderId(subFolder);
         const driveData = await driveService.readJsonFile<T>(fileName, folderId);
-        if (driveData !== null) return driveData;
+        if (driveData !== null) {
+          this.memoryCache.set(key, driveData);
+          return driveData;
+        }
       }
 
       // 2. Fallback to Local disk storage
       const dirPath = driveFolderService.getLocalFolderPath(subFolder);
       const filePath = path.join(dirPath, fileName);
       if (!fs.existsSync(filePath)) {
-        await this.createFile(subFolder, fileName, fallback);
+        this.memoryCache.set(key, fallback);
         return fallback;
       }
       const raw = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(raw) as T;
+      const parsed = JSON.parse(raw) as T;
+      this.memoryCache.set(key, parsed);
+      return parsed;
     } catch (err) {
-      console.error(`[DriveStorageService] Error reading file ${subFolder}/${fileName}:`, err);
-      return fallback;
+      console.warn(`[DriveStorageService] Notice: Reading ${subFolder}/${fileName} using fallback:`, (err as any)?.message || err);
+      return this.memoryCache.has(key) ? (this.memoryCache.get(key) as T) : fallback;
     }
   }
 
@@ -54,6 +73,9 @@ export class DriveStorageService {
   }
 
   public async deleteFile(subFolder: string, fileName: string): Promise<boolean> {
+    const key = this.getCacheKey(subFolder, fileName);
+    this.memoryCache.delete(key);
+
     try {
       const dirPath = driveFolderService.getLocalFolderPath(subFolder);
       const filePath = path.join(dirPath, fileName);
@@ -62,8 +84,8 @@ export class DriveStorageService {
       }
       return true;
     } catch (err) {
-      console.error(`[DriveStorageService] Error deleting file ${subFolder}/${fileName}:`, err);
-      return false;
+      console.warn(`[DriveStorageService] Notice: Deleting file ${subFolder}/${fileName}:`, (err as any)?.message || err);
+      return true;
     }
   }
 
@@ -99,7 +121,7 @@ export class DriveStorageService {
       await this.createFile('backups', backupName, data);
       return backupName;
     } catch (err) {
-      console.error('[DriveStorageService] Error creating backup:', err);
+      console.warn('[DriveStorageService] Notice: Creating backup file:', (err as any)?.message || err);
       return null;
     }
   }

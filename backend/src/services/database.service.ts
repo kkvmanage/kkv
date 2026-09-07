@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { getFinanceDb, getRentalDb, getMongoClient } from '../config/database.js';
 import { env } from '../config/env.js';
+import { getStorageSubdirectory, ensureDirectoryExists, isServerless } from '../config/storage.js';
 
 export interface ConcurrencyError extends Error {
   statusCode: number;
@@ -12,17 +13,15 @@ export class DatabaseService {
   private dataDir: string;
 
   constructor() {
-    this.dataDir = path.resolve(process.cwd(), 'backend/data');
-    if (!fs.existsSync(this.dataDir)) {
-      this.dataDir = path.resolve(process.cwd(), 'data');
-    }
-    if (!fs.existsSync(this.dataDir)) {
-      try {
-        fs.mkdirSync(this.dataDir, { recursive: true });
-      } catch {
-        // Ignored if cannot create in serverless read-only environment
+    if (isServerless) {
+      this.dataDir = getStorageSubdirectory('data');
+    } else {
+      this.dataDir = path.resolve(process.cwd(), 'backend/data');
+      if (!fs.existsSync(this.dataDir)) {
+        this.dataDir = path.resolve(process.cwd(), 'data');
       }
     }
+    ensureDirectoryExists(this.dataDir);
   }
 
   private getFilePath(collection: string): string {
