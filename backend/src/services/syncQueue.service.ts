@@ -209,7 +209,7 @@ export class SyncQueueService {
     try {
       // 1. Check Google Drive connectivity
       if (!googleDriveService.isConnected()) {
-        googleDriveService.initGoogleDrive();
+        googleDriveService.initGoogleDrive(true);
       }
 
       const isDriveConnected = googleDriveService.isConnected();

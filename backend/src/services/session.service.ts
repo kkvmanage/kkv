@@ -154,6 +154,22 @@ class SessionService {
     return count;
   }
 
+  public revokeStaffSessions(userIdOrEmail: string): number {
+    let count = 0;
+    const target = (userIdOrEmail || '').toLowerCase().trim();
+    this.sessions = this.sessions.map((s) => {
+      if (
+        (s.userId?.toLowerCase() === target || s.userEmail?.toLowerCase() === target) &&
+        (s.status === 'ACTIVE' || s.status === 'INACTIVE')
+      ) {
+        count++;
+        return { ...s, status: 'REVOKED', lastActiveAt: new Date().toISOString() };
+      }
+      return s;
+    });
+    return count;
+  }
+
   public checkSession(sessionId: string): { isValid: boolean; session?: DeviceSession } {
     const found = this.sessions.find((s) => s.sessionId === sessionId);
     if (!found || found.status === 'REVOKED' || found.status === 'EXPIRED') {

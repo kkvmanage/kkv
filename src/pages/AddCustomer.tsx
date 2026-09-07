@@ -10,8 +10,12 @@ import {
   BookmarkCheck,
   ShieldCheck,
   X,
-  RefreshCw
+  RefreshCw,
+  FileText,
+  Trash2,
+  Plus
 } from 'lucide-react';
+
 import { StructuredAddress, LocationDetails } from '../types';
 import {
   validatePhone,
@@ -23,11 +27,39 @@ import { ViewCustomerModal } from '../components/common/ViewCustomerModal';
 import { emptyStructuredAddress } from '../utils/addressUtils';
 import { AgeDobInput, calculateAgeFromDob } from '../components/common/AgeDobInput';
 import { Customer } from '../types';
+import { apiService } from '../services/api';
+
+interface UploadedKycItem {
+  id: string;
+  file: File;
+  name: string;
+  size: string;
+  preview: string;
+  isPdf: boolean;
+  docType: string;
+}
+
+/**
+ * Helper to convert Base64 dataURL to a File object
+ */
+function dataURLtoFile(dataurl: string, filename: string): File {
+  const arr = dataurl.split(',');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
 
 export const AddCustomer: React.FC = () => {
-  const { customers, setCurrentPage, addCustomer, showToast } = useApp();
+  const { customers, setCurrentPage, addCustomer, reloadAllData, showToast } = useApp();
   const [duplicateCustomerMatch, setDuplicateCustomerMatch] = useState<Customer | null>(null);
   const [viewingDuplicateCustomer, setViewingDuplicateCustomer] = useState<Customer | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Personal Info State
   const [name, setName] = useState('');
@@ -43,6 +75,7 @@ export const AddCustomer: React.FC = () => {
 
   // Customer Photo State
   const [customerPhoto, setCustomerPhoto] = useState<string | null>(null);
+  const [customerPhotoFile, setCustomerPhotoFile] = useState<File | null>(null);
   const [photoSource, setPhotoSource] = useState<'upload' | 'webcam' | null>(null);
 
   // Webcam Capture Modal State
@@ -56,6 +89,9 @@ export const AddCustomer: React.FC = () => {
   const [idNumber, setIdNumber] = useState('');
   const [extraPan, setExtraPan] = useState('');
   const [docName, setDocName] = useState('');
+
+  // Attached KYC Document Files (Aadhaar, PAN, etc.)
+  const [kycFiles, setKycFiles] = useState<UploadedKycItem[]>([]);
 
   // Address State
   const [currentAddressText, setCurrentAddressText] = useState('');
@@ -140,23 +176,69 @@ export const AddCustomer: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
-      showToast('Please upload a valid JPG, JPEG, or PNG image file.', 'error');
+    if (!['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.type)) {
+      showToast('Please upload a valid JPG, JPEG, PNG, or WEBP image file.', 'error');
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('Image file size must be less than 5 MB.', 'error');
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Image file size must be less than 10 MB.', 'error');
       return;
     }
 
+    setCustomerPhotoFile(file);
     const reader = new FileReader();
     reader.onload = () => {
       setCustomerPhoto(reader.result as string);
       setPhotoSource('upload');
-      showToast('Customer photo uploaded successfully', 'success');
+      showToast('Customer photo attached successfully', 'success');
     };
     reader.readAsDataURL(file);
+  };
+
+  // KYC Document Files Upload Handler
+  const handleKycDocUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const incomingFiles = Array.from(e.target.files || []);
+    if (incomingFiles.length === 0) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    const newItems: UploadedKycItem[] = [];
+
+    for (const file of incomingFiles) {
+      if (!allowedTypes.includes(file.type)) {
+        showToast(`Skipped "${file.name}": Unsupported format. (JPG, PNG, WEBP, PDF allowed)`, 'warning');
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        showToast(`Skipped "${file.name}": Exceeds 10MB limit.`, 'warning');
+        continue;
+      }
+
+      const isPdf = file.type === 'application/pdf';
+      const sizeStr = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+      const preview = isPdf ? '' : URL.createObjectURL(file);
+
+      newItems.push({
+        id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        file,
+        name: file.name,
+        size: sizeStr,
+        preview,
+        isPdf,
+        docType: idProof || 'Aadhaar'
+      });
+    }
+
+    if (newItems.length > 0) {
+      setKycFiles((prev) => [...prev, ...newItems]);
+      showToast(`${newItems.length} KYC document(s) attached successfully`, 'success');
+    }
+    // reset input value so same file can be re-uploaded if desired
+    e.target.value = '';
+  };
+
+  const removeKycDoc = (id: string) => {
+    setKycFiles((prev) => prev.filter((d) => d.id !== id));
   };
 
   // Webcam Capture Controls
@@ -192,7 +274,7 @@ export const AddCustomer: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg');
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
       setTempPhoto(dataUrl);
     }
   };
@@ -201,6 +283,12 @@ export const AddCustomer: React.FC = () => {
     if (tempPhoto) {
       setCustomerPhoto(tempPhoto);
       setPhotoSource('webcam');
+      try {
+        const file = dataURLtoFile(tempPhoto, `customer-webcam-${Date.now()}.jpg`);
+        setCustomerPhotoFile(file);
+      } catch {
+        // ignore conversion error
+      }
       stopWebcam();
       showToast('Webcam photo captured successfully', 'success');
     }
@@ -284,8 +372,8 @@ export const AddCustomer: React.FC = () => {
     showToast('KYC Profile Draft Saved Successfully', 'info');
   };
 
-  // Form Submit
-  const handleSubmit = (e: React.FormEvent) => {
+  // Form Submit to Backend MongoDB & Cloudinary
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setPhoneTouched(true);
@@ -327,32 +415,78 @@ export const AddCustomer: React.FC = () => {
       street: finalPermAddress.trim()
     };
 
-    const newCustomerObj = {
-      name: name.trim(),
-      phone: phoneRes.normalizedValue || phone.trim(),
-      gender,
-      age: finalAge,
-      dateOfBirth: dateOfBirth || undefined,
-      occupation: occupation.trim() || 'Self Employed',
-      email: email.trim() || undefined,
-      customerPhoto: customerPhoto || undefined,
-      photoSource: photoSource || undefined,
-      idProof,
-      idNumber: idRes.formattedValue || idNumber.trim(),
-      currentAddressDetails: currentStructured,
-      permanentAddressDetails: permanentStructured,
-      currentAddress: currentAddressText.trim(),
-      permanentAddress: finalPermAddress.trim(),
-      currentLocation: currentLoc || undefined,
-      permanentLocation: (sameAddress ? currentLoc : undefined) || undefined,
-      status: 'VERIFIED' as const,
-      joinedDate: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    };
+    setIsSubmitting(true);
 
-    addCustomer(newCustomerObj);
-    localStorage.removeItem('kkv_kyc_draft');
-    showToast('Customer KYC Profile Created Successfully', 'success');
-    setCurrentPage('customers');
+    try {
+      // 1. Build multipart/form-data payload
+      const formData = new FormData();
+      formData.append('fullName', name.trim());
+      formData.append('name', name.trim());
+      formData.append('phoneNumber', phoneRes.normalizedValue || phone.trim());
+      formData.append('phone', phoneRes.normalizedValue || phone.trim());
+      formData.append('gender', gender);
+      formData.append('age', String(finalAge));
+      if (dateOfBirth) formData.append('dateOfBirth', dateOfBirth);
+      formData.append('occupation', occupation.trim() || 'Self Employed');
+      if (email.trim()) formData.append('email', email.trim());
+
+      formData.append('address', currentAddressText.trim());
+      formData.append('currentAddress', currentAddressText.trim());
+      formData.append('permanentAddress', finalPermAddress.trim());
+      formData.append('currentAddressDetails', JSON.stringify(currentStructured));
+      formData.append('permanentAddressDetails', JSON.stringify(permanentStructured));
+
+      if (currentLoc) formData.append('currentLocation', JSON.stringify(currentLoc));
+      if (currentLoc && sameAddress) formData.append('permanentLocation', JSON.stringify(currentLoc));
+
+      formData.append('idProofType', idProof);
+      formData.append('idProof', idProof);
+      formData.append('idProofNumber', idRes.formattedValue || idNumber.trim());
+      formData.append('idNumber', idRes.formattedValue || idNumber.trim());
+      if (extraPan) formData.append('extraPan', extraPan.trim());
+      if (docName) formData.append('docName', docName.trim());
+
+      // 2. Append Customer Photo
+      if (customerPhotoFile) {
+        formData.append('customerPhoto', customerPhotoFile);
+      } else if (customerPhoto && customerPhoto.startsWith('data:image')) {
+        const photoBlob = dataURLtoFile(customerPhoto, 'customer-photo.jpg');
+        formData.append('customerPhoto', photoBlob);
+      }
+
+      // 3. Append attached KYC Documents
+      kycFiles.forEach((item) => {
+        formData.append('kycDocuments', item.file);
+      });
+
+      // 4. Send API request to Node/Express backend
+      const response = await apiService.createCustomerFormData(formData);
+
+      if (response && response.success) {
+        showToast('Customer KYC Profile Created & Uploaded to Cloudinary Successfully!', 'success');
+        localStorage.removeItem('kkv_kyc_draft');
+
+        // Sync local AppContext state
+        try {
+          if (reloadAllData) {
+            await reloadAllData();
+          } else if (response.data) {
+            addCustomer(response.data);
+          }
+        } catch {
+          // ignore reload error
+        }
+
+        setCurrentPage('customers');
+      } else {
+        showToast(response?.message || 'Failed to create customer.', 'error');
+      }
+    } catch (err: any) {
+      console.error('[AddCustomer] Submission error:', err);
+      showToast(err.message || 'Customer creation failed. Please check network connection.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -362,6 +496,7 @@ export const AddCustomer: React.FC = () => {
         <button
           className="btn btn-secondary"
           onClick={() => setCurrentPage('customers')}
+          disabled={isSubmitting}
           style={{ gap: '6px', fontSize: '13px', padding: '6px 14px' }}
         >
           <ArrowLeft size={16} />
@@ -402,7 +537,7 @@ export const AddCustomer: React.FC = () => {
               👤 Customer / KYC Details
             </h2>
             <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: 'var(--text-muted, #64748b)' }}>
-              Personal information, identity proof, and addresses
+              Personal information, identity proof, and addresses (MongoDB &amp; Cloudinary)
             </p>
           </div>
         </div>
@@ -455,6 +590,7 @@ export const AddCustomer: React.FC = () => {
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
+                  disabled={isSubmitting}
                   style={{ flex: 1, fontSize: '11.5px', padding: '6px 4px', justifyContent: 'center', gap: '4px' }}
                   onClick={startWebcam}
                 >
@@ -463,14 +599,15 @@ export const AddCustomer: React.FC = () => {
                 </button>
 
                 <label
-                  className="btn btn-secondary btn-sm"
-                  style={{ flex: 1, fontSize: '11.5px', padding: '6px 4px', justifyContent: 'center', gap: '4px', cursor: 'pointer', margin: 0 }}
+                  className={`btn btn-secondary btn-sm ${isSubmitting ? 'disabled' : ''}`}
+                  style={{ flex: 1, fontSize: '11.5px', padding: '6px 4px', justifyContent: 'center', gap: '4px', cursor: isSubmitting ? 'not-allowed' : 'pointer', margin: 0 }}
                 >
                   <Upload size={13} />
                   <span>Upload</span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/jpg,image/png"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    disabled={isSubmitting}
                     style={{ display: 'none' }}
                     onChange={handleFileUpload}
                   />
@@ -480,6 +617,7 @@ export const AddCustomer: React.FC = () => {
               {customerPhoto && (
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   style={{
                     marginTop: '6px',
                     width: '150px',
@@ -493,6 +631,7 @@ export const AddCustomer: React.FC = () => {
                   }}
                   onClick={() => {
                     setCustomerPhoto(null);
+                    setCustomerPhotoFile(null);
                     setPhotoSource(null);
                   }}
                 >
@@ -511,6 +650,7 @@ export const AddCustomer: React.FC = () => {
                     type="text"
                     className="input-control"
                     required
+                    disabled={isSubmitting}
                     placeholder="Enter customer full name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -544,6 +684,7 @@ export const AddCustomer: React.FC = () => {
                         borderColor: phoneTouched && phoneError ? 'var(--color-danger, #ef4444)' : undefined
                       }}
                       required
+                      disabled={isSubmitting}
                       maxLength={10}
                       placeholder="Enter 10-digit mobile number"
                       value={phone}
@@ -584,6 +725,7 @@ export const AddCustomer: React.FC = () => {
                   <select
                     className="select-control"
                     value={gender}
+                    disabled={isSubmitting}
                     onChange={(e) => setGender(e.target.value as any)}
                   >
                     <option value="Male">Male</option>
@@ -607,6 +749,7 @@ export const AddCustomer: React.FC = () => {
                   <input
                     type="text"
                     className="input-control"
+                    disabled={isSubmitting}
                     placeholder="e.g. Farmer, Trader"
                     value={occupation}
                     onChange={(e) => setOccupation(e.target.value)}
@@ -618,6 +761,7 @@ export const AddCustomer: React.FC = () => {
                   <input
                     type="email"
                     className="input-control"
+                    disabled={isSubmitting}
                     placeholder="customer@domain.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -629,15 +773,154 @@ export const AddCustomer: React.FC = () => {
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-subtle, #e2e8f0)', margin: '4px 0' }} />
 
-          {/* SECTION 2: IDENTITY PROOF */}
+          {/* SECTION 2: IDENTITY PROOF & DOCUMENT UPLOADS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-primary-dark)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+              IDENTITY PROOF &amp; KYC DOCUMENTS
+            </span>
+
             <IDProofInputFields
               idProof={idProof}
               idNumber={idNumber}
               extraPan={extraPan}
               docName={docName}
+              disabled={isSubmitting}
               onChange={handleIdProofChange}
             />
+
+            {/* KYC DOCUMENT ATTACHMENT BOX */}
+            <div
+              style={{
+                backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+                border: '1px solid var(--border-light, #e2e8f0)',
+                borderRadius: 'var(--radius-md, 8px)',
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-dark, #0f172a)' }}>
+                    📎 Upload KYC Documents (Cloudinary)
+                  </span>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '11.5px', color: 'var(--text-muted, #64748b)' }}>
+                    Attach copies of Aadhaar, PAN, Voter ID, Driving License, Passport, or Other (JPG, PNG, WEBP, PDF - max 10MB)
+                  </p>
+                </div>
+
+                <label
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                    gap: '6px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    margin: 0
+                  }}
+                >
+                  <Plus size={14} />
+                  <span>Attach Document</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
+                    disabled={isSubmitting}
+                    style={{ display: 'none' }}
+                    onChange={handleKycDocUpload}
+                  />
+                </label>
+              </div>
+
+              {/* LIST OF ATTACHED KYC FILES */}
+              {kycFiles.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px', marginTop: '6px' }}>
+                  {kycFiles.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '8px 10px',
+                        backgroundColor: 'var(--bg-card, #ffffff)',
+                        border: '1px solid var(--border-light, #cbd5e1)',
+                        borderRadius: '6px',
+                        position: 'relative'
+                      }}
+                    >
+                      {item.isPdf ? (
+                        <div
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '6px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            color: 'var(--color-danger, #ef4444)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                        >
+                          <FileText size={20} />
+                        </div>
+                      ) : (
+                        <img
+                          src={item.preview}
+                          alt="KYC Preview"
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '6px',
+                            objectFit: 'cover',
+                            flexShrink: 0,
+                            border: '1px solid var(--border-light, #e2e8f0)'
+                          }}
+                        />
+                      )}
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p
+                          style={{
+                            margin: 0,
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: 'var(--text-dark)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {item.name}
+                        </p>
+                        <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                          {item.size} • {item.docType}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => removeKycDoc(item.id)}
+                        disabled={isSubmitting}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: 'var(--text-muted)',
+                          padding: '4px',
+                          borderRadius: '4px'
+                        }}
+                        title="Remove file"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-subtle, #e2e8f0)', margin: '4px 0' }} />
@@ -652,6 +935,7 @@ export const AddCustomer: React.FC = () => {
                 <input
                   type="checkbox"
                   checked={sameAddress}
+                  disabled={isSubmitting}
                   onChange={(e) => setSameAddress(e.target.checked)}
                   style={{ accentColor: 'var(--color-primary-accent)', width: '15px', height: '15px' }}
                 />
@@ -666,6 +950,7 @@ export const AddCustomer: React.FC = () => {
                 <textarea
                   className="input-control"
                   rows={3}
+                  disabled={isSubmitting}
                   style={{ height: '88px', resize: 'vertical', fontSize: '13px' }}
                   placeholder="Enter current residential address"
                   value={currentAddressText}
@@ -684,7 +969,7 @@ export const AddCustomer: React.FC = () => {
                 <textarea
                   className="input-control"
                   rows={3}
-                  disabled={sameAddress}
+                  disabled={sameAddress || isSubmitting}
                   style={{
                     height: '88px',
                     resize: 'vertical',
@@ -721,6 +1006,7 @@ export const AddCustomer: React.FC = () => {
             <button
               type="button"
               className="btn btn-primary"
+              disabled={isSubmitting}
               onClick={handleCaptureGps}
               style={{ width: '100%', height: '42px', justifyContent: 'center', gap: '8px', fontSize: '13.5px', fontWeight: 700 }}
             >
@@ -747,6 +1033,7 @@ export const AddCustomer: React.FC = () => {
               <input
                 type="text"
                 className="input-control"
+                disabled={isSubmitting}
                 style={{ flex: 1, height: '40px', fontSize: '13px' }}
                 placeholder="Paste Google Maps link (e.g. https://maps.app.goo.gl/...)"
                 value={mapsUrlInput}
@@ -755,6 +1042,7 @@ export const AddCustomer: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-secondary"
+                disabled={isSubmitting}
                 onClick={handleUseMapsLink}
                 style={{ height: '40px', padding: '0 18px', fontSize: '13px', fontWeight: 700, gap: '6px' }}
               >
@@ -772,6 +1060,7 @@ export const AddCustomer: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary"
+              disabled={isSubmitting}
               onClick={() => setCurrentPage('customers')}
               style={{ height: '42px', padding: '0 20px', fontWeight: 600 }}
             >
@@ -782,6 +1071,7 @@ export const AddCustomer: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-secondary"
+                disabled={isSubmitting}
                 onClick={handleSaveDraft}
                 style={{ gap: '8px', height: '42px', padding: '0 20px', fontWeight: 600 }}
               >
@@ -792,10 +1082,20 @@ export const AddCustomer: React.FC = () => {
               <button
                 type="submit"
                 className="btn btn-primary"
-                style={{ height: '42px', gap: '8px', padding: '0 24px', fontWeight: 700, fontSize: '14px' }}
+                disabled={isSubmitting}
+                style={{ height: '42px', gap: '8px', padding: '0 24px', fontWeight: 700, fontSize: '14px', minWidth: '220px', justifyContent: 'center' }}
               >
-                <ShieldCheck size={18} />
-                <span>✓ Create &amp; Verify Customer</span>
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw size={18} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
+                    <span>Saving to MongoDB...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck size={18} />
+                    <span>✓ Create &amp; Verify Customer</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

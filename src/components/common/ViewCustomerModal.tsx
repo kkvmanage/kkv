@@ -1,6 +1,6 @@
 import React from 'react';
 import { Customer, Loan } from '../../types';
-import { X, User, ShieldCheck, ExternalLink, Phone, Mail, Briefcase, Calendar, CheckCircle2, FileSpreadsheet, Users, AlertCircle } from 'lucide-react';
+import { X, User, ShieldCheck, ExternalLink, Phone, Mail, Briefcase, Calendar, CheckCircle2, FileSpreadsheet, Users, AlertCircle, FileText } from 'lucide-react';
 import { formatIdProofDisplay } from '../../utils/kycValidation';
 import { buildGoogleMapsUrl } from '../../utils/addressUtils';
 import { useApp } from '../../context/AppContext';
@@ -594,6 +594,96 @@ export const ViewCustomerModal: React.FC<ViewCustomerModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* ATTACHED KYC DOCUMENTS (CLOUDINARY) */}
+          {customer.kycDocuments && customer.kycDocuments.length > 0 && (
+            <div>
+              <h4
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  color: 'var(--color-primary-dark)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  margin: '0 0 10px 0',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  paddingBottom: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <FileText size={14} color="var(--color-primary-accent)" />
+                <span>ATTACHED KYC DOCUMENTS ({customer.kycDocuments.length})</span>
+              </h4>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
+                {customer.kycDocuments.map((doc, idx) => {
+                  const isPdf = doc.resourceType === 'raw' || doc.url.endsWith('.pdf');
+                  return (
+                    <a
+                      key={`kyc-doc-${doc.publicId || idx}`}
+                      href={doc.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '10px 12px',
+                        backgroundColor: 'var(--bg-surface-secondary, #f8fafc)',
+                        border: '1px solid var(--border-light, #cbd5e1)',
+                        borderRadius: '8px',
+                        textDecoration: 'none',
+                        color: 'inherit',
+                        transition: 'border-color 0.2s'
+                      }}
+                    >
+                      {isPdf ? (
+                        <div
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '6px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            color: 'var(--color-danger, #ef4444)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                        >
+                          <FileText size={18} />
+                        </div>
+                      ) : (
+                        <img
+                          src={doc.url}
+                          alt={doc.documentName || 'KYC Doc'}
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '6px',
+                            objectFit: 'cover',
+                            flexShrink: 0,
+                            border: '1px solid var(--border-light, #e2e8f0)'
+                          }}
+                        />
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: 'var(--text-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {doc.documentName || `${doc.documentType} Doc`}
+                        </p>
+                        <span style={{ fontSize: '11px', color: 'var(--color-primary-dark)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <span>View on Cloudinary</span>
+                          <ExternalLink size={10} />
+                        </span>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ═══════════════════════════════════════════════════════════════════
               EXISTING LOANS SECTION (REAL DATABASE RECORDS)

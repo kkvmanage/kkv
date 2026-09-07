@@ -1,13 +1,59 @@
+import { env, validateStartupConfig } from './config/env.js';
+import { connectDB } from './config/database.js';
+import { isCloudinaryConfigured } from './config/cloudinary.js';
+import { googleDriveService } from './services/googleDriveService.js';
 import app from './app.js';
-import { env } from './config/env.js';
 
-app.listen(env.PORT, () => {
-  console.log(`[KKV Gold Finance Backend] Express server running at http://localhost:${env.PORT}`);
-  console.log(`[KKV Gold Finance Backend] API Base: http://localhost:${env.PORT}/api`);
-  console.log(`[KKV Gold Finance Backend] Health Endpoint: http://localhost:${env.PORT}/api/health`);
-  console.log(`GOOGLE_DRIVE_AUTH_MODE=oauth`);
-  console.log(`GOOGLE_DRIVE_FOLDER_ID=${env.GOOGLE_DRIVE_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx'}`);
-  console.log(`GOOGLE_DRIVE_ACCOUNT=${env.GOOGLE_DRIVE_ACCOUNT_EMAIL || 'goldfinancekkv@gmail.com'}`);
-  console.log(`GOOGLE_DRIVE_CLIENT_CONFIGURED=${Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)}`);
-  console.log(`GOOGLE_DRIVE_REFRESH_TOKEN_CONFIGURED=${Boolean(env.GOOGLE_REFRESH_TOKEN)}`);
-});
+async function startServer() {
+  const isMongoUriConfigured = Boolean(env.MONGODB_URI);
+  const isCloudinaryOk = isCloudinaryConfigured();
+
+  console.log(`[Database] MongoDB URI Configured: ${isMongoUriConfigured}`);
+  console.log(`[Storage] Cloudinary Configured: ${isCloudinaryOk}`);
+
+  // 1. Startup validation
+  const validation = validateStartupConfig();
+  if (!validation.isValid) {
+    console.error(`[Startup Validation] ❌ Missing required configuration: ${validation.missingVars.join(', ')}`);
+    if (env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
+  }
+
+  // 2. Connect to MongoDB via Mongoose and AWAIT connection before starting Express
+  try {
+    await connectDB();
+  } catch (dbErr: any) {
+    console.error('[Startup] Failed to establish MongoDB connection:', dbErr?.message || dbErr);
+    console.error('[MongoDB Atlas Check] Please verify in MongoDB Atlas Dashboard:');
+    console.error('  1. Network Access (Allow IP address / 0.0.0.0/0)');
+    console.error('  2. Database Access (Username & Password)');
+    console.error('  3. User Permissions (readWrite on kkv_gold_finance)');
+    if (env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
+  }
+
+  // 3. Log Cloudinary status
+  if (isCloudinaryOk) {
+    console.log('[Cloudinary] Configured successfully');
+  } else {
+    console.error('[Cloudinary] ❌ Cloudinary credentials missing in .env');
+  }
+
+  // 4. Initialize Google Drive once (optional integration)
+  if (googleDriveService.isConnected()) {
+    console.log(`[GoogleDriveService] Connected via ${googleDriveService.getAuthType()} (${googleDriveService.getPrincipalEmail()})`);
+  } else {
+    console.log('[GoogleDriveService] Google Drive is not connected. Optional integration disabled.');
+  }
+
+  // 5. Start Express server
+  app.listen(env.PORT, () => {
+    console.log(`[KKV Gold Finance Backend] Express server running at http://localhost:${env.PORT}`);
+    console.log(`[KKV Gold Finance Backend] API Base: http://localhost:${env.PORT}/api`);
+    console.log(`[KKV Gold Finance Backend] Health Endpoint: http://localhost:${env.PORT}/api/health`);
+  });
+}
+
+startServer();

@@ -106,7 +106,7 @@ export class DatabaseService {
     if (db) {
       try {
         const items = await db.collection(collection).find({}).toArray();
-        return items.map((doc) => {
+        return items.map((doc: any) => {
           const { _id, ...rest } = doc as any;
           return rest as T;
         });

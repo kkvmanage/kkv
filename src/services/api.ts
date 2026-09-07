@@ -1,5 +1,7 @@
-// Central Finance Backend API Client for Desktop Multi-Staff Deployment
-// Supports Centralized MongoDB Atlas + Downstream Google Drive Outbox Architecture
+import axios, { AxiosInstance } from 'axios';
+
+// Central Finance Backend API Client for Local & Desktop Multi-Staff Deployment
+// Supports Centralized MongoDB Atlas + Cloudinary + Optional Google Drive
 
 let customApiBaseUrl: string | null = null;
 
@@ -7,12 +9,13 @@ export const getApiBaseUrl = (): string => {
   if (customApiBaseUrl) return customApiBaseUrl;
 
   const envValue =
+    ((import.meta as any).env?.VITE_FINANCE_API_BASE) ||
     ((import.meta as any).env?.VITE_FINANCE_API_BASE_URL) ||
     ((import.meta as any).env?.VITE_API_BASE_URL) ||
     ((import.meta as any).env?.FINANCE_API_BASE_URL) ||
     (typeof window !== 'undefined' && (window as any).__FINANCE_API_URL__);
 
-  const raw = envValue || 'https://kkv-smoky.vercel.app';
+  const raw = envValue || 'http://localhost:8080/api';
   const clean = raw.endsWith('/') ? raw.slice(0, -1) : raw;
   return clean.endsWith('/api') ? clean : `${clean}/api`;
 };
@@ -20,6 +23,12 @@ export const getApiBaseUrl = (): string => {
 export const setApiBaseUrl = (url: string) => {
   customApiBaseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
 };
+
+// Log configured API Base once on initialization
+if (typeof window !== 'undefined' && !(window as any).__KKV_API_LOGGED__) {
+  (window as any).__KKV_API_LOGGED__ = true;
+  console.log(`[API] Base URL: ${getApiBaseUrl()}`);
+}
 
 function generateIdempotencyKey(): string {
   return 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
@@ -35,6 +44,40 @@ function getStoredAuthToken(): string | null {
     null
   );
 }
+
+// ── Centralized Axios Client ────────────────────────────────────────────────
+export const api: AxiosInstance = axios.create({
+  baseURL: getApiBaseUrl(),
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// Request interceptor for dynamic baseUrl, auth token & idempotency key
+api.interceptors.request.use((config) => {
+  config.baseURL = getApiBaseUrl();
+  const token = getStoredAuthToken();
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  if (config.method && config.method.toUpperCase() !== 'GET' && config.method.toUpperCase() !== 'HEAD') {
+    if (config.headers) {
+      config.headers['x-idempotency-key'] = generateIdempotencyKey();
+    }
+  }
+  return config;
+});
+
+// Response interceptor with user-friendly backend connection error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (!error.response) {
+      console.warn('[API Error] Unable to connect to KKV Gold Finance backend. Make sure the backend is running on port 8080.');
+    }
+    return Promise.reject(error);
+  }
+);
 
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
   const baseUrl = getApiBaseUrl();
@@ -73,7 +116,7 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T 
     if (err.message && err.message.includes('Conflict:')) {
       throw err;
     }
-    console.warn(`[Backend Sync] Server unreachable at ${baseUrl}${endpoint}.`);
+    console.warn(`[API Error] Unable to connect to KKV Gold Finance backend at ${baseUrl}${endpoint}. Make sure the backend is running on port 8080.`);
     return null;
   }
 }
@@ -227,17 +270,55 @@ export const apiService = {
   async getCustomerById(id: string) {
     return fetchJson<any>(`/customers/${encodeURIComponent(id)}`);
   },
+  async searchCustomers(query: string) {
+    if (!query || !query.trim()) {
+      return this.getCustomers();
+    }
+    return fetchJson<any[]>(`/customers/search?query=${encodeURIComponent(query)}`);
+  },
   async createCustomer(customer: any) {
     return fetchJson<any>('/customers', {
       method: 'POST',
       body: JSON.stringify(customer),
     });
   },
+  async createCustomerFormData(formData: FormData) {
+    const baseUrl = getApiBaseUrl();
+    const token = getStoredAuthToken();
+    try {
+      const res = await axios.post(`${baseUrl}/customers`, formData, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'x-idempotency-key': generateIdempotencyKey()
+        }
+      });
+      return res.data;
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Customer creation failed';
+      throw new Error(msg);
+    }
+  },
   async updateCustomer(id: string, customer: any) {
     return fetchJson<any>(`/customers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(customer),
     });
+  },
+  async updateCustomerFormData(id: string, formData: FormData) {
+    const baseUrl = getApiBaseUrl();
+    const token = getStoredAuthToken();
+    try {
+      const res = await axios.put(`${baseUrl}/customers/${id}`, formData, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'x-idempotency-key': generateIdempotencyKey()
+        }
+      });
+      return res.data;
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Customer update failed';
+      throw new Error(msg);
+    }
   },
   async deleteCustomer(id: string, userRole: string = 'ADMIN') {
     return fetchJson<{ success: boolean; message: string }>(`/customers/${id}`, {
@@ -257,6 +338,7 @@ export const apiService = {
       headers: { 'user-role': userRole }
     });
   },
+
 
   // Loans
   async getLoans() {
@@ -930,6 +1012,38 @@ export const apiService = {
     }
   },
 
+  async searchStaff(query: string): Promise<{ success: boolean; data: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/staff/search?query=${encodeURIComponent(query)}`);
+      const json = await res.json();
+      return { success: res.ok && json.success, data: json.data || [] };
+    } catch (err: any) {
+      return { success: false, data: [], message: err?.message || 'Failed to search staff.' };
+    }
+  },
+
+  async updateStaffPassword(
+    uid: string,
+    newPassword: string,
+    actorHeaders?: { uid?: string; email?: string }
+  ): Promise<{ success: boolean; message?: string }> {
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}/password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-actor-uid': actorHeaders?.uid || '',
+          'x-actor-email': actorHeaders?.email || ''
+        },
+        body: JSON.stringify({ newPassword })
+      });
+      const json = await res.json();
+      return { success: res.ok && json.success, message: json.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to update staff password.' };
+    }
+  },
+
   async getStaffAuditLogs(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
       const res = await fetch(`${getApiBaseUrl()}/staff/audit`);
@@ -940,3 +1054,7 @@ export const apiService = {
     }
   }
 };
+
+export default apiService;
+
+

@@ -8,15 +8,17 @@ import {
   deleteCustomer,
   restoreCustomer,
   deletePermanentlyCustomer
-} from '../controllers/customer.controller.js';
+} from '../controllers/customerController.js';
+import { handleUploadMiddleware } from '../middleware/uploadMiddleware.js';
 
 const router = Router();
 
+// Customer CRUD & Search Endpoints
 router.get('/', getCustomers);
 router.get('/search', searchCustomers);
 router.get('/:id', getCustomerById);
-router.post('/', createCustomer);
-router.put('/:id', updateCustomer);
+router.post('/', handleUploadMiddleware, createCustomer);
+router.put('/:id', handleUploadMiddleware, updateCustomer);
 router.delete('/:id', deleteCustomer);
 router.post('/:id/restore', restoreCustomer);
 router.delete('/:id/permanent', deletePermanentlyCustomer);

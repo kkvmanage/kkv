@@ -67,12 +67,27 @@ export interface Customer {
   permanentAddress: string;
   currentAddressDetails?: StructuredAddress;
   permanentAddressDetails?: StructuredAddress;
-  customerPhoto?: string | null;
+  fullName?: string;
+  phoneNumber?: string;
+  idProofType?: string;
+  idProofNumber?: string;
+  extraPan?: string;
+  docName?: string;
+  customerPhoto?: string | { url: string; publicId: string } | null;
+  customerPhotoData?: { url: string; publicId: string } | null;
   photoSource?: 'upload' | 'webcam' | null;
   currentLocation?: LocationDetails | null;
   permanentLocation?: LocationDetails | null;
   idProof: string;
   idNumber: string;
+  kycDocuments?: Array<{
+    documentType: string;
+    documentNumber?: string;
+    documentName?: string;
+    url: string;
+    publicId?: string;
+    resourceType?: string;
+  }>;
   activeLoansCount: number;
   totalBorrowed: number;
   status: 'VERIFIED' | 'PENDING';
@@ -88,6 +103,7 @@ export interface Customer {
   createdAt?: string;
   updatedAt?: string;
 }
+
 
 export type CalculationStrategy = 'MONTHLY_INTEREST_ONLY' | 'EMI' | 'BULLET';
 

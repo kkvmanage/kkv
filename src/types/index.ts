@@ -477,7 +477,9 @@ export interface FDCustomer {
 export interface Customer {
   id: string;
   customerId?: number;
+  fullName?: string;
   name: string;
+  phoneNumber?: string;
   phone: string;
   phoneNormalized?: string;
   gender: 'Male' | 'Female' | 'Other';
@@ -490,16 +492,27 @@ export interface Customer {
   currentAddressDetails?: StructuredAddress;
   permanentAddressDetails?: StructuredAddress;
   customerPhoto?: string | null;
+  customerPhotoData?: { url: string; publicId: string } | null;
   photoSource?: 'upload' | 'webcam' | null;
   currentLocation?: LocationDetails | CustomerLocationData | null;
   permanentLocation?: LocationDetails | CustomerLocationData | null;
+  idProofType?: string;
   idProof: string;
+  idProofNumber?: string;
   idNumber: string;
   aadhaarNumber?: string;
   panNumber?: string;
   extraPan?: string;
   otherIdName?: string;
   docName?: string;
+  kycDocuments?: Array<{
+    documentType: string;
+    documentNumber?: string;
+    documentName?: string;
+    url: string;
+    publicId?: string;
+    resourceType?: string;
+  }>;
   activeLoansCount: number;
   totalBorrowed: number;
   status: 'VERIFIED' | 'PENDING';
@@ -515,6 +528,7 @@ export interface Customer {
   createdAt?: string;
   updatedAt?: string;
 }
+
 
 export interface AmountBand {
   id: string;

@@ -85,11 +85,13 @@ export class GoogleDriveService {
     this.initGoogleDrive();
   }
 
+  private hasLoggedStatus: boolean = false;
+
   /**
    * Initializes Google Drive with OAuth 2.0 user authentication for goldfinancekkv@gmail.com.
    * Silently refreshes tokens using the refresh token in the background.
    */
-  public initGoogleDrive(): boolean {
+  public initGoogleDrive(silent: boolean = false): boolean {
     try {
       this.rootFolderId = (env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx').trim();
 
@@ -120,10 +122,15 @@ export class GoogleDriveService {
           this.principalEmail = env.GOOGLE_DRIVE_ACCOUNT_EMAIL || driveTokenService.getGoogleAccount() || 'goldfinancekkv@gmail.com';
           this.isDriveConfigured = true;
 
-          console.log(`[GoogleDriveService] ✅ Initialized Google Drive API via OAuth 2.0 (${this.principalEmail})`);
+          if (!this.hasLoggedStatus && !silent) {
+            console.log(`[GoogleDriveService] ✅ Initialized Google Drive API via OAuth 2.0 (${this.principalEmail})`);
+            this.hasLoggedStatus = true;
+          }
           return true;
         } catch (oaErr: any) {
-          console.warn('[GoogleDriveService] ⚠️ OAuth client initialization error:', oaErr?.message || oaErr);
+          if (!silent) {
+            console.warn('[GoogleDriveService] ⚠️ OAuth client initialization error:', oaErr?.message || oaErr);
+          }
         }
       }
 
@@ -144,28 +151,39 @@ export class GoogleDriveService {
           this.authType = 'SERVICE_ACCOUNT';
           this.principalEmail = serviceEmail;
           this.isDriveConfigured = true;
-          console.log(`[GoogleDriveService] 🏢 Initialized Google Drive API via Service Account (${serviceEmail})`);
+          if (!this.hasLoggedStatus && !silent) {
+            console.log(`[GoogleDriveService] 🏢 Initialized Google Drive API via Service Account (${serviceEmail})`);
+            this.hasLoggedStatus = true;
+          }
           return true;
         } catch (saErr: any) {
-          console.warn('[GoogleDriveService] ⚠️ Service Account initialization failed:', saErr?.message || saErr);
+          if (!silent) {
+            console.warn('[GoogleDriveService] ⚠️ Service Account initialization failed:', saErr?.message || saErr);
+          }
         }
       }
 
-      // 3. Not Connected
+      // 3. Not Connected - Log single warning only once
       this.authType = 'NONE';
       this.principalEmail = '';
       this.isDriveConfigured = false;
       this.drive = null;
       this.oauth2Client = null;
-      console.log('[GoogleDriveService] ℹ️ Google Drive is not connected.');
+      if (!this.hasLoggedStatus && !silent) {
+        console.log('[GoogleDriveService] Google Drive is not connected. Optional integration disabled.');
+        this.hasLoggedStatus = true;
+      }
       return false;
     } catch (err: any) {
-      console.error('[GoogleDriveService] ❌ Initialization failed:', err?.message || err);
       this.authType = 'NONE';
       this.principalEmail = '';
       this.isDriveConfigured = false;
       this.drive = null;
       this.oauth2Client = null;
+      if (!this.hasLoggedStatus && !silent) {
+        console.log('[GoogleDriveService] Google Drive is not connected. Optional integration disabled.');
+        this.hasLoggedStatus = true;
+      }
       return false;
     }
   }
