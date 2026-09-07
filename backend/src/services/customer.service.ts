@@ -2,6 +2,7 @@ import { googleDriveRepository } from '../repositories/googleDrive.repository.js
 import { googleDriveService } from './googleDriveService.js';
 import { syncQueueService } from './syncQueue.service.js';
 import { counterService } from './counter.service.js';
+import { getFinanceDb } from '../config/database.js';
 import { Customer } from '../types/index.js';
 
 const FILE_NAME = 'customers.json';
@@ -63,7 +64,10 @@ export class CustomerService {
     });
   }
 
-  public async create(data: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>): Promise<Customer> {
+  public async create(
+    data: Omit<Customer, 'id' | 'activeLoansCount' | 'totalBorrowed' | 'joinedDate'>,
+    idempotencyKey?: string
+  ): Promise<Customer> {
     const customers = this.getAll(true);
     const normPhone = normalizePhone(data.phone);
 
@@ -76,18 +80,48 @@ export class CustomerService {
       throw err;
     }
 
-    // Atomic Customer ID sequence generation
-    const seq = counterService.getNextSequence('customerId');
-    const id = `CUST-${String(seq).padStart(4, '0')}`;
+    // 1. Centralized Atomic Unique Customer ID Generation via MongoDB Atlas
+    const seq = await counterService.getNextSequence('customerId');
+    const id = `CUST-${String(seq).padStart(3, '0')}`;
 
+    // 2. Google Drive Folder / Workspace Setup
     let driveFolderId: string | undefined;
     try {
       const folders = await googleDriveService.ensureCustomerFolders(id);
       driveFolderId = folders.customerFolderId;
     } catch (e) {
-      console.warn('[CustomerService] Google Drive folder setup warning:', e);
+      console.warn('[CustomerService] Google Drive folder setup warning (will retry via outbox):', e);
     }
 
+    // 3. Register Unique Customer Identity & Sync Metadata in MongoDB Atlas
+    try {
+      const db = await getFinanceDb();
+      if (db) {
+        await db.collection('customer_index').updateOne(
+          { customerId: id },
+          {
+            $set: {
+              customerId: id,
+              numericId: seq,
+              entityType: 'CUSTOMER',
+              phoneNormalized: normPhone,
+              version: 1,
+              syncStatus: driveFolderId ? 'SYNCED' : 'PENDING',
+              driveFolderId: driveFolderId || null,
+              idempotencyKey: idempotencyKey || null,
+              isDeleted: false,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }
+          },
+          { upsert: true }
+        );
+      }
+    } catch (dbErr) {
+      console.warn('[CustomerService] MongoDB customer identity index notice:', dbErr);
+    }
+
+    // 4. Construct Authoritative Business Customer Record in Google Drive
     const newCustomer: Customer = {
       ...data,
       id,
@@ -110,13 +144,13 @@ export class CustomerService {
     customers.unshift(newCustomer);
     googleDriveRepository.writeJson(FILE_NAME, customers);
 
-    // Enqueue background sync event
+    // 5. Enqueue Durable Background Sync Outbox Event to Google Drive
     syncQueueService.enqueue('customer', newCustomer.id, 'CREATE', newCustomer);
 
     return newCustomer;
   }
 
-  public update(id: string, data: Partial<Customer>): Customer | null {
+  public async update(id: string, data: Partial<Customer>): Promise<Customer | null> {
     const customers = this.getAll(true);
     const index = customers.findIndex((c) => c.id === id || (c.customerId && c.customerId.toString() === id));
     if (index === -1) return null;
@@ -135,20 +169,42 @@ export class CustomerService {
       data.phoneNormalized = normPhone;
     }
 
-    customers[index] = {
-      ...customers[index],
+    const currentCust = customers[index];
+    const updatedCustomer: Customer = {
+      ...currentCust,
       ...data,
-      id: customers[index].id, // Protect original ID
-      customerId: customers[index].customerId,
+      id: currentCust.id, // Strictly protect original immutable Customer ID
+      customerId: currentCust.customerId,
       updatedAt: new Date().toISOString()
     };
 
+    customers[index] = updatedCustomer;
     googleDriveRepository.writeJson(FILE_NAME, customers);
 
-    // Enqueue background sync event
-    syncQueueService.enqueue('customer', customers[index].id, 'UPDATE', customers[index]);
+    // Increment version in MongoDB Identity & Sync Index
+    try {
+      const db = await getFinanceDb();
+      if (db) {
+        await db.collection('customer_index').updateOne(
+          { customerId: currentCust.id },
+          {
+            $inc: { version: 1 },
+            $set: {
+              phoneNormalized: updatedCustomer.phoneNormalized,
+              syncStatus: 'SYNCED',
+              updatedAt: updatedCustomer.updatedAt
+            }
+          }
+        );
+      }
+    } catch (dbErr) {
+      console.warn('[CustomerService] MongoDB index version update notice:', dbErr);
+    }
 
-    return customers[index];
+    // Enqueue background sync event
+    syncQueueService.enqueue('customer', updatedCustomer.id, 'UPDATE', updatedCustomer);
+
+    return updatedCustomer;
   }
 
   public delete(id: string, userRole?: string): { success: boolean; statusCode?: number; message?: string } {

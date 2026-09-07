@@ -107,7 +107,7 @@ export const createCustomer = async (req: Request, res: Response) => {
   }
 };
 
-export const updateCustomer = (req: Request, res: Response) => {
+export const updateCustomer = async (req: Request, res: Response) => {
   try {
     const { name, phone, idProof, idNumber, currentAddress } = req.body || {};
 
@@ -149,7 +149,7 @@ export const updateCustomer = (req: Request, res: Response) => {
       });
     }
 
-    const updated = customerService.update(req.params.id, req.body);
+    const updated = await customerService.update(req.params.id, req.body);
     if (!updated) {
       return res.status(404).json({
         success: false,

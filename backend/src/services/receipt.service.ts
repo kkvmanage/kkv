@@ -1,5 +1,6 @@
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { syncQueueService } from './syncQueue.service.js';
+import { counterService } from './counter.service.js';
 import { Receipt } from '../types/index.js';
 
 const FILE_NAME = 'receipts.json';
@@ -22,10 +23,12 @@ export class ReceiptService {
     return receipts.find((r) => r.receiptNo === receiptNo) || null;
   }
 
-  public create(receiptData: Omit<Receipt, 'id'> & { receiptNo?: number }): Receipt {
+  public async create(receiptData: Omit<Receipt, 'id'> & { receiptNo?: number }): Promise<Receipt> {
     const receipts = this.getAll();
-    const nextNo = receipts.length > 0 ? Math.max(...receipts.map((r) => r.receiptNo)) + 1 : 1;
-    const receiptNo = receiptData.receiptNo && receiptData.receiptNo > 0 ? receiptData.receiptNo : nextNo;
+    let receiptNo = receiptData.receiptNo;
+    if (!receiptNo || receiptNo <= 0) {
+      receiptNo = await counterService.getNextSequence('receiptNo');
+    }
 
     const newReceipt: Receipt = {
       ...receiptData,

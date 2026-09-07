@@ -25,11 +25,18 @@ export const getReceiptByNo = (req: Request, res: Response) => {
   });
 };
 
-export const createReceipt = (req: Request, res: Response) => {
-  const newReceipt = receiptService.create(req.body);
-  return res.status(201).json({
-    success: true,
-    message: 'Receipt recorded successfully',
-    data: newReceipt
-  });
+export const createReceipt = async (req: Request, res: Response) => {
+  try {
+    const newReceipt = await receiptService.create(req.body);
+    return res.status(201).json({
+      success: true,
+      message: 'Receipt recorded successfully',
+      data: newReceipt
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to record receipt'
+    });
+  }
 };

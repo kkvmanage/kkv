@@ -8,6 +8,8 @@ import { receiptService } from './receipt.service.js';
 import { accountingService } from './accounting.service.js';
 import { adminService } from './admin.service.js';
 
+import { counterService } from './counter.service.js';
+
 const FILE_NAME = 'loans.json';
 
 const initialLoans: Loan[] = [];
@@ -60,15 +62,7 @@ export class LoanService {
 
   public async create(loanData: Omit<Loan, 'id' | 'loanNo'> & { loanNo?: string }): Promise<Loan> {
     const loans = this.getAll();
-    let maxNum = 0;
-    for (const l of loans) {
-      const match = (l.loanNo || '').match(/\d+/);
-      if (match) {
-        const n = parseInt(match[0], 10);
-        if (n > maxNum) maxNum = n;
-      }
-    }
-    const loanNo = loanData.loanNo || `GL-${(maxNum + 1).toString().padStart(2, '0')}`;
+    const loanNo = loanData.loanNo || (await counterService.getNextLoanNo());
     const id = `L-${Date.now()}`;
     let driveFolderId: string | undefined;
 

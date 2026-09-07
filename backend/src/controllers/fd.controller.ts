@@ -27,9 +27,9 @@ export const getFixedDeposits = (req: Request, res: Response) => {
   });
 };
 
-export const createFixedDeposit = (req: Request, res: Response) => {
+export const createFixedDeposit = async (req: Request, res: Response) => {
   try {
-    const newFD = fdService.createDeposit(req.body);
+    const newFD = await fdService.createDeposit(req.body);
     return res.status(201).json({
       success: true,
       message: 'Fixed Deposit created',

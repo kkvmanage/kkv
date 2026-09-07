@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
 import { syncQueueService } from './syncQueue.service.js';
+import { counterService } from './counter.service.js';
 import { FixedDeposit, FDCustomer, FDInterestPayout, FDWithdrawal, DayBookEntry } from '../types/index.js';
 import { accountingService } from './accounting.service.js';
 import { adminService } from './admin.service.js';
@@ -37,10 +38,9 @@ export class FDService {
     return Array.isArray(list) ? list : [];
   }
 
-  public createDeposit(data: Omit<FixedDeposit, 'id' | 'fdNo'>): FixedDeposit {
+  public async createDeposit(data: Omit<FixedDeposit, 'id' | 'fdNo'>): Promise<FixedDeposit> {
     const deposits = this.getDeposits();
-    const nextNo = deposits.length + 1;
-    const fdNo = `FD-${nextNo.toString().padStart(2, '0')}`;
+    const fdNo = await counterService.getNextFdNo();
 
     // ── MASTER CONTROL RESOLUTION (SINGLE SOURCE OF TRUTH) ────────────────────
     const masterSettings = adminService.getMasterSettings();
