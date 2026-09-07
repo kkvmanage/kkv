@@ -7,19 +7,66 @@ import { getHealth } from './controllers/health.controller.js';
 
 const app = express();
 
-app.use(helmet());
+// ── Allowed Origins Allowlist ───────────────────────────────────────────────
+const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const defaultAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'https://kkv-smoky.vercel.app'
+];
+
+const allowedOriginsSet = new Set([...defaultAllowedOrigins, ...configuredOrigins]);
+
+const isOriginAllowed = (origin?: string): boolean => {
+  if (!origin) return true; // allow non-browser / mobile / desktop same-origin calls
+  if (allowedOriginsSet.has(origin)) return true;
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return true;
+  if (origin.endsWith('.vercel.app')) return true; // Vercel preview environments
+  return false;
+};
+
+// ── 1. Bulletproof CORS & OPTIONS Preflight Middleware (Must run FIRST) ────
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin;
+
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  res.setHeader(
+    'Access-Control-Allow-Methods',
+    'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD'
+  );
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, x-idempotency-key, user-id, user-name, user-role, x-actor-uid, x-actor-email, Accept, X-Requested-With, Origin'
+  );
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  // Immediately respond to OPTIONS preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  next();
+});
+
+// ── 2. Security Headers (configured safely for cross-origin APIs) ───────────
 app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
-    credentials: true
+  helmet({
+    crossOriginResourcePolicy: false,
+    crossOriginEmbedderPolicy: false
   })
 );
+
 app.use(express.json({ limit: '10mb' }));
 
 // Root Information Endpoint
