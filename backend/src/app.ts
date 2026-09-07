@@ -39,6 +39,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin || '*');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
 
   res.setHeader(
@@ -47,7 +50,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   );
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-idempotency-key, user-id, user-name, user-role, x-actor-uid, x-actor-email, Accept, X-Requested-With, Origin'
+    'Content-Type, Authorization, user-role, user-id, user-name, x-actor-uid, x-actor-email, x-idempotency-key, Accept, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers'
   );
   res.setHeader('Access-Control-Max-Age', '86400');
 
@@ -79,12 +82,18 @@ app.get('/', (req: Request, res: Response) => {
 
 // Direct Health Endpoint
 app.get('/health', getHealth);
+app.get('/api/health', getHealth);
 
-// Mount API routes
+// Mount API routes at /api and root fallback
 app.use('/api', apiRouter);
+app.use('/', apiRouter);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
   res.status(404).json({
     success: false,
     message: `Endpoint ${req.method} ${req.path} not found`,
@@ -95,6 +104,10 @@ app.use((req: Request, res: Response) => {
 // Centralized Error Handler
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('[Unhandled Error]:', err);
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal Server Error',
