@@ -7,6 +7,7 @@ export const getHealth = async (req: Request, res: Response) => {
   const mongoHealth = await checkMongoHealth();
 
   return res.json({
+    status: 'UP',
     application: 'UP',
     database: mongoHealth.connected ? 'MONGODB_ATLAS' : 'LOCAL_STORAGE_STANDBY',
     mongoDb: mongoHealth.status,

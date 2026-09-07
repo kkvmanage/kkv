@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { env } from './config/env.js';
 import apiRouter from './routes/index.js';
+import { getHealth } from './controllers/health.controller.js';
 
 const app = express();
 
@@ -20,6 +21,17 @@ app.use(
   })
 );
 app.use(express.json({ limit: '10mb' }));
+
+// Root Information Endpoint
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    message: 'KKV Gold Finance API is running'
+  });
+});
+
+// Direct Health Endpoint
+app.get('/health', getHealth);
 
 // Mount API routes
 app.use('/api', apiRouter);
