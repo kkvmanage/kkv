@@ -1,44 +1,46 @@
 import { Router } from 'express';
 import { rentalController } from '../controllers/rental.controller.js';
+import { authenticateUser, authorizePermission, authorizeRoles } from '../../../middleware/auth.middleware.js';
 
 const router = Router();
 
-// Dashboard
-router.get('/dashboard', rentalController.getDashboard.bind(rentalController));
+// Protect all rental routes with authenticated session
+router.use(authenticateUser);
+
+// Dashboard (ADMIN + RENTAL_STAFF / permitted STAFF)
+router.get('/dashboard', authorizePermission('rental', 'view'), rentalController.getDashboard.bind(rentalController));
 
 // Complexes
-router.get('/complexes', rentalController.getComplexes.bind(rentalController));
-router.post('/complexes', rentalController.createComplex.bind(rentalController));
-router.get('/complexes/:id', rentalController.getComplexById.bind(rentalController));
-router.put('/complexes/:id', rentalController.updateComplex.bind(rentalController));
+router.get('/complexes', authorizePermission('rental', 'view'), rentalController.getComplexes.bind(rentalController));
+router.post('/complexes', authorizePermission('rental', 'create'), rentalController.createComplex.bind(rentalController));
+router.get('/complexes/:id', authorizePermission('rental', 'view'), rentalController.getComplexById.bind(rentalController));
+router.put('/complexes/:id', authorizePermission('rental', 'update'), rentalController.updateComplex.bind(rentalController));
 
 // Shops
-router.get('/shops', rentalController.getShops.bind(rentalController));
-router.post('/shops', rentalController.createShop.bind(rentalController));
-router.get('/shops/:id', rentalController.getShopById.bind(rentalController));
-router.get('/shops/:id/status', rentalController.getShopMonthlyStatus.bind(rentalController));
-router.put('/shops/:id', rentalController.updateShop.bind(rentalController));
+router.get('/shops', authorizePermission('rental', 'view'), rentalController.getShops.bind(rentalController));
+router.post('/shops', authorizePermission('rental', 'create'), rentalController.createShop.bind(rentalController));
+router.get('/shops/:id', authorizePermission('rental', 'view'), rentalController.getShopById.bind(rentalController));
+router.get('/shops/:id/status', authorizePermission('rental', 'view'), rentalController.getShopMonthlyStatus.bind(rentalController));
+router.put('/shops/:id', authorizePermission('rental', 'update'), rentalController.updateShop.bind(rentalController));
 
 // Rent Payments
-router.get('/payments', rentalController.getPayments.bind(rentalController));
-router.post('/payments', rentalController.createPayment.bind(rentalController));
+router.get('/payments', authorizePermission('rental', 'view'), rentalController.getPayments.bind(rentalController));
+router.post('/payments', authorizePermission('rental', 'create'), rentalController.createPayment.bind(rentalController));
 
 // Expenses
-router.get('/expenses', rentalController.getExpenses.bind(rentalController));
-router.post('/expenses', rentalController.createExpense.bind(rentalController));
-router.put('/expenses/:id', rentalController.updateExpense.bind(rentalController));
-router.delete('/expenses/:id', rentalController.deleteExpense.bind(rentalController));
+router.get('/expenses', authorizePermission('rental', 'view'), rentalController.getExpenses.bind(rentalController));
+router.post('/expenses', authorizePermission('rental', 'create'), rentalController.createExpense.bind(rentalController));
+router.put('/expenses/:id', authorizePermission('rental', 'update'), rentalController.updateExpense.bind(rentalController));
+router.delete('/expenses/:id', authorizePermission('rental', 'delete'), rentalController.deleteExpense.bind(rentalController));
 
 // Reports
-router.get('/reports/monthly', rentalController.getMonthlyReport.bind(rentalController));
-router.get('/reports/expenses', rentalController.getExpenseReport.bind(rentalController));
-router.get('/reports/payment-modes', rentalController.getPaymentModeReport.bind(rentalController));
+router.get('/reports/monthly', authorizePermission('rental', 'view'), rentalController.getMonthlyReport.bind(rentalController));
+router.get('/reports/expenses', authorizePermission('rental', 'view'), rentalController.getExpenseReport.bind(rentalController));
+router.get('/reports/payment-modes', authorizePermission('rental', 'view'), rentalController.getPaymentModeReport.bind(rentalController));
 
-// Existing Finance Admin Integration Summary
-router.get('/admin/summary', rentalController.getAdminSummary.bind(rentalController));
-
-// Google Drive / Sheets Sync Control
-router.get('/sync/status', rentalController.getSyncStatus.bind(rentalController));
-router.post('/sync/retry', rentalController.retrySync.bind(rentalController));
+// Admin-only Summary & Sync Control
+router.get('/admin/summary', authorizeRoles('ADMIN'), rentalController.getAdminSummary.bind(rentalController));
+router.get('/sync/status', authorizeRoles('ADMIN'), rentalController.getSyncStatus.bind(rentalController));
+router.post('/sync/retry', authorizeRoles('ADMIN'), rentalController.retrySync.bind(rentalController));
 
 export default router;

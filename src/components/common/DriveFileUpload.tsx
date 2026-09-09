@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, FileText, Image as ImageIcon, CheckCircle, AlertCircle, Trash2, ExternalLink, Loader2 } from 'lucide-react';
-import { apiService } from '../../services/api';
 
 export interface DriveFileItem {
   fileId: string;
@@ -14,7 +13,7 @@ export interface DriveFileItem {
 export interface DriveFileUploadProps {
   label?: string;
   accept?: string;
-  maxSizeBytes?: number; // Default 10MB
+  maxSizeBytes?: number;
   customerId?: string;
   loanId?: string;
   category?: 'profile' | 'kyc' | 'document' | 'receipt';
@@ -26,13 +25,9 @@ export interface DriveFileUploadProps {
 }
 
 export const DriveFileUpload: React.FC<DriveFileUploadProps> = ({
-  label = 'Upload Document to Google Drive',
+  label = 'Upload Document',
   accept = '.jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf',
   maxSizeBytes = 10 * 1024 * 1024,
-  customerId,
-  loanId,
-  category = 'kyc',
-  folderId,
   files = [],
   onUploadSuccess,
   onFileDeleted,
@@ -50,13 +45,11 @@ export const DriveFileUpload: React.FC<DriveFileUploadProps> = ({
     if (!selectedFiles || selectedFiles.length === 0) return;
     const file = selectedFiles[0];
 
-    // Validate size
     if (file.size > maxSizeBytes) {
       setErrorMessage(`File "${file.name}" exceeds maximum allowed size of 10MB.`);
       return;
     }
 
-    // Validate format
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (!['jpg', 'jpeg', 'png', 'pdf'].includes(ext || '')) {
       setErrorMessage(`Invalid file format "${ext}". Only JPG, JPEG, PNG, and PDF are supported.`);
@@ -68,54 +61,44 @@ export const DriveFileUpload: React.FC<DriveFileUploadProps> = ({
 
   const uploadFile = async (file: File) => {
     setUploading(true);
-    setProgress(0);
+    setProgress(30);
     setErrorMessage('');
     setSuccessMessage('');
 
     try {
-      let res;
-      if (customerId) {
-        res = await apiService.uploadCustomerDocument(customerId, file, category as 'profile' | 'kyc', (p) => setProgress(p));
-      } else if (loanId) {
-        res = await apiService.uploadLoanDocument(loanId, file, category as 'document' | 'receipt', (p) => setProgress(p));
-      } else {
-        res = await apiService.uploadDriveFile(file, { folderId, category }, (p) => setProgress(p));
-      }
-
-      if (res.success && res.data) {
-        const driveData = res.data.driveFile || res.data;
+      const reader = new FileReader();
+      reader.onload = () => {
+        setProgress(100);
         const newFile: DriveFileItem = {
-          fileId: driveData.fileId || `drive_${Date.now()}`,
-          name: driveData.name || file.name,
-          mimeType: driveData.mimeType || file.type,
-          webViewLink: driveData.webViewLink,
-          webContentLink: driveData.webContentLink
+          fileId: `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name: file.name,
+          mimeType: file.type,
+          webViewLink: reader.result as string,
+          size: file.size
         };
 
         setUploadedFiles((prev) => (multiple ? [...prev, newFile] : [newFile]));
-        setSuccessMessage(`Successfully uploaded "${file.name}" to Google Drive`);
+        setSuccessMessage(`Successfully attached "${file.name}"`);
         if (onUploadSuccess) onUploadSuccess(newFile);
-      } else {
-        setErrorMessage(res.message || 'Failed to upload file to Google Drive');
-      }
+        setUploading(false);
+      };
+      reader.onerror = () => {
+        setErrorMessage('Failed to read file.');
+        setUploading(false);
+      };
+      reader.readAsDataURL(file);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error occurred during Google Drive file upload.');
-    } finally {
+      setErrorMessage(err.message || 'Error occurred during file upload.');
       setUploading(false);
+    } finally {
       setProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleDelete = async (fileId: string) => {
-    try {
-      await apiService.deleteDriveFile(fileId);
-      setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId));
-      if (onFileDeleted) onFileDeleted(fileId);
-    } catch {
-      setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId));
-      if (onFileDeleted) onFileDeleted(fileId);
-    }
+  const handleDelete = (fileId: string) => {
+    setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId));
+    if (onFileDeleted) onFileDeleted(fileId);
   };
 
   return (
@@ -126,7 +109,6 @@ export const DriveFileUpload: React.FC<DriveFileUploadProps> = ({
         </label>
       )}
 
-      {/* Drag & Drop Area */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -167,27 +149,8 @@ export const DriveFileUpload: React.FC<DriveFileUploadProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', width: '100%' }}>
             <Loader2 size={28} color="var(--color-primary-dark)" className="animate-spin" />
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-primary-dark)' }}>
-              Uploading to Google Drive... {progress}%
+              Processing attachment... {progress}%
             </span>
-            <div
-              style={{
-                width: '80%',
-                maxWidth: '300px',
-                height: '6px',
-                backgroundColor: 'var(--border-light)',
-                borderRadius: '3px',
-                overflow: 'hidden'
-              }}
-            >
-              <div
-                style={{
-                  width: `${progress}%`,
-                  height: '100%',
-                  backgroundColor: 'var(--color-primary-accent)',
-                  transition: 'width 0.2s ease'
-                }}
-              />
-            </div>
           </div>
         ) : (
           <>
@@ -206,18 +169,17 @@ export const DriveFileUpload: React.FC<DriveFileUploadProps> = ({
             </div>
             <div>
               <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-primary-dark)' }}>
-                Click to upload
+                Click to attach
               </span>{' '}
               <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>or drag and drop</span>
             </div>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              JPG, JPEG, PNG, or PDF (Max 10MB) • Stored securely in Google Drive
+              JPG, JPEG, PNG, or PDF (Max 10MB)
             </span>
           </>
         )}
       </div>
 
-      {/* Messages */}
       {errorMessage && (
         <div
           style={{
@@ -258,11 +220,10 @@ export const DriveFileUpload: React.FC<DriveFileUploadProps> = ({
         </div>
       )}
 
-      {/* Uploaded Files List */}
       {uploadedFiles.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
           <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-            Uploaded Files ({uploadedFiles.length})
+            Attached Files ({uploadedFiles.length})
           </span>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

@@ -48,7 +48,7 @@ export const LoanConfigurationSection: React.FC = () => {
     userRole
   } = useApp();
 
-  const isAuthorized = userRole === 'MASTER_ADMIN';
+  const isAuthorized = userRole === 'ADMIN';
 
   const loanTypes = masterControlSettings?.loanTypes || [];
   const repaymentSystems = masterControlSettings?.repaymentSystems || [];

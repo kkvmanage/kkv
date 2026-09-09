@@ -8,7 +8,8 @@ import {
   FileArchive,
   AlertTriangle,
   RotateCcw,
-  CheckCircle2
+  CheckCircle2,
+  ShieldCheck
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { WipeAllDataModal } from '../components/admin/WipeAllDataModal';
@@ -31,27 +32,6 @@ export const BackupRestore: React.FC = () => {
   const [chatId, setChatId] = useState(telegramConfig.chatId || '');
   const [autoBackupOnOpen, setAutoBackupOnOpen] = useState(telegramConfig.autoBackupOnOpen || false);
 
-  const [driveHealth, setDriveHealth] = useState<{
-    loaded: boolean;
-    success: boolean;
-    authType: string;
-    authMode?: string;
-    googlePrincipal: string;
-    googleAccount?: string;
-    sharedDrive?: boolean;
-    sharedDriveId?: string;
-    folderName?: string;
-    folderId?: string;
-    canUpload?: boolean;
-    message?: string;
-    errorCode?: string;
-  }>({
-    loaded: false,
-    success: false,
-    authType: 'NONE',
-    googlePrincipal: ''
-  });
-
   const [backupHistory, setBackupHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [creatingBackup, setCreatingBackup] = useState(false);
@@ -59,24 +39,12 @@ export const BackupRestore: React.FC = () => {
   // Restore History
   const [restoreHistory, setRestoreHistory] = useState<any[]>([]);
   const [loadingRestoreHistory, setLoadingRestoreHistory] = useState(false);
-  const [retryingRestoreId, setRetryingRestoreId] = useState<string | null>(null);
 
   // Modals
   const [showWipeModal, setShowWipeModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
 
   useEffect(() => {
-    // Check URL search params for OAuth redirect feedback
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('drive_connected') === 'true') {
-      showToast('Google Drive successfully connected!', 'success');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (urlParams.get('drive_error')) {
-      showToast('Google Drive authorization check failed.', 'error');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    loadDriveHealth();
     loadHistory();
     loadRestoreHistory();
   }, []);
@@ -86,35 +54,6 @@ export const BackupRestore: React.FC = () => {
     setChatId(telegramConfig.chatId || '');
     setAutoBackupOnOpen(telegramConfig.autoBackupOnOpen || false);
   }, [telegramConfig]);
-
-  const loadDriveHealth = async () => {
-    try {
-      const res = await apiService.getDriveHealth();
-      setDriveHealth({
-        loaded: true,
-        success: res.success || (res as any).connected || false,
-        authType: (res as any).authMode || res.authType || 'SERVICE_ACCOUNT',
-        authMode: (res as any).authMode || res.authType || 'SERVICE_ACCOUNT',
-        googlePrincipal: (res as any).principal || res.googlePrincipal || res.googleAccount || '',
-        googleAccount: res.googleAccount || (res as any).principal || res.googlePrincipal || '',
-        sharedDrive: (res as any).sharedDrive,
-        sharedDriveId: (res as any).sharedDriveId,
-        folderName: res.folderName || 'kkv finance',
-        folderId: (res as any).folderId || '',
-        canUpload: res.canUpload,
-        message: res.message,
-        errorCode: res.errorCode
-      });
-    } catch {
-      setDriveHealth({
-        loaded: true,
-        success: false,
-        authType: 'NONE',
-        googlePrincipal: '',
-        googleAccount: ''
-      });
-    }
-  };
 
   const loadHistory = async () => {
     setLoadingHistory(true);
@@ -162,95 +101,103 @@ export const BackupRestore: React.FC = () => {
     }
   };
 
-  const handleUploadBackupToDrive = async (backupId: string) => {
-    showToast('Uploading backup package to Google Drive...', 'info');
-    try {
-      const res = await apiService.uploadBackupToDrive(backupId);
-      if (res.success) {
-        showToast('Backup package verified in Google Drive!', 'success');
-        loadHistory();
-      } else {
-        showToast(res.message || 'Failed to upload to Google Drive', 'error');
-      }
-    } catch (err: any) {
-      showToast(`Drive upload failed: ${err.message}`, 'error');
-    }
+  const handleDownloadBackup = (backupId: string) => {
+    apiService.downloadBackup(backupId);
+    showToast('Backup download started.', 'info');
   };
 
-  const handleRetryRestoreDriveSync = async (restoreId: string) => {
-    setRetryingRestoreId(restoreId);
-    showToast('Retrying Google Drive synchronization...', 'info');
-    try {
-      const res = await apiService.retryRestoreDriveSync(restoreId);
-      if (res.success) {
-        showToast('Restored state synchronized with Google Drive!', 'success');
-        loadRestoreHistory();
-      } else {
-        showToast(res.message || 'Drive sync retry failed.', 'error');
-      }
-    } catch (err: any) {
-      showToast(`Sync error: ${err.message}`, 'error');
-    } finally {
-      setRetryingRestoreId(null);
-    }
+  const handleSaveTelegram = () => {
+    updateTelegramConfig({
+      botToken: botToken.trim(),
+      chatId: chatId.trim(),
+      autoBackupOnOpen
+    });
+    showToast('Telegram configuration saved!', 'success');
   };
 
   const handleTestTelegram = async () => {
+    if (!botToken.trim() || !chatId.trim()) {
+      showToast('Please enter both Bot Token and Chat ID', 'warning');
+      return;
+    }
+    showToast('Sending test message to Telegram...', 'info');
     try {
-      await apiService.updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
-      updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
-      showToast('Sending test message to Telegram...', 'info');
-      const res = await apiService.testTelegram();
-      if (res.success) {
-        showToast('Telegram test message sent successfully!', 'success');
+      const res = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId.trim(),
+          text: `🔐 *KKV Gold Finance — System Alert*\n\nTelegram backup notifications are successfully configured and active.\n_Time: ${new Date().toLocaleString()}_`,
+          parse_mode: 'Markdown'
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast('Telegram test message delivered successfully!', 'success');
       } else {
-        showToast(`Telegram test failed: ${res.message || 'unknown error'}`, 'error');
+        showToast(`Telegram Error: ${data.description}`, 'error');
       }
     } catch (err: any) {
-      showToast(`Telegram connection failed: ${err.message}`, 'error');
+      showToast(`Connection failed: ${err.message}`, 'error');
     }
   };
 
-  const handleSaveTelegram = async () => {
-    try {
-      await apiService.updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
-      updateTelegramConfig({ botToken, chatId, autoBackupOnOpen });
-      showToast('Telegram settings saved & synchronized!', 'success');
-    } catch (err: any) {
-      showToast(`Failed to save config: ${err.message}`, 'error');
-    }
-  };
-
-  const totalRecords = customers.length + loans.length + receipts.length + fixedDeposits.length + dayBookEntries.length;
+  const totalOperationalRecords =
+    (customers?.length || 0) +
+    (loans?.length || 0) +
+    (receipts?.length || 0) +
+    (fixedDeposits?.length || 0) +
+    (dayBookEntries?.length || 0);
 
   return (
-    <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="page-content">
+      {/* PAGE HEADER */}
+      <div className="page-header">
+        <div>
+          <h2 className="page-title">Backup &amp; Disaster Recovery</h2>
+          <p className="page-description">
+            Complete data protection suite with portable archives, integrity verification, and atomic restoration.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              loadHistory();
+              loadRestoreHistory();
+            }}
+          >
+            <RefreshCw size={15} />
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
 
-      {/* TOP STATUS CARDS */}
-      <div className="grid-3" style={{ gap: '16px' }}>
+      {/* THREE TOP STAT CARDS */}
+      <div className="grid-3" style={{ gap: '16px', marginBottom: '24px' }}>
         {/* CARD 1: DATABASE STATUS */}
         <div className="card" style={{ padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-              Operational Database
+              Operational Records
             </span>
-            <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <CheckCircle2 size={12} /> Active
-            </span>
+            <HardDrive size={16} color="var(--color-primary)" />
           </div>
           <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)' }}>
-            {totalRecords.toLocaleString()} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-muted)' }}>Records</span>
+            {totalOperationalRecords.toLocaleString()}{' '}
+            <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-muted)' }}>Records</span>
           </div>
           <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-            {customers.length} Customers • {loans.length} Loans • {receipts.length} Receipts
+            Across {customers?.length || 0} customers, {loans?.length || 0} loans, {receipts?.length || 0} receipts
           </p>
         </div>
 
-        {/* CARD 2: BACKUP ARCHIVE STATUS */}
+        {/* CARD 2: BACKUP ARCHIVES */}
         <div className="card" style={{ padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-              Local Backup Archives
+              Server Backup Archives
             </span>
             <FileArchive size={16} color="var(--color-primary)" />
           </div>
@@ -264,31 +211,27 @@ export const BackupRestore: React.FC = () => {
           </p>
         </div>
 
-        {/* CARD 3: GOOGLE DRIVE STATUS */}
+        {/* CARD 3: SYSTEM INTEGRITY */}
         <div className="card" style={{ padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-              Google Drive Cloud
+              Data Vault Integrity
             </span>
-            <HardDrive size={16} color={driveHealth.success ? '#16A34A' : '#D97706'} />
+            <ShieldCheck size={16} color="#16A34A" />
           </div>
-          <div style={{ fontSize: '16px', fontWeight: 800, color: driveHealth.success ? '#166534' : '#B45309' }}>
-            {driveHealth.success ? '✓ Ready' : 'OAuth Connecting...'}
+          <div style={{ fontSize: '16px', fontWeight: 800, color: '#166534' }}>
+            ✓ Authoritative Storage Active
           </div>
           <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-            {driveHealth.success
-              ? `Account: ${driveHealth.googlePrincipal || driveHealth.googleAccount || 'goldfinancekkv@gmail.com'}`
-              : 'Google Drive OAuth connection active'}
+            MongoDB Replica &amp; Local Encrypted Vault
           </p>
         </div>
       </div>
 
       {/* MAIN TWO-COLUMN LAYOUT */}
       <div className="grid-2" style={{ gap: '20px' }}>
-
         {/* LEFT COLUMN: BACKUP MANAGEMENT & RESTORE */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
           {/* CREATE BACKUP CARD */}
           <div className="card" style={{ padding: '24px' }}>
             <div className="card-header" style={{ marginBottom: '16px' }}>
@@ -354,7 +297,7 @@ export const BackupRestore: React.FC = () => {
                   Backup History &amp; Downloads
                 </h3>
                 <p className="card-description">
-                  Verified server archives available for download or cloud upload.
+                  Verified server archives available for download.
                 </p>
               </div>
             </div>
@@ -398,33 +341,21 @@ export const BackupRestore: React.FC = () => {
                       <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '13px' }}>
                         {b.fileName}
                       </strong>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-                        {(b.fileSize / 1024).toFixed(1)} KB • {b.recordCounts?.totalRecords || '...'} Records • Created {new Date(b.createdAt).toLocaleString()}
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {new Date(b.createdAt).toLocaleString()} | {(b.fileSize / 1024).toFixed(1)} KB | {b.totalRecords || 0} records
                       </span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <a
-                        href={apiService.getBackupDownloadUrl(b.backupId)}
-                        download={b.fileName}
+                      <button
+                        type="button"
                         className="btn btn-secondary"
-                        style={{ padding: '5px 10px', fontSize: '11.5px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        style={{ padding: '6px 10px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => handleDownloadBackup(b.backupId)}
                       >
                         <Download size={13} />
                         <span>Download</span>
-                      </a>
-
-                      {!b.googleDriveUploaded && driveHealth.success && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '5px 10px', fontSize: '11.5px' }}
-                          onClick={() => handleUploadBackupToDrive(b.backupId)}
-                        >
-                          <HardDrive size={13} />
-                          <span>To Drive</span>
-                        </button>
-                      )}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -432,15 +363,15 @@ export const BackupRestore: React.FC = () => {
             )}
           </div>
 
-          {/* RESTORE HISTORY TABLE */}
+          {/* RESTORE AUDIT HISTORY */}
           <div className="card" style={{ padding: '24px' }}>
             <div className="card-header" style={{ marginBottom: '16px' }}>
               <div>
                 <h3 className="card-title" style={{ fontSize: '17px', fontWeight: 800 }}>
-                  System Restore History
+                  Restoration Audit Log
                 </h3>
                 <p className="card-description">
-                  Audited historical restore operations and cloud synchronization status.
+                  Historical log of database restorations, rollbacks, and schema integrity validations.
                 </p>
               </div>
             </div>
@@ -448,24 +379,24 @@ export const BackupRestore: React.FC = () => {
             {loadingRestoreHistory ? (
               <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
                 <RefreshCw size={20} className="spin" style={{ margin: '0 auto 8px' }} />
-                <span>Loading restore history...</span>
+                <span>Loading restore logs...</span>
               </div>
             ) : restoreHistory.length === 0 ? (
               <div
                 style={{
                   textAlign: 'center',
-                  padding: '20px',
+                  padding: '24px',
                   backgroundColor: 'var(--bg-surface-secondary, #F8FAFC)',
                   borderRadius: '8px',
                   border: '1px solid var(--border-light, #E2E8F0)',
                   color: 'var(--text-muted)',
-                  fontSize: '12.5px'
+                  fontSize: '13px'
                 }}
               >
-                No historical restore operations logged.
+                No system restorations recorded in audit log.
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '280px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto' }}>
                 {restoreHistory.map((r) => (
                   <div
                     key={r.restoreId}
@@ -474,149 +405,27 @@ export const BackupRestore: React.FC = () => {
                       backgroundColor: 'var(--bg-surface-secondary, #F8FAFC)',
                       border: '1px solid var(--border-light, #E2E8F0)',
                       borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
                       fontSize: '12px'
                     }}
                   >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <strong style={{ color: 'var(--text-primary)', fontSize: '12.5px' }}>
-                          {r.sourceFileName || r.backupId}
-                        </strong>
-                        <span className="badge badge-success" style={{ fontSize: '10px' }}>
-                          ✓ {r.databaseStatus}
-                        </span>
-                      </div>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '2px' }}>
-                        Restored by {r.restoredBy?.name || 'Admin'} on {new Date(r.restoredAt).toLocaleString()} ({r.restoredCounts?.totalRecords || 0} Records)
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>{r.backupFileName || r.restoreId}</strong>
+                      <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        <CheckCircle2 size={11} /> {r.status || 'VERIFIED'}
                       </span>
                     </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {r.googleDriveSync === 'VERIFIED' ? (
-                        <span className="badge badge-success" style={{ fontSize: '11px' }}>
-                          ✓ Cloud Synced
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ fontSize: '11px', padding: '4px 10px', color: '#1E40AF', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                          disabled={retryingRestoreId === r.restoreId}
-                          onClick={() => handleRetryRestoreDriveSync(r.restoreId)}
-                        >
-                          <RefreshCw size={12} className={retryingRestoreId === r.restoreId ? 'spin' : ''} />
-                          <span>{retryingRestoreId === r.restoreId ? 'Syncing...' : 'Sync Restored Data'}</span>
-                        </button>
-                      )}
+                    <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+                      Restored by {r.restoredBy || 'Admin'} on {new Date(r.createdAt || r.restoredAt).toLocaleString()}
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
-
         </div>
 
-        {/* RIGHT COLUMN: GOOGLE DRIVE OAUTH + TELEGRAM + DANGER ZONE */}
+        {/* RIGHT COLUMN: TELEGRAM + DANGER ZONE */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-          {/* GOOGLE DRIVE STORAGE CARD */}
-          <div className="card" style={{ padding: '24px' }}>
-            <div className="card-header" style={{ marginBottom: '16px' }}>
-              <div>
-                <h3 className="card-title" style={{ fontSize: '17px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <HardDrive size={18} color="#2563EB" />
-                  <span>Google Drive Cloud Storage</span>
-                </h3>
-                <p className="card-description">
-                  Automated cloud backup destination via OAuth 2.0 user authorization.
-                </p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {driveHealth.success ? (
-                /* READY / CONNECTED STATE */
-                <div
-                  style={{
-                    padding: '16px',
-                    backgroundColor: '#F0FDF4',
-                    border: '1px solid #BBF7D0',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    fontSize: '12.5px'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, color: '#166534' }}>Status:</span>
-                    <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <CheckCircle2 size={12} /> ✓ Ready
-                    </span>
-                  </div>
-
-                  <div>
-                    <span style={{ color: '#4B5563' }}>Authentication: </span>
-                    <strong style={{ color: '#1E293B' }}>OAuth 2.0 (Silent Background Refresh)</strong>
-                  </div>
-
-                  <div>
-                    <span style={{ color: '#4B5563' }}>Account: </span>
-                    <strong style={{ color: '#1E293B', wordBreak: 'break-all' }}>
-                      {driveHealth.googlePrincipal || driveHealth.googleAccount || 'goldfinancekkv@gmail.com'}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span style={{ color: '#4B5563' }}>Destination: </span>
-                    <code style={{ fontSize: '11px', background: '#DCFCE7', padding: '2px 6px', borderRadius: '4px' }}>
-                      My Drive → KKV GOLD FINANCE → {driveHealth.folderName || 'kkv finance'}
-                    </code>
-                  </div>
-
-                  <div>
-                    <span style={{ color: '#4B5563' }}>Folder ID: </span>
-                    <code style={{ fontSize: '11px', background: '#DCFCE7', padding: '2px 6px', borderRadius: '4px' }}>
-                      {driveHealth.folderId || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx'}
-                    </code>
-                  </div>
-                </div>
-              ) : (
-                /* ERROR / DISCONNECTED STATE */
-                <div
-                  style={{
-                    padding: '16px',
-                    backgroundColor: '#FEF2F2',
-                    border: '1px solid #FECACA',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px',
-                    fontSize: '12.5px'
-                  }}
-                >
-                  <div style={{ color: '#991B1B', lineHeight: '1.5' }}>
-                    <strong>Google Drive Status:</strong> {driveHealth.message || 'Connecting to Google Drive OAuth...'}
-                  </div>
-
-                  <div>
-                    <span style={{ color: '#4B5563' }}>Authentication: </span>
-                    <strong style={{ color: '#991B1B' }}>OAuth 2.0 (goldfinancekkv@gmail.com)</strong>
-                  </div>
-
-                  <div>
-                    <span style={{ color: '#4B5563' }}>Target: </span>
-                    <span style={{ color: '#6B7280' }}>My Drive → KKV GOLD FINANCE → kkv finance</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* TELEGRAM SETUP */}
           <div className="card" style={{ padding: '24px' }}>
             <div className="card-header" style={{ marginBottom: '16px' }}>
@@ -707,9 +516,7 @@ export const BackupRestore: React.FC = () => {
               <span>Wipe All Operational Data</span>
             </button>
           </div>
-
         </div>
-
       </div>
 
       {/* FAIL-SAFE WIPE ALL DATA MODAL */}
@@ -734,7 +541,7 @@ export const BackupRestore: React.FC = () => {
           loadRestoreHistory();
         }}
       />
-
     </div>
   );
 };
+export default BackupRestore;

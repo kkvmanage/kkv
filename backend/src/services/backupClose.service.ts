@@ -1,10 +1,6 @@
-import fs from 'fs';
-import path from 'path';
 import JSZip from 'jszip';
-import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { googleDriveService } from './googleDriveService.js';
-import { backupPackageService, BackupHistoryRecord } from './backupPackage.service.js';
-import { calculateSha256 } from '../utils/backupExport.util.js';
+import { localFileRepository } from '../repositories/localFile.repository.js';
+import { backupPackageService } from './backupPackage.service.js';
 
 export interface BackupCloseResult {
   success: boolean;
@@ -12,9 +8,6 @@ export interface BackupCloseResult {
   fileName?: string;
   fileSize?: number;
   sha256?: string;
-  driveFileId?: string;
-  driveFolderId?: string;
-  drivePath?: string;
   recordCounts?: Record<string, number>;
   verified: boolean;
   localCleared: boolean;
@@ -44,7 +37,6 @@ export const PRESERVED_SYSTEM_CONFIGS = [
   'system_config.json',
   'printer_settings.json',
   'branch_profile.json',
-  'drive_oauth_tokens.json',
   'backups_history.json',
   'latest_verified_backup.json',
   'sync_outbox.json'
@@ -60,18 +52,14 @@ class BackupCloseService {
   }
 
   /**
-   * Performs the complete 11-step transactional Backup & Close workflow:
-   * 1. Check & acquire concurrency lock.
+   * Performs transactional Backup & Close workflow:
+   * 1. Check concurrency lock.
    * 2. Generate complete local database snapshot package (ZIP + CSV + Manifest + Checksums).
    * 3. Validate snapshot locally (non-zero size, valid archive, schema, record counts, SHA-256).
-   * 4. Authenticate to Google Drive using OAuth 2.0 refresh token.
-   * 5. Upload backup snapshot package to Google Drive (target folder kkv finance).
-   * 6. Independently verify the uploaded Drive file (file ID exists, non-trashed, valid size).
-   * 7. Mark backup as VERIFIED in history.
-   * 8. Persist latest verified restore marker.
-   * 9. ONLY AFTER verification passes: Clear local operational database files (preserving auth/config).
-   * 10. Record structured audit log.
-   * 11. Return verified success to client.
+   * 4. Persist latest verified restore marker.
+   * 5. Clear local operational database files (preserving auth/config).
+   * 6. Record structured audit log.
+   * 7. Return verified success.
    */
   public async backupAndClose(user?: {
     userId?: string;
@@ -86,8 +74,8 @@ class BackupCloseService {
     console.log('[BackupCloseService] 🚀 Starting transactional Backup & Close workflow...');
 
     try {
-      // ── STEP 1 & 2: Generate Complete Local Database Snapshot ──────────────
-      console.log('[BackupCloseService] [Step 1/6] Creating complete database snapshot package...');
+      // 1. Generate Complete Local Database Snapshot
+      console.log('[BackupCloseService] Creating complete database snapshot package...');
       const backupRecord = await backupPackageService.createFullBackupPackage(user, {
         backupType: 'FULL_BACKUP'
       });
@@ -96,15 +84,14 @@ class BackupCloseService {
         throw new Error('Failed to create local backup package snapshot.');
       }
 
-      // ── STEP 3: Validate Snapshot Locally ──────────────────────────────────
-      console.log('[BackupCloseService] [Step 2/6] Validating snapshot integrity locally...');
+      // 2. Validate Snapshot Locally
+      console.log('[BackupCloseService] Validating snapshot integrity locally...');
       const zipData = backupPackageService.getBackupZip(backupRecord.backupId);
       if (!zipData || zipData.fileSize === 0) {
         throw new Error(`Backup snapshot file is missing or 0 bytes: ${backupRecord.fileName}`);
       }
 
       // Test reading archive and verifying manifest
-      let parsedManifest: any = null;
       try {
         const zipObj = await JSZip.loadAsync(zipData.buffer);
         const manifestFile = zipObj.file('manifest.json');
@@ -115,7 +102,7 @@ class BackupCloseService {
         }
 
         const manifestText = await manifestFile.async('text');
-        parsedManifest = JSON.parse(manifestText);
+        const parsedManifest = JSON.parse(manifestText);
 
         if (!parsedManifest.backupId || !parsedManifest.recordCounts) {
           throw new Error('Corrupted backup archive: Invalid manifest structure.');
@@ -124,71 +111,42 @@ class BackupCloseService {
         throw new Error(`Local backup package validation failed: ${zipErr?.message || zipErr}`);
       }
 
-      // ── STEP 4 & 5: Upload to Google Drive ────────────────────────────────
-      console.log('[BackupCloseService] [Step 3/6] Authenticating and uploading to Google Drive...');
-      if (!googleDriveService.isConnected()) {
-        googleDriveService.initGoogleDrive();
-      }
-
-      let driveUploadResult: { success: boolean; fileId: string; drivePath: string; sha256: string };
-      try {
-        driveUploadResult = await backupPackageService.uploadBackupToDrive(backupRecord.backupId);
-      } catch (uploadErr: any) {
-        console.error('[BackupCloseService] ❌ Google Drive upload failed:', uploadErr?.message || uploadErr);
-        throw new Error(`Google Drive upload failed: ${uploadErr?.message || uploadErr}`);
-      }
-
-      if (!driveUploadResult || !driveUploadResult.fileId) {
-        throw new Error('Google Drive upload returned no file ID.');
-      }
-
-      // ── STEP 6 & 7: Independently Verify Uploaded File on Google Drive ──────
-      console.log('[BackupCloseService] [Step 4/6] Independently verifying uploaded file on Google Drive...');
-      const driveVerification = await googleDriveService.verifyFileExists(driveUploadResult.fileId);
-      if (!driveVerification.exists) {
-        throw new Error(`Google Drive verification failed: File ID "${driveUploadResult.fileId}" does not exist on Drive.`);
-      }
-
-      // ── STEP 8: Mark Backup as Verified & Save Marker ──────────────────────
-      console.log('[BackupCloseService] [Step 5/6] Marking backup as verified and persisting restore marker...');
+      // 3. Mark Backup as Verified & Save Marker
       const latestMarker = {
         backupId: backupRecord.backupId,
         fileName: backupRecord.fileName,
-        driveFileId: driveUploadResult.fileId,
         fileSize: zipData.fileSize,
         sha256: zipData.sha256,
         recordCounts: backupRecord.recordCounts,
-        uploadedAt: new Date().toISOString(),
         verifiedAt: new Date().toISOString(),
-        status: 'DRIVE_VERIFIED',
-        driveAccount: googleDriveService.getConnectedAccount() || 'goldfinancekkv@gmail.com'
+        status: 'LOCAL_VERIFIED'
       };
 
-      googleDriveRepository.writeJson(LATEST_BACKUP_MARKER_FILE, latestMarker);
+      localFileRepository.writeJson(LATEST_BACKUP_MARKER_FILE, latestMarker);
 
-      // ── STEP 9 & 10: Clear Local Operational Database (SAFE CLEAR) ─────────
-      console.log('[BackupCloseService] [Step 6/6] Verified cloud backup confirmed! Clearing local operational database...');
+      // 4. Clear Local Operational Database (SAFE CLEAR)
+      console.log('[BackupCloseService] Verified backup confirmed! Clearing local operational database...');
       for (const entityFile of OPERATIONAL_ENTITIES_TO_CLEAR) {
         try {
-          googleDriveRepository.writeJson(entityFile, []);
+          localFileRepository.writeJson(entityFile, []);
         } catch (clearErr) {
           console.warn(`[BackupCloseService] Warning clearing ${entityFile}:`, clearErr);
         }
       }
 
-      // Record Audit Log
+      // 5. Record Audit Log
       const auditLog = {
         id: `AUDIT-CLOSE-${Date.now()}`,
         timestamp: new Date().toISOString(),
         action: 'BACKUP_AND_CLOSE_COMPLETED',
         user: user?.name || 'Staff User',
         backupId: backupRecord.backupId,
-        driveFileId: driveUploadResult.fileId,
-        details: `Backup & Close executed successfully. Verified on Google Drive (${backupRecord.fileName}). Local operational database cleared safely.`
+        details: `Backup & Close executed successfully. Verified backup created (${backupRecord.fileName}). Local operational database cleared safely.`
       };
-      const logs = googleDriveRepository.readJson<any[]>('audit_logs.json', []);
-      googleDriveRepository.writeJson('audit_logs.json', [auditLog, ...logs.slice(0, 500)]);
+      const logs = localFileRepository.readJson<any[]>('audit_logs.json', []);
+      localFileRepository.writeJson('audit_logs.json', [auditLog, ...logs.slice(0, 500)]);
 
+      this.isBackupCloseInProgress = false;
       console.log(`[BackupCloseService] ✅ BACKUP & CLOSE COMPLETED SUCCESSFULLY for ${backupRecord.backupId}`);
 
       return {
@@ -197,40 +155,29 @@ class BackupCloseService {
         fileName: backupRecord.fileName,
         fileSize: zipData.fileSize,
         sha256: zipData.sha256,
-        driveFileId: driveUploadResult.fileId,
-        driveFolderId: googleDriveService.getRootFolderId(),
-        drivePath: driveUploadResult.drivePath,
         recordCounts: backupRecord.recordCounts as any,
         verified: true,
         localCleared: true,
         localDataSafe: true,
         closedAt: new Date().toISOString(),
-        message: 'Application data backed up, verified on Google Drive, and operational workspace closed safely.'
+        message: 'Session closed and database backup verified successfully.'
       };
     } catch (err: any) {
-      console.error('[BackupCloseService] ❌ Backup & Close failed! Zero data loss rule engaged:', err?.message || err);
-
+      this.isBackupCloseInProgress = false;
+      console.error('[BackupCloseService] ❌ Backup & Close failed:', err?.message || err);
       return {
         success: false,
         verified: false,
         localCleared: false,
         localDataSafe: true,
         closedAt: new Date().toISOString(),
-        message: 'Cloud backup could not be verified. Your local data is safe.',
-        error: err?.message || 'Backup & Close process failed',
-        errorCode: (err as any).code || 'BACKUP_CLOSE_FAILED'
+        message: err?.message || 'Backup & Close failed. No data was cleared.',
+        error: err?.message || 'BACKUP_CLOSE_FAILED',
+        errorCode: 'BACKUP_CLOSE_FAILED'
       };
-    } finally {
-      this.isBackupCloseInProgress = false;
     }
-  }
-
-  /**
-   * Returns the metadata of the latest verified backup marker if present.
-   */
-  public getLatestVerifiedMarker(): any | null {
-    return googleDriveRepository.readJson<any | null>(LATEST_BACKUP_MARKER_FILE, null);
   }
 }
 
 export const backupCloseService = new BackupCloseService();
+export default backupCloseService;

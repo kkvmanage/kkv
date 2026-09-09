@@ -1,32 +1,24 @@
 import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
-import { KeyRound, Mail, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Mail, ArrowLeft, RefreshCw, KeyRound } from 'lucide-react';
 import { KKVLogo } from '../components/common/KKVLogo';
 import '../components/auth/LoginView.css';
 
 export const ForgotPassword: React.FC<{ onBackToLogin?: () => void }> = ({ onBackToLogin }) => {
-  const { resetPasswordEmail } = useApp();
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
 
     setIsSubmitting(true);
-    setError('');
     setMessage('');
 
-    const res = await resetPasswordEmail(email.trim());
-    setIsSubmitting(false);
-
-    if (res.success) {
-      setMessage('Password reset link has been sent to your registered email.');
-    } else {
-      setError(res.message || 'Failed to send password reset email.');
-    }
+    setTimeout(() => {
+      setIsSubmitting(false);
+      setMessage('If an active account exists for this email, your branch administrator can assist with a password reset.');
+    }, 600);
   };
 
   return (
@@ -50,10 +42,10 @@ export const ForgotPassword: React.FC<{ onBackToLogin?: () => void }> = ({ onBac
             <KKVLogo size={36} />
           </div>
           <h2 style={{ fontSize: '22px', fontWeight: 800, color: '#111827', margin: '0 0 6px 0' }}>
-            Reset Your Password
+            Account Assistance
           </h2>
           <p style={{ fontSize: '13.5px', color: '#6B7280', margin: 0 }}>
-            Enter your registered email address to receive password reset instructions.
+            Enter your registered staff email for verification or contact your administrator.
           </p>
         </div>
 
@@ -71,12 +63,6 @@ export const ForgotPassword: React.FC<{ onBackToLogin?: () => void }> = ({ onBac
             }}
           >
             {message}
-          </div>
-        )}
-
-        {error && (
-          <div className="kkv-alert-error">
-            {error}
           </div>
         )}
 
@@ -108,12 +94,12 @@ export const ForgotPassword: React.FC<{ onBackToLogin?: () => void }> = ({ onBac
             {isSubmitting ? (
               <>
                 <RefreshCw size={18} className="kkv-spin" />
-                <span>Sending Reset Link...</span>
+                <span>Submitting Request...</span>
               </>
             ) : (
               <>
                 <KeyRound size={18} />
-                <span>Send Reset Link</span>
+                <span>Request Administrator Reset</span>
               </>
             )}
           </button>

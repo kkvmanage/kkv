@@ -20,7 +20,7 @@ export const FDConfigurationSection: React.FC = () => {
     showToast
   } = useApp();
 
-  const isAuthorized = userRole === 'MASTER_ADMIN';
+  const isAuthorized = userRole === 'ADMIN';
 
   // Form State initialized from Master Control Settings
   const [interestRate, setInterestRate] = useState<number | ''>(masterControlSettings?.fdInterestRate ?? 12);

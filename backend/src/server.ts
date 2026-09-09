@@ -1,15 +1,10 @@
 import { env, validateStartupConfig } from './config/env.js';
-import { connectDB } from './config/database.js';
-import { isCloudinaryConfigured } from './config/cloudinary.js';
-import { googleDriveService } from './services/googleDriveService.js';
+import { connectDB, isMongoConnected } from './config/database.js';
+import { seedUsers } from './scripts/seedAdmin.js';
 import app from './app.js';
 
 async function startServer() {
-  const isMongoUriConfigured = Boolean(env.MONGODB_URI);
-  const isCloudinaryOk = isCloudinaryConfigured();
-
-  console.log(`[Database] MongoDB URI Configured: ${isMongoUriConfigured}`);
-  console.log(`[Storage] Cloudinary Configured: ${isCloudinaryOk}`);
+  console.log('[Startup] Initializing KKV Gold Finance & Rental Management Backend...');
 
   // 1. Startup validation
   const validation = validateStartupConfig();
@@ -20,35 +15,25 @@ async function startServer() {
     }
   }
 
-  // 2. Connect to MongoDB via Mongoose and AWAIT connection before starting Express
+  // 2. Connect to MongoDB and AWAIT confirmation before starting Express
   try {
     await connectDB();
+    console.log('[Startup] MongoDB connection confirmed.');
+    
+    // 3. Seed default admin & staff users if needed
+    try {
+      await seedUsers();
+    } catch (seedErr: any) {
+      console.warn('[Startup Seed] User seeding warning:', seedErr?.message || seedErr);
+    }
   } catch (dbErr: any) {
     console.error('[Startup] Failed to establish MongoDB connection:', dbErr?.message || dbErr);
-    console.error('[MongoDB Atlas Check] Please verify in MongoDB Atlas Dashboard:');
-    console.error('  1. Network Access (Allow IP address / 0.0.0.0/0)');
-    console.error('  2. Database Access (Username & Password)');
-    console.error('  3. User Permissions (readWrite on kkv_gold_finance)');
     if (env.NODE_ENV === 'production') {
       process.exit(1);
     }
   }
 
-  // 3. Log Cloudinary status
-  if (isCloudinaryOk) {
-    console.log('[Cloudinary] Configured successfully');
-  } else {
-    console.error('[Cloudinary] ❌ Cloudinary credentials missing in .env');
-  }
-
-  // 4. Initialize Google Drive once (optional integration)
-  if (googleDriveService.isConnected()) {
-    console.log(`[GoogleDriveService] Connected via ${googleDriveService.getAuthType()} (${googleDriveService.getPrincipalEmail()})`);
-  } else {
-    console.log('[GoogleDriveService] Google Drive is not connected. Optional integration disabled.');
-  }
-
-  // 5. Start Express server
+  // 4. Start Express server only after database is initialized
   app.listen(env.PORT, () => {
     console.log(`[KKV Gold Finance Backend] Express server running at http://localhost:${env.PORT}`);
     console.log(`[KKV Gold Finance Backend] API Base: http://localhost:${env.PORT}/api`);

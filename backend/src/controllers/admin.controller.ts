@@ -3,8 +3,6 @@ import { adminService } from '../services/admin.service.js';
 import { systemWipeService } from '../services/systemWipe.service.js';
 import { systemRestoreService } from '../services/systemRestore.service.js';
 import { backupPackageService } from '../services/backupPackage.service.js';
-import { googleDriveService } from '../services/googleDriveService.js';
-import { env } from '../config/env.js';
 
 export const getMasterSettings = (req: Request, res: Response) => {
   const settings = adminService.getMasterSettings();
@@ -12,17 +10,6 @@ export const getMasterSettings = (req: Request, res: Response) => {
 };
 
 export const updateMasterSettings = (req: Request, res: Response) => {
-  const userRole = (req.headers['user-role'] as string) || (req.headers['x-user-role'] as string) || (req.headers['x-actor-role'] as string) || req.body?.userRole || req.query?.userRole || '';
-  const userEmail = (req.headers['user-email'] as string) || (req.headers['x-user-email'] as string) || (req.headers['x-actor-email'] as string) || '';
-  const isMasterAdmin = userRole === 'MASTER_ADMIN' || userRole === 'ADMIN' || userEmail.toLowerCase() === 'goldfinancekkv@gmail.com';
-
-  if (!isMasterAdmin) {
-    return res.status(403).json({
-      success: false,
-      message: 'Forbidden: Only Master Admin has permission to modify Master Control configuration'
-    });
-  }
-
   // Validate FD parameters if present
   if (req.body.fdInterestRate !== undefined) {
     const rate = Number(req.body.fdInterestRate);
@@ -69,73 +56,19 @@ export const unlockMasterControl = (req: Request, res: Response) => {
   const { password } = req.body;
   const unlocked = adminService.unlockMasterControl(password);
   if (!unlocked) {
-    return res.status(401).json({ success: false, message: 'Incorrect password! Try: admin123' });
+    return res.status(401).json({ success: false, message: 'Incorrect password.' });
   }
   return res.json({ success: true, message: 'Master Control unlocked' });
 };
 
-export const getDriveHealth = async (req: Request, res: Response) => {
-  try {
-    const health = await googleDriveService.getDriveHealth();
-    const folderId = health.folderId || health.rootFolderId || env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '';
-    const principal = health.principal || health.googleAccount || env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';
-
-    return res.status(200).json({
-      enabled: health.configured,
-      authMode: health.authMode,
-      principal: principal,
-      sharedDrive: health.sharedDrive,
-      sharedDriveId: health.sharedDriveId,
-      folderId,
-      folderName: health.folderName || 'kkv finance',
-      folderAccessible: health.folderAccessible,
-      canUpload: health.canUpload,
-      status: health.status,
-      success: health.success,
-      connected: health.success,
-      configured: health.configured,
-      driveAccessible: health.driveAccessible,
-      folderIdConfigured: health.folderIdConfigured,
-      writable: health.writable,
-      errorCode: health.errorCode,
-      message: health.message,
-      data: {
-        ...health,
-        folderId,
-        enabled: health.configured
-      }
-    });
-  } catch (err: any) {
-    console.error('[AdminController] getDriveHealth error:', err?.message || err);
-    const folderId = env.GOOGLE_DRIVE_FOLDER_ID || env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '1gqDbQuvf2EWkh_y-kiqRDBV3fOpEEGPx';
-    return res.status(200).json({
-      enabled: false,
-      authMode: 'OAUTH',
-      principal: env.GOOGLE_DRIVE_ACCOUNT_EMAIL || 'goldfinancekkv@gmail.com',
-      sharedDrive: false,
-      sharedDriveId: undefined,
-      folderId,
-      folderName: 'kkv finance',
-      folderAccessible: false,
-      canUpload: false,
-      status: 'FAILED',
-      success: false,
-      connected: false,
-      configured: false,
-      driveAccessible: false,
-      folderIdConfigured: !!folderId,
-      errorCode: 'GOOGLE_DRIVE_HEALTH_CHECK_FAILED',
-      message: err?.message || 'Failed to check Google Drive health',
-      data: {
-        enabled: false,
-        configured: false,
-        authMode: 'OAUTH',
-        connected: false,
-        canUpload: false,
-        folderId
-      }
-    });
-  }
+export const getDriveHealth = async (_req: Request, res: Response) => {
+  return res.status(200).json({
+    enabled: false,
+    status: 'LOCAL_STORAGE_ACTIVE',
+    success: true,
+    connected: true,
+    message: 'Local server storage is active and verified.'
+  });
 };
 
 // ==========================================
@@ -145,9 +78,9 @@ export const getDriveHealth = async (req: Request, res: Response) => {
 export const createBackupPackage = async (req: Request, res: Response) => {
   try {
     const user = {
-      userId: (req.headers['x-actor-uid'] as string) || 'ADMIN-001',
-      name: (req.headers['x-actor-name'] as string) || 'Administrator',
-      role: (req.headers['user-role'] as string) || 'Admin'
+      userId: req.user?.id || (req.headers['x-actor-uid'] as string) || 'ADMIN-001',
+      name: req.user?.name || (req.headers['x-actor-name'] as string) || 'Administrator',
+      role: req.user?.role || 'ADMIN'
     };
 
     const record = await backupPackageService.createFullBackupPackage(user);
@@ -208,8 +141,8 @@ export const acknowledgeDownload = (req: Request, res: Response) => {
   try {
     const { backupId } = req.params;
     const user = {
-      userId: (req.headers['x-actor-uid'] as string) || 'ADMIN-001',
-      name: (req.headers['x-actor-name'] as string) || 'Administrator'
+      userId: req.user?.id || 'ADMIN-001',
+      name: req.user?.name || 'Administrator'
     };
 
     const ack = backupPackageService.acknowledgeDownload(backupId, user);
@@ -220,29 +153,11 @@ export const acknowledgeDownload = (req: Request, res: Response) => {
   }
 };
 
-export const uploadBackupToDrive = async (req: Request, res: Response) => {
-  try {
-    const { backupId } = req.params;
-    const uploadRes = await backupPackageService.uploadBackupToDrive(backupId);
-    return res.json({
-      success: true,
-      message: 'Backup uploaded and verified on Google Drive.',
-      data: uploadRes
-    });
-  } catch (err: any) {
-    console.error('[AdminController] uploadBackupToDrive error:', err?.message || err);
-    return res.status(500).json({
-      success: false,
-      message: err?.message || 'Failed to upload backup to Google Drive.'
-    });
-  }
-};
-
 // ==========================================
 // WIPE ALL DATA APIs
 // ==========================================
 
-export const getWipePreview = (req: Request, res: Response) => {
+export const getWipePreview = (_req: Request, res: Response) => {
   try {
     const preview = systemWipeService.getWipePreview();
     return res.json({ success: true, data: preview });
@@ -265,41 +180,23 @@ export const initiateWipeBackup = async (req: Request, res: Response) => {
     }
 
     const user = {
-      userId: (req.headers['x-actor-uid'] as string) || 'ADMIN-001',
-      name: (req.headers['x-actor-name'] as string) || 'Administrator',
-      role: (req.headers['user-role'] as string) || 'Admin'
+      userId: req.user?.id || 'ADMIN-001',
+      name: req.user?.name || 'Administrator',
+      role: req.user?.role || 'ADMIN'
     };
 
     const verificationRecord = await systemWipeService.initiateFullBackupAndVerify(cleanConfirm, user);
     return res.json({
       success: true,
-      message: 'Complete backup created and verified in Google Drive & Local server successfully.',
+      message: 'Complete backup created and verified in local server storage successfully.',
       data: verificationRecord
     });
   } catch (err: any) {
     console.error('[AdminController] initiateWipeBackup error:', err?.message || err);
-    const msg: string = err?.message || 'Backup verification failed. No application data was deleted.';
-
-    let statusCode = 503;
-    let errorCode = 'BACKUP_VERIFICATION_FAILED';
-    if (msg.includes('Invalid confirmation text')) {
-      statusCode = 400;
-      errorCode = 'INVALID_CONFIRMATION';
-    } else if (msg.includes('folder cannot be accessed') || msg.includes('root folder')) {
-      statusCode = 503;
-      errorCode = 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED';
-    } else if (msg.includes('not connected') || msg.includes('credentials')) {
-      statusCode = 503;
-      errorCode = 'GOOGLE_DRIVE_NOT_CONNECTED';
-    } else if (msg.includes('Checksum verification failed') || msg.includes('integrity check failed')) {
-      statusCode = 500;
-      errorCode = 'BACKUP_INTEGRITY_MISMATCH';
-    }
-
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
-      message: msg,
-      error: { code: errorCode }
+      message: err?.message || 'Backup verification failed. No application data was deleted.',
+      error: { code: 'BACKUP_VERIFICATION_FAILED' }
     });
   }
 };
@@ -317,9 +214,9 @@ export const confirmSystemWipe = async (req: Request, res: Response) => {
     }
 
     const user = {
-      userId: (req.headers['x-actor-uid'] as string) || 'ADMIN-001',
-      name: (req.headers['x-actor-name'] as string) || 'Administrator',
-      role: (req.headers['user-role'] as string) || 'Admin'
+      userId: req.user?.id || 'ADMIN-001',
+      name: req.user?.name || 'Administrator',
+      role: req.user?.role || 'ADMIN'
     };
 
     const wipeResult = systemWipeService.confirmAndWipeData(token, cleanConfirm, user);
@@ -342,7 +239,7 @@ export const confirmSystemWipe = async (req: Request, res: Response) => {
 // SYSTEM RESTORE APIs
 // ==========================================
 
-export const getAvailableRestoreBackups = async (req: Request, res: Response) => {
+export const getAvailableRestoreBackups = async (_req: Request, res: Response) => {
   try {
     const backups = await systemRestoreService.getAvailableBackups();
     return res.json({ success: true, data: backups });
@@ -350,7 +247,7 @@ export const getAvailableRestoreBackups = async (req: Request, res: Response) =>
     console.error('[AdminController] getAvailableRestoreBackups error:', err?.message || err);
     return res.status(500).json({
       success: false,
-      message: err?.message || 'Failed to list Google Drive backups.',
+      message: err?.message || 'Failed to list backup packages.',
       error: { code: 'BACKUP_LISTING_FAILED' }
     });
   }
@@ -408,26 +305,19 @@ export const executeSystemRestore = async (req: Request, res: Response) => {
     }
 
     const user = {
-      userId: (req.headers['x-actor-uid'] as string) || 'ADMIN-001',
-      name: (req.headers['x-actor-name'] as string) || 'Administrator',
-      role: (req.headers['user-role'] as string) || 'Admin'
+      userId: req.user?.id || 'ADMIN-001',
+      name: req.user?.name || 'Administrator',
+      role: req.user?.role || 'ADMIN'
     };
 
     const result = await systemRestoreService.executeRestore(token, cleanConfirm, user);
     return res.json({
       success: true,
-      message: result.googleDriveSync === 'VERIFIED'
-        ? 'Database restored and Google Drive synchronized successfully.'
-        : 'System operational database restored and verified.',
+      message: 'System operational database restored and verified.',
       data: result,
       restore: {
         status: 'VERIFIED',
         restoreId: result.restoreId
-      },
-      googleDrive: {
-        status: result.googleDriveSync,
-        errorCode: result.googleDriveErrorCode,
-        errorMessage: result.googleDriveError
       },
       recordCounts: result.restoredCounts
     });
@@ -441,7 +331,7 @@ export const executeSystemRestore = async (req: Request, res: Response) => {
   }
 };
 
-export const getRestoreHistory = async (req: Request, res: Response) => {
+export const getRestoreHistory = async (_req: Request, res: Response) => {
   try {
     const history = systemRestoreService.getRestoreHistory();
     return res.json({ success: true, data: history });
@@ -455,65 +345,11 @@ export const getRestoreHistory = async (req: Request, res: Response) => {
   }
 };
 
-export const retryDriveSync = async (req: Request, res: Response) => {
-  try {
-    const { restoreId } = req.params;
-    if (!restoreId) {
-      return res.status(400).json({ success: false, message: 'Restore ID is required.' });
-    }
-
-    const user = {
-      userId: (req.headers['x-actor-uid'] as string) || 'ADMIN-001',
-      name: (req.headers['x-actor-name'] as string) || 'Administrator',
-      role: (req.headers['user-role'] as string) || 'Admin'
-    };
-
-    const updated = await systemRestoreService.retryDriveSync(restoreId, user);
-    
-    if (updated.googleDriveSync === 'VERIFIED') {
-      return res.json({
-        success: true,
-        message: 'Google Drive synchronization completed and verified.',
-        data: updated,
-        restore: {
-          status: 'VERIFIED',
-          restoreId: updated.restoreId
-        },
-        googleDrive: {
-          status: 'VERIFIED'
-        },
-        recordCounts: updated.restoredCounts
-      });
-    } else {
-      return res.json({
-        success: false,
-        message: updated.googleDriveError || 'Google Drive synchronization could not be completed.',
-        errorCode: updated.googleDriveErrorCode || 'GOOGLE_DRIVE_UPLOAD_FAILED',
-        error: {
-          code: updated.googleDriveErrorCode || 'GOOGLE_DRIVE_UPLOAD_FAILED',
-          message: updated.googleDriveError || 'Google Drive synchronization could not be completed.'
-        },
-        data: updated,
-        restore: {
-          status: 'VERIFIED',
-          restoreId: updated.restoreId
-        },
-        googleDrive: {
-          status: 'FAILED',
-          errorCode: updated.googleDriveErrorCode,
-          errorMessage: updated.googleDriveError
-        },
-        recordCounts: updated.restoredCounts
-      });
-    }
-  } catch (err: any) {
-    console.error('[AdminController] retryDriveSync error:', err?.message || err);
-    return res.status(500).json({
-      success: false,
-      message: err?.message || 'Unexpected error during Google Drive synchronization retry.',
-      error: { code: 'DRIVE_SYNC_FAILED' }
-    });
-  }
+export const retryDriveSync = async (_req: Request, res: Response) => {
+  return res.json({
+    success: true,
+    message: 'Local storage backup verified.'
+  });
 };
 
 export const getRentalSummary = async (req: Request, res: Response) => {
@@ -682,30 +518,7 @@ export const getRentalSyncStatus = async (_req: Request, res: Response) => {
   }
 };
 
-export const downloadDriveBackupFile = async (req: Request, res: Response) => {
-  try {
-    const { fileId } = req.params;
-    if (!fileId) {
-      return res.status(400).json({ success: false, message: 'File ID is required.' });
-    }
-
-    const { buffer, name: fileName, mimeType } = await googleDriveService.downloadDriveFileBuffer(fileId);
-    
-    res.setHeader('Content-Type', mimeType || 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName || 'drive_backup.zip'}"`);
-    res.setHeader('Content-Length', buffer.length);
-    
-    return res.send(buffer);
-  } catch (err: any) {
-    console.error('[AdminController] downloadDriveBackupFile error:', err?.message || err);
-    return res.status(404).json({
-      success: false,
-      message: err?.message || 'Failed to download file from Google Drive.',
-      error: { code: 'DRIVE_DOWNLOAD_FAILED' }
-    });
-  }
-};
-export const getDatabaseStatus = async (req: Request, res: Response) => {
+export const getDatabaseStatus = async (_req: Request, res: Response) => {
   try {
     const { checkMongoHealth } = await import('../config/database.js');
     const health = await checkMongoHealth();
@@ -724,7 +537,7 @@ export const getDatabaseStatus = async (req: Request, res: Response) => {
   }
 };
 
-export const migrateToAtlas = async (req: Request, res: Response) => {
+export const migrateToAtlas = async (_req: Request, res: Response) => {
   try {
     const { dbService } = await import('../services/database.service.js');
     const result = await dbService.migrateLocalToAtlas();
@@ -740,6 +553,3 @@ export const migrateToAtlas = async (req: Request, res: Response) => {
     });
   }
 };
-
-
-

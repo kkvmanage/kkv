@@ -32,17 +32,16 @@ function logMongoDetailedError(error: any): void {
   console.error('[MongoDB Error Diagnosis]');
 
   if (msg.includes('auth') || msg.includes('authentication failed') || msg.includes('bad auth')) {
-    console.error('  ❌ AUTHENTICATION FAILED: Check your database username and password in MONGODB_URI.');
+    console.error('  ❌ AUTHENTICATION FAILED: Check database username and password in MONGODB_URI.');
     console.error('     Verify user exists in MongoDB Atlas -> Security -> Database Access with Read/Write privileges.');
   } else if (msg.includes('enotfound') || msg.includes('querysrv') || msg.includes('econnrefused')) {
     console.error('  ❌ DNS / SRV RESOLUTION FAILURE: Unable to resolve MongoDB cluster hostname.');
     console.error('     Verify your internet connection and MongoDB Atlas cluster domain.');
   } else if (msg.includes('timed out') || msg.includes('server selection') || msg.includes('etimedout') || msg.includes('could not connect to any servers')) {
-    console.error('  ❌ NETWORK / IP NOT WHITELISTED: Connection timed out attempting to reach Atlas cluster.');
+    console.error('  ❌ NETWORK / IP NOT WHITELISTED: Connection timed out attempting to reach cluster.');
     console.error('     Verify in MongoDB Atlas -> Security -> Network Access that 0.0.0.0/0 (or current IP) is Active.');
   } else if (msg.includes('invalid connection string') || msg.includes('invalid scheme') || msg.includes('uri')) {
     console.error('  ❌ INVALID CONNECTION STRING: The format of MONGODB_URI is invalid.');
-    console.error('     Expected format: mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>?retryWrites=true&w=majority&appName=Cluster0');
   } else {
     console.error(`  ❌ CONNECTION ERROR: ${error?.message || error}`);
   }
@@ -53,8 +52,8 @@ let autoReconnectTimer: NodeJS.Timeout | null = null;
 
 // Connection event lifecycle listeners
 mongoose.connection.on('connected', () => {
-  console.log('[MongoDB Mongoose] Connected successfully');
-  console.log(`[Database] MongoDB Status: connected (Host: ${mongoose.connection.host || 'Atlas'}, Database: ${mongoose.connection.name || getFinanceDbName()})`);
+  console.log('[Database] MongoDB connected successfully');
+  console.log(`[Database] MongoDB Status: connected (Host: ${mongoose.connection.host || '127.0.0.1'}, Database: ${mongoose.connection.name || getFinanceDbName()})`);
   if (autoReconnectTimer) {
     clearInterval(autoReconnectTimer);
     autoReconnectTimer = null;
@@ -62,18 +61,18 @@ mongoose.connection.on('connected', () => {
 });
 
 mongoose.connection.on('reconnected', () => {
-  console.log('[MongoDB Mongoose] Reconnected to MongoDB successfully');
+  console.log('[Database] MongoDB reconnected successfully');
   console.log('[Database] MongoDB Status: connected');
 });
 
 mongoose.connection.on('disconnected', () => {
-  console.warn('[MongoDB Mongoose] Disconnected from MongoDB.');
+  console.warn('[Database] MongoDB disconnected.');
   console.warn('[Database] MongoDB Status: disconnected');
   scheduleAutoReconnect();
 });
 
 mongoose.connection.on('error', (err: any) => {
-  console.error('[MongoDB Mongoose] Connection error event:', err?.message || 'Database error');
+  console.error('[Database] MongoDB connection error:', err?.message || 'Database error');
   logMongoDetailedError(err);
 });
 
@@ -81,7 +80,7 @@ function scheduleAutoReconnect(): void {
   if (autoReconnectTimer || mongoose.connection.readyState === 1 || isConnecting) {
     return;
   }
-  console.log('[MongoDB Mongoose] Scheduling automatic reconnection in 5 seconds...');
+  console.log('[Database] Scheduling automatic reconnection in 5 seconds...');
   autoReconnectTimer = setInterval(async () => {
     if (mongoose.connection.readyState === 1) {
       if (autoReconnectTimer) {
@@ -91,26 +90,26 @@ function scheduleAutoReconnect(): void {
       return;
     }
     try {
-      console.log('[MongoDB Mongoose] Attempting automatic reconnection...');
+      console.log('[Database] Attempting automatic reconnection...');
       await connectDB();
       if (autoReconnectTimer) {
         clearInterval(autoReconnectTimer);
         autoReconnectTimer = null;
       }
     } catch (err: any) {
-      console.warn('[MongoDB Mongoose] Auto-reconnect retry failed, will retry in 5s...');
+      console.warn('[Database] Auto-reconnect retry failed, will retry in 5s...');
     }
   }, 5000);
 }
 
 /**
  * Connects to MongoDB using Mongoose.
- * Enforces permanent database connectivity - no fallback/mock mode permitted.
+ * Enforces permanent database connectivity.
  */
 export async function connectDB(): Promise<typeof mongoose> {
   const uri = env.MONGODB_URI;
   if (!uri) {
-    const errorMsg = '[Database] ❌ MONGODB_URI (or MONGO_URI / DATABASE_URL) is missing from backend environment variables! Permanent database connection is required.';
+    const errorMsg = '[Database] ❌ MONGODB_URI is missing from backend environment variables! Permanent database connection is required.';
     console.error(errorMsg);
     throw new Error(errorMsg);
   }
@@ -131,24 +130,26 @@ export async function connectDB(): Promise<typeof mongoose> {
 
   isConnecting = true;
   const dbName = getFinanceDbName();
-  console.log('[MongoDB Mongoose] Connecting to MongoDB...');
+  console.log(`[Database] MONGODB_URI: configured`);
+  console.log(`[Database] Database name: ${dbName}`);
+  console.log('[Database] Connecting to MongoDB...');
 
   try {
     await mongoose.connect(uri, {
       dbName,
       autoIndex: true,
-      serverSelectionTimeoutMS: 8000,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
       socketTimeoutMS: 45000,
     });
 
-    console.log('[MongoDB Mongoose] Connected successfully');
+    console.log('[Database] MongoDB connected successfully');
     console.log(`[Database] MongoDB Status: connected`);
     isConnecting = false;
     return mongoose;
   } catch (error: any) {
     isConnecting = false;
-    console.error('[MongoDB Mongoose] Connection failed');
-    console.error(`[MongoDB Mongoose] Error: ${error.message || error}`);
+    console.error(`[Database] MongoDB connection failed: ${error?.message || error}`);
     logMongoDetailedError(error);
     scheduleAutoReconnect();
     throw error;
@@ -199,64 +200,45 @@ export async function getRentalDb(): Promise<mongoose.mongo.Db | null> {
 export async function checkMongoHealth(): Promise<{
   configured: boolean;
   connected: boolean;
+  status: 'connected' | 'disconnected';
   database: string;
   readyState: number;
-  status: 'CONNECTED' | 'DISCONNECTED';
   error?: string;
 }> {
   const configured = Boolean(env.MONGODB_URI);
+  const readyState = mongoose.connection.readyState;
+  const connected = readyState === 1;
+
   if (!configured) {
     return {
       configured: false,
       connected: false,
+      status: 'disconnected',
       database: getFinanceDbName(),
-      readyState: 0,
-      status: 'DISCONNECTED',
+      readyState,
       error: 'MONGODB_URI not configured'
     };
   }
 
-  // Attempt connection if disconnected
-  if (mongoose.connection.readyState !== 1) {
-    await ensureMongoConnected();
-  }
-
-  const readyState = mongoose.connection.readyState;
-  const connected = readyState === 1;
-
-  if (!connected) {
-    return {
-      configured: true,
-      connected: false,
-      database: getFinanceDbName(),
-      readyState,
-      status: 'DISCONNECTED',
-      error: 'MongoDB is disconnected'
-    };
-  }
-
-  try {
-    if (mongoose.connection.db) {
-      await mongoose.connection.db.admin().ping();
-    }
-    return {
-      configured: true,
-      connected: true,
-      database: getFinanceDbName(),
-      readyState: 1,
-      status: 'CONNECTED'
-    };
-  } catch (pingErr: any) {
-    return {
-      configured: true,
-      connected: false,
-      database: getFinanceDbName(),
-      readyState: mongoose.connection.readyState,
-      status: 'DISCONNECTED',
-      error: pingErr?.message || 'Ping failed'
-    };
-  }
+  return {
+    configured: true,
+    connected,
+    status: connected ? 'connected' : 'disconnected',
+    database: mongoose.connection.name || getFinanceDbName(),
+    readyState,
+    error: connected ? undefined : 'MongoDB is not reachable'
+  };
 }
 
-export default connectDB;
-
+export default {
+  connectDB,
+  isMongoConnected,
+  ensureMongoConnected,
+  getFinanceDb,
+  getRentalDb,
+  getMongoClient,
+  checkMongoHealth,
+  getMongoUri,
+  getFinanceDbName,
+  getRentalDbName
+};

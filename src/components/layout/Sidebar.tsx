@@ -19,7 +19,12 @@ import {
   Moon,
   Sun,
   LogOut,
-  X
+  X,
+  Building,
+  Home,
+  Receipt,
+  FileSpreadsheet,
+  PieChart
 } from 'lucide-react';
 
 import { KKVLogo } from '../common/KKVLogo';
@@ -36,6 +41,7 @@ export const Sidebar: React.FC = () => {
     closeMobileMenu,
     userRole,
     currentUser,
+    hasPermission,
     logoutUser
   } = useApp();
 
@@ -43,6 +49,7 @@ export const Sidebar: React.FC = () => {
   const [loanDetailsOpen, setLoanDetailsOpen] = useState(true);
   const [fixedDepositsOpen, setFixedDepositsOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [rentalOpen, setRentalOpen] = useState(true);
 
   // Close mobile drawer on Escape key press
   useEffect(() => {
@@ -94,6 +101,21 @@ export const Sidebar: React.FC = () => {
     ) {
       setAccountsOpen(true);
     }
+    if (
+      [
+        'rental',
+        'rental-dashboard',
+        'rental-complexes',
+        'rental-complex-detail',
+        'rental-shops',
+        'rental-shop-detail',
+        'rental-payments',
+        'rental-expenses',
+        'rental-reports'
+      ].includes(currentPage)
+    ) {
+      setRentalOpen(true);
+    }
   }, [currentPage]);
 
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -107,15 +129,21 @@ export const Sidebar: React.FC = () => {
     logoutUser();
   };
 
-  const roleLabel =
-    userRole === 'MASTER_ADMIN'
-      ? 'Master Admin'
-      : userRole === 'RENTAL_STAFF'
-      ? 'Rental Staff'
-      : 'Staff';
+  const isAdmin = userRole === 'ADMIN';
+  const isRentalStaff = userRole === 'RENTAL_STAFF';
+  const roleLabel = isAdmin ? 'Admin' : isRentalStaff ? 'Rental Staff' : 'Staff';
 
-  // RENTAL_STAFF users should use the Rental Portal (localhost:5174) — hide Finance navigation
-  const isRentalOnly = userRole === 'RENTAL_STAFF';
+  // Permission evaluations
+  const canViewCustomers = hasPermission('customers', 'view');
+  const canViewLoans = hasPermission('loans', 'view');
+  const canViewFD = hasPermission('fd', 'view');
+  const canViewAccounting = hasPermission('accounting', 'view');
+  const canViewRental = hasPermission('rental', 'view');
+  const canViewStaffMgmt = hasPermission('staffManagement', 'view') || isAdmin;
+  const canViewSettings = hasPermission('settings', 'view') || isAdmin;
+  const canViewBackups = hasPermission('backupRestore', 'view') || isAdmin;
+
+  const hasAnyFinanceModule = canViewCustomers || canViewLoans || canViewFD || canViewAccounting;
 
   return (
     <>
@@ -129,7 +157,16 @@ export const Sidebar: React.FC = () => {
       )}
       <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
         {/* Brand Header */}
-        <div className="sidebar-brand" onClick={() => setCurrentPage('dashboard')}>
+        <div
+          className="sidebar-brand"
+          onClick={() => {
+            if (isRentalStaff) {
+              setCurrentPage('rental-dashboard');
+            } else {
+              setCurrentPage('dashboard');
+            }
+          }}
+        >
           <KKVLogo size={38} />
           <div className="sidebar-brand-text">
             <h2>KKV GOLD FINANCE</h2>
@@ -152,280 +189,370 @@ export const Sidebar: React.FC = () => {
         <nav className="sidebar-nav">
           {/* OVERVIEW */}
           <div className="sidebar-section-label">OVERVIEW</div>
-          <button
-            className={`sidebar-link ${currentPage === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('dashboard')}
-          >
-            <LayoutDashboard size={17} />
-            <span>Dashboard</span>
-          </button>
 
-          {/* OPERATIONS — Finance modules: hidden from Rental Staff */}
-          {isRentalOnly ? (
-            <div style={{ margin: '16px 8px', padding: '14px 16px', backgroundColor: 'rgba(201, 162, 39, 0.08)', borderRadius: '10px', border: '1px solid rgba(201, 162, 39, 0.25)', textAlign: 'center' }}>
-              <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-gold-light)', margin: '0 0 6px' }}>🏢 Rental Staff Access</p>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.4 }}>Use the Rental Management Portal for your operations.</p>
-              <button
-                className="btn btn-primary btn-sm"
-                style={{ fontSize: '11px', padding: '6px 12px' }}
-                onClick={() => window.open('http://localhost:5174', '_blank')}
-              >
-                Open Rental Portal ↗
-              </button>
-            </div>
+          {!isRentalStaff ? (
+            <button
+              className={`sidebar-link ${currentPage === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('dashboard')}
+            >
+              <LayoutDashboard size={17} />
+              <span>Dashboard</span>
+            </button>
           ) : (
+            <button
+              className={`sidebar-link ${currentPage === 'rental-dashboard' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('rental-dashboard')}
+            >
+              <LayoutDashboard size={17} />
+              <span>Rental Dashboard</span>
+            </button>
+          )}
+
+          {/* ── FINANCE OPERATIONS ── */}
+          {hasAnyFinanceModule && (
             <>
-          <div className="sidebar-section-label">OPERATIONS</div>
+              <div className="sidebar-section-label">FINANCE OPERATIONS</div>
 
-          {/* Customers Section */}
-          <div>
-            <button
-              className={`sidebar-link ${['customers', 'customers-add', 'add-customer-form', 'search-customer'].includes(currentPage) ? 'active' : ''}`}
-              onClick={() => {
-                setCustomersOpen(!customersOpen);
-              }}
-            >
-              <Users size={17} />
-              <span style={{ flex: 1, textAlign: 'left' }}>Customers</span>
-              {customersOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </button>
+              {/* Customers Section */}
+              {canViewCustomers && (
+                <div>
+                  <button
+                    className={`sidebar-link ${['customers', 'customers-add', 'add-customer-form', 'search-customer', 'customer-profile'].includes(currentPage) ? 'active' : ''}`}
+                    onClick={() => setCustomersOpen(!customersOpen)}
+                  >
+                    <Users size={17} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>Customers</span>
+                    {customersOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
 
-            {customersOpen && (
-              <div className="sidebar-submenu">
+                  {customersOpen && (
+                    <div className="sidebar-submenu">
+                      {hasPermission('customers', 'create') && (
+                        <button
+                          className={`sidebar-sublink ${['customers-add', 'add-customer-form'].includes(currentPage) ? 'active' : ''}`}
+                          onClick={() => setCurrentPage('add-customer-form')}
+                        >
+                          <UserPlus size={14} style={{ marginRight: '6px' }} />
+                          Add Customer
+                        </button>
+                      )}
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'search-customer' || currentPage === 'customers' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('search-customer')}
+                      >
+                        <Search size={14} style={{ marginRight: '6px' }} />
+                        Search Customer
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Loan Details */}
+              {canViewLoans && (
+                <div>
+                  <button
+                    className={`sidebar-link ${[
+                      'loan-issue',
+                      'loan-display',
+                      'loan-receipts',
+                      'receipt-display',
+                      'all-receipts',
+                      'pending-loans',
+                      'total-loans',
+                      'rc-renewal-reminders',
+                      'bill-balance'
+                    ].includes(currentPage)
+                      ? 'active'
+                      : ''
+                      }`}
+                    onClick={() => setLoanDetailsOpen(!loanDetailsOpen)}
+                  >
+                    <CreditCard size={17} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>Loan Details</span>
+                    {loanDetailsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+
+                  {loanDetailsOpen && (
+                    <div className="sidebar-submenu">
+                      {hasPermission('loans', 'create') && (
+                        <button
+                          className={`sidebar-sublink ${currentPage === 'loan-issue' ? 'active' : ''}`}
+                          onClick={() => setCurrentPage('loan-issue')}
+                        >
+                          Loan Issue
+                        </button>
+                      )}
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'loan-display' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('loan-display')}
+                      >
+                        Loan Display
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'loan-receipts' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('loan-receipts')}
+                      >
+                        Loan Receipts
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'receipt-display' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('receipt-display')}
+                      >
+                        Receipt Display
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'all-receipts' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('all-receipts')}
+                      >
+                        All Receipts
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'pending-loans' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('pending-loans')}
+                      >
+                        Pending Loans
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'total-loans' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('total-loans')}
+                      >
+                        Total Loans
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'rc-renewal-reminders' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('rc-renewal-reminders')}
+                      >
+                        RC &amp; Renewal Reminders
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'bill-balance' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('bill-balance')}
+                      >
+                        Bill Balance
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Fixed Deposits */}
+              {canViewFD && (
+                <div>
+                  <button
+                    className={`sidebar-link ${[
+                      'new-deposit',
+                      'deposit-display',
+                      'deposit-interest',
+                      'interest-display',
+                      'interest-pending',
+                      'deposit-withdrawal',
+                      'withdrawal-display',
+                      'fd-customers-deposits',
+                      'fd-customers'
+                    ].includes(currentPage)
+                      ? 'active'
+                      : ''
+                      }`}
+                    onClick={() => setFixedDepositsOpen(!fixedDepositsOpen)}
+                  >
+                    <Landmark size={17} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>Fixed Deposits</span>
+                    {fixedDepositsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+
+                  {fixedDepositsOpen && (
+                    <div className="sidebar-submenu">
+                      {hasPermission('fd', 'create') && (
+                        <button
+                          className={`sidebar-sublink ${currentPage === 'new-deposit' ? 'active' : ''}`}
+                          onClick={() => setCurrentPage('new-deposit')}
+                        >
+                          New Deposit
+                        </button>
+                      )}
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'deposit-display' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('deposit-display')}
+                      >
+                        Deposit Display
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'deposit-interest' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('deposit-interest')}
+                      >
+                        Deposit Interest
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'interest-display' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('interest-display')}
+                      >
+                        Interest Display
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'interest-pending' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('interest-pending')}
+                      >
+                        Interest Pending
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'deposit-withdrawal' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('deposit-withdrawal')}
+                      >
+                        Deposit Withdrawal
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'withdrawal-display' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('withdrawal-display')}
+                      >
+                        Withdrawal Display
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'fd-customers-deposits' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('fd-customers-deposits')}
+                      >
+                        FD Customers &amp; Deposits
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Accounts */}
+              {canViewAccounting && (
+                <div>
+                  <button
+                    className={`sidebar-link ${['day-book', 'trial-balance', 'profit-loss', 'balance-sheet', 'accounts'].includes(currentPage)
+                      ? 'active'
+                      : ''
+                      }`}
+                    onClick={() => setAccountsOpen(!accountsOpen)}
+                  >
+                    <BookOpen size={17} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>Accounts</span>
+                    {accountsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+
+                  {accountsOpen && (
+                    <div className="sidebar-submenu">
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'day-book' || currentPage === 'accounts' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('day-book')}
+                      >
+                        Day Book
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'trial-balance' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('trial-balance')}
+                      >
+                        Trial Balance
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'profit-loss' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('profit-loss')}
+                      >
+                        Profit &amp; Loss
+                      </button>
+                      <button
+                        className={`sidebar-sublink ${currentPage === 'balance-sheet' ? 'active' : ''}`}
+                        onClick={() => setCurrentPage('balance-sheet')}
+                      >
+                        Balance Sheet
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                className={`sidebar-link ${currentPage === 'daily-reminders' ? 'active' : ''}`}
+                onClick={() => setCurrentPage('daily-reminders')}
+              >
+                <Bell size={17} />
+                <span>Daily Reminders</span>
+              </button>
+            </>
+          )}
+
+          {/* ── RENTAL OPERATIONS ── */}
+          {canViewRental && (
+            <>
+              <div className="sidebar-section-label">RENTAL MANAGEMENT</div>
+              <div>
                 <button
-                  className={`sidebar-sublink ${['customers-add', 'add-customer-form'].includes(currentPage) ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('add-customer-form')}
+                  className={`sidebar-link ${[
+                    'rental',
+                    'rental-dashboard',
+                    'rental-complexes',
+                    'rental-complex-detail',
+                    'rental-shops',
+                    'rental-shop-detail',
+                    'rental-payments',
+                    'rental-expenses',
+                    'rental-reports'
+                  ].includes(currentPage)
+                    ? 'active'
+                    : ''
+                    }`}
+                  onClick={() => setRentalOpen(!rentalOpen)}
                 >
-                  <UserPlus size={14} style={{ marginRight: '6px' }} />
-                  Add Customer
+                  <Building size={17} />
+                  <span style={{ flex: 1, textAlign: 'left' }}>Rentals</span>
+                  {rentalOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'search-customer' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('search-customer')}
-                >
-                  <Search size={14} style={{ marginRight: '6px' }} />
-                  Search Customer
-                </button>
+
+                {rentalOpen && (
+                  <div className="sidebar-submenu">
+                    <button
+                      className={`sidebar-sublink ${currentPage === 'rental-dashboard' ? 'active' : ''}`}
+                      onClick={() => setCurrentPage('rental-dashboard')}
+                    >
+                      <PieChart size={14} style={{ marginRight: '6px' }} />
+                      Overview
+                    </button>
+                    <button
+                      className={`sidebar-sublink ${['rental-complexes', 'rental-complex-detail'].includes(currentPage) ? 'active' : ''}`}
+                      onClick={() => setCurrentPage('rental-complexes')}
+                    >
+                      <Building size={14} style={{ marginRight: '6px' }} />
+                      Complexes
+                    </button>
+                    <button
+                      className={`sidebar-sublink ${['rental-shops', 'rental-shop-detail'].includes(currentPage) ? 'active' : ''}`}
+                      onClick={() => setCurrentPage('rental-shops')}
+                    >
+                      <Home size={14} style={{ marginRight: '6px' }} />
+                      Shops &amp; Tenants
+                    </button>
+                    <button
+                      className={`sidebar-sublink ${currentPage === 'rental-payments' ? 'active' : ''}`}
+                      onClick={() => setCurrentPage('rental-payments')}
+                    >
+                      <Receipt size={14} style={{ marginRight: '6px' }} />
+                      Rent Collection
+                    </button>
+                    <button
+                      className={`sidebar-sublink ${currentPage === 'rental-expenses' ? 'active' : ''}`}
+                      onClick={() => setCurrentPage('rental-expenses')}
+                    >
+                      <FileSpreadsheet size={14} style={{ marginRight: '6px' }} />
+                      Expenses
+                    </button>
+                    <button
+                      className={`sidebar-sublink ${currentPage === 'rental-reports' ? 'active' : ''}`}
+                      onClick={() => setCurrentPage('rental-reports')}
+                    >
+                      <PieChart size={14} style={{ marginRight: '6px' }} />
+                      Rental Reports
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
 
-          {/* Loan Details */}
-          <div>
-            <button
-              className={`sidebar-link ${[
-                'loan-issue',
-                'loan-display',
-                'loan-receipts',
-                'receipt-display',
-                'all-receipts',
-                'pending-loans',
-                'total-loans',
-                'rc-renewal-reminders',
-                'bill-balance'
-              ].includes(currentPage)
-                ? 'active'
-                : ''
-                }`}
-              onClick={() => setLoanDetailsOpen(!loanDetailsOpen)}
-            >
-              <CreditCard size={17} />
-              <span style={{ flex: 1, textAlign: 'left' }}>Loan Details</span>
-              {loanDetailsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </button>
-
-            {loanDetailsOpen && (
-              <div className="sidebar-submenu">
-                <button
-                  className={`sidebar-sublink ${currentPage === 'loan-issue' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('loan-issue')}
-                >
-                  Loan Issue
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'loan-display' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('loan-display')}
-                >
-                  Loan Display
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'loan-receipts' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('loan-receipts')}
-                >
-                  Loan Receipts
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'receipt-display' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('receipt-display')}
-                >
-                  Receipt Display
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'all-receipts' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('all-receipts')}
-                >
-                  All Receipts
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'pending-loans' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('pending-loans')}
-                >
-                  Pending Loans
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'total-loans' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('total-loans')}
-                >
-                  Total Loans
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'rc-renewal-reminders' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('rc-renewal-reminders')}
-                >
-                  RC &amp; Renewal Reminders
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'bill-balance' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('bill-balance')}
-                >
-                  Bill Balance
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Fixed Deposits */}
-          <div>
-            <button
-              className={`sidebar-link ${[
-                'new-deposit',
-                'deposit-display',
-                'deposit-interest',
-                'interest-display',
-                'interest-pending',
-                'deposit-withdrawal',
-                'withdrawal-display',
-                'fd-customers-deposits'
-              ].includes(currentPage)
-                ? 'active'
-                : ''
-                }`}
-              onClick={() => setFixedDepositsOpen(!fixedDepositsOpen)}
-            >
-              <Landmark size={17} />
-              <span style={{ flex: 1, textAlign: 'left' }}>Fixed Deposits</span>
-              {fixedDepositsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </button>
-
-            {fixedDepositsOpen && (
-              <div className="sidebar-submenu">
-                <button
-                  className={`sidebar-sublink ${currentPage === 'new-deposit' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('new-deposit')}
-                >
-                  New Deposit
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'deposit-display' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('deposit-display')}
-                >
-                  Deposit Display
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'deposit-interest' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('deposit-interest')}
-                >
-                  Deposit Interest
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'interest-display' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('interest-display')}
-                >
-                  Interest Display
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'interest-pending' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('interest-pending')}
-                >
-                  Interest Pending
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'deposit-withdrawal' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('deposit-withdrawal')}
-                >
-                  Deposit Withdrawal
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'withdrawal-display' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('withdrawal-display')}
-                >
-                  Withdrawal Display
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'fd-customers-deposits' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('fd-customers-deposits')}
-                >
-                  FD Customers &amp; Deposits
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Accounts */}
-          <div>
-            <button
-              className={`sidebar-link ${['day-book', 'trial-balance', 'profit-loss', 'balance-sheet', 'accounts'].includes(currentPage)
-                ? 'active'
-                : ''
-                }`}
-              onClick={() => setAccountsOpen(!accountsOpen)}
-            >
-              <BookOpen size={17} />
-              <span style={{ flex: 1, textAlign: 'left' }}>Accounts</span>
-              {accountsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </button>
-
-            {accountsOpen && (
-              <div className="sidebar-submenu">
-                <button
-                  className={`sidebar-sublink ${currentPage === 'day-book' || currentPage === 'accounts' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('day-book')}
-                >
-                  Day Book
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'trial-balance' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('trial-balance')}
-                >
-                  Trial Balance
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'profit-loss' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('profit-loss')}
-                >
-                  Profit &amp; Loss
-                </button>
-                <button
-                  className={`sidebar-sublink ${currentPage === 'balance-sheet' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('balance-sheet')}
-                >
-                  Balance Sheet
-                </button>
-              </div>
-            )}
-          </div>
-
-          <button
-            className={`sidebar-link ${currentPage === 'daily-reminders' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('daily-reminders')}
-          >
-            <Bell size={17} />
-            <span>Daily Reminders</span>
-          </button>
-
-          {/* DATA - hidden from STAFF / OPERATOR / RENTAL_STAFF */}
-          {/* DATA - visible to MASTER_ADMIN only */}
-          {!isRentalOnly && userRole === 'MASTER_ADMIN' && (
+          {/* ── DATA ── */}
+          {canViewBackups && (
             <>
               <div className="sidebar-section-label">DATA</div>
               <button
@@ -438,51 +565,56 @@ export const Sidebar: React.FC = () => {
             </>
           )}
 
-          {/* SYSTEM - visible to MASTER_ADMIN only */}
-          {!isRentalOnly && userRole === 'MASTER_ADMIN' && (
+          {/* ── SYSTEM ── */}
+          {(canViewStaffMgmt || canViewSettings) && (
             <>
               <div className="sidebar-section-label">SYSTEM</div>
-              <button
-                className={`sidebar-link ${currentPage === 'admin-panel' ? 'active' : ''}`}
-                onClick={() => setCurrentPage('admin-panel')}
-              >
-                <Shield size={17} />
-                <span>Admin Panel</span>
-              </button>
-              <button
-                className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
-                onClick={() => setCurrentPage('settings')}
-              >
-                <Settings size={17} />
-                <span>Settings</span>
-              </button>
+              {canViewStaffMgmt && (
+                <button
+                  className={`sidebar-link ${currentPage === 'admin-panel' ? 'active' : ''}`}
+                  onClick={() => setCurrentPage('admin-panel')}
+                >
+                  <Shield size={17} />
+                  <span>Admin Panel</span>
+                </button>
+              )}
+              {canViewSettings && (
+                <button
+                  className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
+                  onClick={() => setCurrentPage('settings')}
+                >
+                  <Settings size={17} />
+                  <span>Settings</span>
+                </button>
+              )}
             </>
           )}
-          </>)}
         </nav>
 
         {/* Footer Controls */}
         <div className="sidebar-footer" style={{ padding: '10px 10px 14px', display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '6px' }}>
-            <button
-              className="btn btn-primary"
-              style={{ width: '100%', justifyContent: 'center', gap: '6px', fontSize: '11.5px', padding: '7px 8px', height: '34px' }}
-              onClick={handleBackupAndClose}
-              title="Backup & Close Session"
-            >
-              <Power size={13} />
-              <span>Backup &amp; Close</span>
-            </button>
-            <button
-              className="btn btn-secondary"
-              style={{ width: '100%', justifyContent: 'center', gap: '6px', fontSize: '11.5px', padding: '7px 8px', height: '34px', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#2563eb' }}
-              onClick={() => setIsRestoreModalOpen(true)}
-              title="Restore Latest Cloud Backup"
-            >
-              <RotateCcw size={13} />
-              <span>Restore</span>
-            </button>
-          </div>
+          {canViewBackups && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '6px' }}>
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center', gap: '6px', fontSize: '11.5px', padding: '7px 8px', height: '34px' }}
+                onClick={handleBackupAndClose}
+                title="Backup & Close Session"
+              >
+                <Power size={13} />
+                <span>Backup &amp; Close</span>
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', gap: '6px', fontSize: '11.5px', padding: '7px 8px', height: '34px', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#2563eb' }}
+                onClick={() => setIsRestoreModalOpen(true)}
+                title="Restore Latest Backup"
+              >
+                <RotateCcw size={13} />
+                <span>Restore</span>
+              </button>
+            </div>
+          )}
 
           <button
             className="btn btn-secondary"
@@ -497,10 +629,21 @@ export const Sidebar: React.FC = () => {
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Signed in as</p>
               <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                {currentUser?.displayName || roleLabel}
+                {currentUser?.displayName || currentUser?.fullName || roleLabel}
               </p>
-              <span style={{ fontSize: '10.5px', color: 'var(--color-gold-light)', fontWeight: 600 }}>
-                {roleLabel}
+              <span
+                style={{
+                  fontSize: '10.5px',
+                  fontWeight: 700,
+                  color:
+                    isAdmin
+                      ? 'var(--color-gold-light)'
+                      : isRentalStaff
+                      ? '#38bdf8'
+                      : '#34d399'
+                }}
+              >
+                ● {roleLabel}
               </span>
             </div>
             <button
@@ -529,3 +672,5 @@ export const Sidebar: React.FC = () => {
     </>
   );
 };
+
+export default Sidebar;

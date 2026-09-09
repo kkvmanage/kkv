@@ -372,7 +372,7 @@ export const AddCustomer: React.FC = () => {
     showToast('KYC Profile Draft Saved Successfully', 'info');
   };
 
-  // Form Submit to Backend MongoDB & Cloudinary
+  // Form Submit to Backend MongoDB
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 

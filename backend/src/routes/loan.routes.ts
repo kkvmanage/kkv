@@ -9,16 +9,23 @@ import {
   getLoanPayments,
   addLoanPayment
 } from '../controllers/loan.controller.js';
+import { authenticateUser, authorizePermission, authorizeRoles } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
-router.get('/', getLoans);
-router.get('/:loanNo', getLoanByNo);
-router.post('/', createLoan);
-router.put('/:id', updateLoan);
-router.delete('/:id', deleteLoan);
-router.post('/:loanNo/close', closeLoan);
-router.get('/:id/payments', getLoanPayments);
-router.post('/:id/payments', addLoanPayment);
+// Protect all loan routes with JWT authentication
+router.use(authenticateUser);
+
+// Operational Endpoints: Module-action permissions
+router.get('/', authorizePermission('loans', 'view'), getLoans);
+router.get('/:loanNo', authorizePermission('loans', 'view'), getLoanByNo);
+router.post('/', authorizePermission('loans', 'create'), createLoan);
+router.put('/:id', authorizePermission('loans', 'update'), updateLoan);
+router.post('/:loanNo/close', authorizePermission('loans', 'approve'), closeLoan);
+router.get('/:id/payments', authorizePermission('loans', 'view'), getLoanPayments);
+router.post('/:id/payments', authorizePermission('loans', 'create'), addLoanPayment);
+
+// Destructive Endpoints
+router.delete('/:id', authorizePermission('loans', 'delete'), deleteLoan);
 
 export default router;

@@ -1100,7 +1100,7 @@ export const AdminPanel: React.FC = () => {
                                       <RotateCcw size={12} />
                                       <span>Restore</span>
                                     </button>
-                                    {userRole === 'MASTER_ADMIN' && (
+                                    {userRole === 'ADMIN' && (
                                       <button
                                         className="btn btn-sm"
                                         style={{
@@ -1148,7 +1148,7 @@ export const AdminPanel: React.FC = () => {
                                     >
                                       <Edit3 size={13} />
                                     </button>
-                                    {userRole === 'MASTER_ADMIN' && (
+                                    {userRole === 'ADMIN' && (
                                       <button
                                         className="icon-button"
                                         style={{ width: '28px', height: '28px', color: 'var(--color-danger, #ef4444)' }}
@@ -1368,8 +1368,8 @@ export const AdminPanel: React.FC = () => {
         const otherActiveSessions = activeSessions.filter((s) => s.sessionId !== currentSessionId);
         const currentDeviceSession = allSessions.find((s) => s.sessionId === currentSessionId) || {
           sessionId: currentSessionId,
-          userId: userRole === 'MASTER_ADMIN' ? 'kkv_master_admin' : 'kkv_staff',
-          userRole: userRole || 'MASTER_ADMIN',
+          userId: userRole === 'ADMIN' ? 'kkv_master_admin' : 'kkv_staff',
+          userRole: userRole || 'ADMIN',
           userEmail: 'goldfinancekkv@gmail.com',
           deviceType: 'DESKTOP',
           deviceName: 'Windows PC (This Device)',

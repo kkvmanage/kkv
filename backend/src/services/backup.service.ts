@@ -1,5 +1,4 @@
-import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { googleDriveService } from './googleDriveService.js';
+import { localFileRepository } from '../repositories/localFile.repository.js';
 import { customerService } from './customer.service.js';
 import { loanService } from './loan.service.js';
 import { receiptService } from './receipt.service.js';
@@ -23,7 +22,7 @@ export interface BackupResult {
 
 export class BackupService {
   /**
-   * Creates a complete backup package and uploads it to Google Drive under KKV_GOLD_FINANCE/Backups/
+   * Creates a complete backup package and saves it locally.
    */
   public async createCloudBackup(incomingData?: any, deviceId?: string): Promise<BackupResult> {
     const customers = incomingData?.customers || customerService.getAll();
@@ -59,25 +58,15 @@ export class BackupService {
       }
     };
 
+    localFileRepository.createBackup(fullBackupPayload);
+
     const jsonBuffer = Buffer.from(JSON.stringify(fullBackupPayload, null, 2), 'utf-8');
-
-    // 1. Ensure Backups Folder in Google Drive
-    const backupFolderId = await googleDriveService.ensureBackupsFolder(deviceId || 'Desktop');
-
-    // 2. Upload Backup JSON Buffer
-    const uploadResult = await googleDriveService.uploadFile(
-      {
-        originalname: fileName,
-        mimetype: 'application/json',
-        buffer: jsonBuffer
-      },
-      backupFolderId
-    );
+    const backupId = `BCK-${Date.now()}`;
 
     const backupRecord: BackupResult = {
       success: true,
-      backupId: `BCK-${Date.now()}`,
-      driveFileId: uploadResult.fileId,
+      backupId,
+      driveFileId: backupId,
       fileName,
       uploadedAt: timestamp.toISOString(),
       sizeBytes: jsonBuffer.length,
@@ -89,17 +78,11 @@ export class BackupService {
       }
     };
 
-    // 3. Verify file exists on Google Drive
-    const verification = await googleDriveService.verifyFileExists(uploadResult.fileId);
-    if (!verification.exists) {
-      throw new Error(`Google Drive upload failed verification for file ID: ${uploadResult.fileId}`);
-    }
-
-    // 4. Save to local audit history
+    // Save to local audit history
     try {
-      const history = googleDriveRepository.readJson<any[]>('backups_history.json', []);
+      const history = localFileRepository.readJson<any[]>('backups_history.json', []);
       history.unshift(backupRecord);
-      googleDriveRepository.writeJson('backups_history.json', history.slice(0, 50));
+      localFileRepository.writeJson('backups_history.json', history.slice(0, 50));
     } catch {
       // Ignore history log errors
     }
@@ -120,7 +103,7 @@ export class BackupService {
       dayBookEntries: accountingService.getDayBook()
     };
 
-    const filename = googleDriveRepository.createBackup(fullBackup);
+    const filename = localFileRepository.createBackup(fullBackup);
     return { filename, data: fullBackup };
   }
 
@@ -129,14 +112,14 @@ export class BackupService {
       if (!data || typeof data !== 'object') return false;
       const targetData = data.data || data;
 
-      if (Array.isArray(targetData.customers)) googleDriveRepository.writeJson('customers.json', targetData.customers);
-      if (Array.isArray(targetData.loans)) googleDriveRepository.writeJson('loans.json', targetData.loans);
-      if (Array.isArray(targetData.receipts)) googleDriveRepository.writeJson('receipts.json', targetData.receipts);
-      if (Array.isArray(targetData.fdCustomers)) googleDriveRepository.writeJson('fd_customers.json', targetData.fdCustomers);
-      if (Array.isArray(targetData.fixedDeposits)) googleDriveRepository.writeJson('fixed_deposits.json', targetData.fixedDeposits);
-      if (Array.isArray(targetData.fdInterestPayouts)) googleDriveRepository.writeJson('fd_interest_payouts.json', targetData.fdInterestPayouts);
-      if (Array.isArray(targetData.fdWithdrawals)) googleDriveRepository.writeJson('fd_withdrawals.json', targetData.fdWithdrawals);
-      if (Array.isArray(targetData.dayBookEntries)) googleDriveRepository.writeJson('daybook_entries.json', targetData.dayBookEntries);
+      if (Array.isArray(targetData.customers)) localFileRepository.writeJson('customers.json', targetData.customers);
+      if (Array.isArray(targetData.loans)) localFileRepository.writeJson('loans.json', targetData.loans);
+      if (Array.isArray(targetData.receipts)) localFileRepository.writeJson('receipts.json', targetData.receipts);
+      if (Array.isArray(targetData.fdCustomers)) localFileRepository.writeJson('fd_customers.json', targetData.fdCustomers);
+      if (Array.isArray(targetData.fixedDeposits)) localFileRepository.writeJson('fixed_deposits.json', targetData.fixedDeposits);
+      if (Array.isArray(targetData.fdInterestPayouts)) localFileRepository.writeJson('fd_interest_payouts.json', targetData.fdInterestPayouts);
+      if (Array.isArray(targetData.fdWithdrawals)) localFileRepository.writeJson('fd_withdrawals.json', targetData.fdWithdrawals);
+      if (Array.isArray(targetData.dayBookEntries)) localFileRepository.writeJson('daybook_entries.json', targetData.dayBookEntries);
 
       return true;
     } catch (err) {
@@ -146,7 +129,7 @@ export class BackupService {
   }
 
   public listBackups(): string[] {
-    return googleDriveRepository.listBackups();
+    return localFileRepository.listBackups();
   }
 }
 

@@ -1,7 +1,7 @@
 import multer from 'multer';
 import { Request, Response, NextFunction } from 'express';
 
-// Use memory storage so we can stream buffers directly to Cloudinary
+// Memory storage for parsing multipart file buffers safely
 const storage = multer.memoryStorage();
 
 const allowedMimeTypes = [

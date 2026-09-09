@@ -1,10 +1,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { CustomerModel, ICustomer, IKYCDocument, ICustomerPhoto } from '../models/Customer.js';
-import { googleDriveService } from '../services/googleDriveService.js';
 import { generateCustomerId } from '../utils/customerIdGenerator.js';
 import { ensureMongoConnected, isMongoConnected } from '../config/database.js';
-
 
 export interface CreateCustomerRequest {
   fullName: string;
@@ -91,30 +89,11 @@ function dataUriToBuffer(dataUri: string): { buffer: Buffer; mimeType: string } 
 }
 
 /**
- * Helper to rollback/clean up uploaded Google Drive files when an error occurs
- */
-async function rollbackDriveFiles(fileIds: string[]) {
-  if (!fileIds || fileIds.length === 0) return;
-  console.log(`[GoogleDrive Rollback] Cleaning up ${fileIds.length} uploaded files...`);
-  for (const fileId of fileIds) {
-    try {
-      await googleDriveService.deleteFile(fileId);
-    } catch (err) {
-      console.warn(`[GoogleDrive Rollback] Failed to delete file ${fileId}:`, err);
-    }
-  }
-}
-
-/**
  * POST /api/customers
- * Permanent MongoDB creation with Google Drive file uploads for photo and KYC documents.
- * Full transaction rollback on failure to prevent orphaned Google Drive files.
+ * Permanent MongoDB creation.
  */
 export const createCustomer = async (req: Request, res: Response) => {
-  const uploadedDriveFileIds: string[] = [];
-
   try {
-    // 1. Ensure MongoDB connection is ready
     if (!isMongoConnected()) {
       await ensureMongoConnected();
       if (!isMongoConnected()) {
@@ -126,22 +105,10 @@ export const createCustomer = async (req: Request, res: Response) => {
       }
     }
 
-    // 2. Ensure Google Drive is connected
-    if (!googleDriveService.isConnected()) {
-      googleDriveService.initGoogleDrive(true);
-      if (!googleDriveService.isConnected()) {
-        return res.status(503).json({
-          success: false,
-          message: 'Google Drive storage is unavailable. Please connect Google Drive and try again.',
-          error: { code: 'GOOGLE_DRIVE_NOT_CONNECTED' }
-        });
-      }
-    }
-
     const body = req.body || {};
     const files = (req.files as { [fieldname: string]: Express.Multer.File[] }) || {};
 
-    // 3. Extract and normalize fields
+    // Extract and normalize fields
     const fullName = (body.fullName || body.name || '').trim();
     const rawPhoneNumber = (body.phoneNumber || body.phone || '').trim();
     const gender = body.gender || 'Male';
@@ -167,19 +134,12 @@ export const createCustomer = async (req: Request, res: Response) => {
     const extraPan = (body.extraPan || '').trim();
     const docName = (body.docName || '').trim();
 
-    // 4. Validation
     if (!fullName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Full Name is required.'
-      });
+      return res.status(400).json({ success: false, message: 'Full Name is required.' });
     }
 
     if (!rawPhoneNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'Phone Number is required.'
-      });
+      return res.status(400).json({ success: false, message: 'Phone Number is required.' });
     }
 
     const phoneNumber = normalizePhone(rawPhoneNumber);
@@ -204,10 +164,10 @@ export const createCustomer = async (req: Request, res: Response) => {
       });
     }
 
-    // 5. Generate unique sequential Customer ID (KKV-2026-000001)
+    // Generate unique sequential Customer ID
     const { customerId, sequenceNumber } = await generateCustomerId('KKV-2026');
 
-    // 6. Upload Customer Photo to Google Drive (Photos folder)
+    // Customer Photo
     let customerPhotoData: ICustomerPhoto = {
       fileId: '',
       fileName: 'customer-photo.jpg',
@@ -219,67 +179,30 @@ export const createCustomer = async (req: Request, res: Response) => {
     };
 
     const photoFile = files['customerPhoto']?.[0];
-
     if (photoFile) {
-      try {
-        const uploadResult = await googleDriveService.uploadCustomerPhoto(
-          customerId,
-          photoFile.buffer,
-          photoFile.originalname || `customer-photo-${customerId}.jpg`,
-          photoFile.mimetype || 'image/jpeg'
-        );
-
-        uploadedDriveFileIds.push(uploadResult.fileId);
-        customerPhotoData = {
-          fileId: uploadResult.fileId,
-          fileName: uploadResult.fileName,
-          url: uploadResult.url,
-          mimeType: uploadResult.mimeType,
-          fileSize: uploadResult.fileSize,
-          uploadedAt: uploadResult.uploadedAt,
-          publicId: uploadResult.fileId
-        };
-      } catch (uploadErr: any) {
-        console.error('[GoogleDrive] Customer photo upload failed:', uploadErr);
-        await rollbackDriveFiles(uploadedDriveFileIds);
-        return res.status(500).json({
-          success: false,
-          message: `Customer photo upload to Google Drive failed: ${uploadErr.message || 'Upload error'}`
-        });
-      }
-    } else if (body.customerPhoto && typeof body.customerPhoto === 'string' && body.customerPhoto.startsWith('data:image')) {
-      const parsed = dataUriToBuffer(body.customerPhoto);
-      if (parsed) {
-        try {
-          const uploadResult = await googleDriveService.uploadCustomerPhoto(
-            customerId,
-            parsed.buffer,
-            `customer-webcam-${customerId}.jpg`,
-            parsed.mimeType || 'image/jpeg'
-          );
-
-          uploadedDriveFileIds.push(uploadResult.fileId);
-          customerPhotoData = {
-            fileId: uploadResult.fileId,
-            fileName: uploadResult.fileName,
-            url: uploadResult.url,
-            mimeType: uploadResult.mimeType,
-            fileSize: uploadResult.fileSize,
-            uploadedAt: uploadResult.uploadedAt,
-            publicId: uploadResult.fileId
-          };
-        } catch (uploadErr: any) {
-          console.error('[GoogleDrive] Webcam photo upload failed:', uploadErr);
-          await rollbackDriveFiles(uploadedDriveFileIds);
-          return res.status(500).json({
-            success: false,
-            message: `Webcam photo upload to Google Drive failed: ${uploadErr.message || 'Upload error'}`
-          });
-        }
-      }
+      const b64 = `data:${photoFile.mimetype || 'image/jpeg'};base64,${photoFile.buffer.toString('base64')}`;
+      customerPhotoData = {
+        fileId: `photo_${customerId}_${Date.now()}`,
+        fileName: photoFile.originalname || `customer-photo-${customerId}.jpg`,
+        url: b64,
+        mimeType: photoFile.mimetype || 'image/jpeg',
+        fileSize: photoFile.size || photoFile.buffer.length,
+        uploadedAt: new Date(),
+        publicId: `photo_${customerId}_${Date.now()}`
+      };
+    } else if (body.customerPhoto && typeof body.customerPhoto === 'string') {
+      customerPhotoData = {
+        fileId: `photo_${customerId}_${Date.now()}`,
+        fileName: `customer-photo-${customerId}.jpg`,
+        url: body.customerPhoto,
+        mimeType: 'image/jpeg',
+        fileSize: 0,
+        uploadedAt: new Date(),
+        publicId: `photo_${customerId}_${Date.now()}`
+      };
     }
 
-    // 7. Upload KYC Documents to Google Drive (KYC/<DocumentType> folder)
+    // KYC Documents
     const kycDocuments: IKYCDocument[] = [];
     const kycFiles = [
       ...(files['kycDocuments'] || []),
@@ -297,42 +220,23 @@ export const createCustomer = async (req: Request, res: Response) => {
 
       const isPdf = file.mimetype === 'application/pdf';
       const resourceType = isPdf ? 'raw' : 'image';
+      const b64 = `data:${file.mimetype || 'image/jpeg'};base64,${file.buffer.toString('base64')}`;
 
-      try {
-        const uploadResult = await googleDriveService.uploadKycDocument(
-          customerId,
-          docType,
-          file.buffer,
-          file.originalname || `${docType.toLowerCase()}_${i + 1}.jpg`,
-          file.mimetype || 'image/jpeg'
-        );
-
-        uploadedDriveFileIds.push(uploadResult.fileId);
-
-        kycDocuments.push({
-          documentType: docType,
-          documentNumber: idProofNumber || '',
-          documentName: file.originalname || `${docType} Document`,
-          fileId: uploadResult.fileId,
-          fileName: uploadResult.fileName,
-          url: uploadResult.url,
-          mimeType: uploadResult.mimeType,
-          fileSize: uploadResult.fileSize,
-          uploadedAt: uploadResult.uploadedAt,
-          publicId: uploadResult.fileId,
-          resourceType
-        });
-      } catch (docErr: any) {
-        console.error(`[GoogleDrive] Failed to upload KYC document ${file.originalname}:`, docErr);
-        await rollbackDriveFiles(uploadedDriveFileIds);
-        return res.status(500).json({
-          success: false,
-          message: `Failed to upload KYC document "${file.originalname}" to Google Drive: ${docErr.message || 'Upload failed'}`
-        });
-      }
+      kycDocuments.push({
+        documentType: docType,
+        documentNumber: idProofNumber || '',
+        documentName: file.originalname || `${docType} Document`,
+        fileId: `kyc_${customerId}_${i}_${Date.now()}`,
+        fileName: file.originalname || `${docType.toLowerCase()}_${i + 1}.jpg`,
+        url: b64,
+        mimeType: file.mimetype || 'image/jpeg',
+        fileSize: file.size || file.buffer.length,
+        uploadedAt: new Date(),
+        publicId: `kyc_${customerId}_${i}_${Date.now()}`,
+        resourceType
+      });
     }
 
-    // 8. Construct and Save MongoDB Document (storing Google Drive metadata and links)
     const customerPayload = {
       customerId,
       numericId: sequenceNumber,
@@ -391,25 +295,15 @@ export const createCustomer = async (req: Request, res: Response) => {
       isDeleted: false
     };
 
-    try {
-      const savedCustomer = await CustomerModel.create(customerPayload);
+    const savedCustomer = await CustomerModel.create(customerPayload);
 
-      return res.status(201).json({
-        success: true,
-        message: 'Customer created successfully and saved permanently in MongoDB with Google Drive file storage.',
-        data: savedCustomer
-      });
-    } catch (saveErr: any) {
-      console.error('[CustomerController] MongoDB create failed:', saveErr);
-      await rollbackDriveFiles(uploadedDriveFileIds);
-      return res.status(500).json({
-        success: false,
-        message: `Database save error: ${saveErr.message || 'Failed to save customer in MongoDB.'}`
-      });
-    }
+    return res.status(201).json({
+      success: true,
+      message: 'Customer created successfully and saved permanently in MongoDB.',
+      data: savedCustomer
+    });
   } catch (error: any) {
     console.error('[CustomerController] createCustomer unexpected error:', error);
-    await rollbackDriveFiles(uploadedDriveFileIds);
     return res.status(500).json({
       success: false,
       message: error.message || 'An unexpected error occurred while creating customer.'
@@ -419,7 +313,6 @@ export const createCustomer = async (req: Request, res: Response) => {
 
 /**
  * GET /api/customers
- * Retrieves all non-deleted customers from MongoDB.
  */
 export const getCustomers = async (req: Request, res: Response) => {
   try {
@@ -468,7 +361,6 @@ export const getCustomers = async (req: Request, res: Response) => {
 
 /**
  * GET /api/customers/:id
- * Retrieves a single customer from MongoDB.
  */
 export const getCustomerById = async (req: Request, res: Response) => {
   try {
@@ -525,8 +417,7 @@ export const getCustomerById = async (req: Request, res: Response) => {
 };
 
 /**
- * GET /api/customers/search?query=
- * Searches customers in MongoDB by fullName, phoneNumber, customerId, or ID proof number.
+ * GET /api/customers/search
  */
 export const searchCustomers = async (req: Request, res: Response) => {
   try {
@@ -588,11 +479,6 @@ export const searchCustomers = async (req: Request, res: Response) => {
 
 /**
  * PUT /api/customers/:id
- * Updates customer information in MongoDB.
- * If customer photo is replaced:
- *   1. Upload new image to Google Drive.
- *   2. Update MongoDB.
- *   3. Delete old Google Drive file.
  */
 export const updateCustomer = async (req: Request, res: Response) => {
   try {
@@ -628,7 +514,6 @@ export const updateCustomer = async (req: Request, res: Response) => {
     }
 
     const updateFields: any = { ...body, updatedAt: new Date() };
-    const oldPhotoFileId = existing.customerPhoto?.fileId;
 
     // Normalize field names
     if (body.fullName || body.name) {
@@ -657,39 +542,23 @@ export const updateCustomer = async (req: Request, res: Response) => {
       updateFields.idNumber = updateFields.idProofNumber;
     }
 
-    // 1. Handle new customer photo upload to Google Drive
+    // Photo update
     const photoFile = files['customerPhoto']?.[0];
-    let newPhotoUploaded = false;
     if (photoFile) {
-      try {
-        const custId = existing.customerId;
-        const uploadResult = await googleDriveService.uploadCustomerPhoto(
-          custId,
-          photoFile.buffer,
-          photoFile.originalname || `customer-photo-${custId}-${Date.now()}.jpg`,
-          photoFile.mimetype || 'image/jpeg'
-        );
-
-        updateFields.customerPhoto = {
-          fileId: uploadResult.fileId,
-          fileName: uploadResult.fileName,
-          url: uploadResult.url,
-          mimeType: uploadResult.mimeType,
-          fileSize: uploadResult.fileSize,
-          uploadedAt: uploadResult.uploadedAt,
-          publicId: uploadResult.fileId
-        };
-        newPhotoUploaded = true;
-      } catch (photoErr: any) {
-        console.error('[GoogleDrive] Update photo upload failed:', photoErr);
-        return res.status(500).json({
-          success: false,
-          message: `Photo update failed: ${photoErr.message}`
-        });
-      }
+      const custId = existing.customerId;
+      const b64 = `data:${photoFile.mimetype || 'image/jpeg'};base64,${photoFile.buffer.toString('base64')}`;
+      updateFields.customerPhoto = {
+        fileId: `photo_${custId}_${Date.now()}`,
+        fileName: photoFile.originalname || `customer-photo-${custId}-${Date.now()}.jpg`,
+        url: b64,
+        mimeType: photoFile.mimetype || 'image/jpeg',
+        fileSize: photoFile.size || photoFile.buffer.length,
+        uploadedAt: new Date(),
+        publicId: `photo_${custId}_${Date.now()}`
+      };
     }
 
-    // 2. Handle additional KYC documents
+    // KYC update
     const kycFiles = [
       ...(files['kycDocuments'] || []),
       ...(files['aadhaarDoc'] || []),
@@ -706,26 +575,19 @@ export const updateCustomer = async (req: Request, res: Response) => {
         const docType = updateFields.idProofType || existing.idProofType || 'KYC';
         const isPdf = file.mimetype === 'application/pdf';
         const resourceType = isPdf ? 'raw' : 'image';
-
-        const uploadResult = await googleDriveService.uploadKycDocument(
-          custId,
-          docType,
-          file.buffer,
-          file.originalname || `${docType.toLowerCase()}_${Date.now()}_${i + 1}.jpg`,
-          file.mimetype || 'image/jpeg'
-        );
+        const b64 = `data:${file.mimetype || 'image/jpeg'};base64,${file.buffer.toString('base64')}`;
 
         newKycDocs.push({
           documentType: docType,
           documentNumber: updateFields.idProofNumber || existing.idProofNumber || '',
           documentName: file.originalname,
-          fileId: uploadResult.fileId,
-          fileName: uploadResult.fileName,
-          url: uploadResult.url,
-          mimeType: uploadResult.mimeType,
-          fileSize: uploadResult.fileSize,
-          uploadedAt: uploadResult.uploadedAt,
-          publicId: uploadResult.fileId,
+          fileId: `kyc_${custId}_${i}_${Date.now()}`,
+          fileName: file.originalname,
+          url: b64,
+          mimeType: file.mimetype || 'image/jpeg',
+          fileSize: file.size || file.buffer.length,
+          uploadedAt: new Date(),
+          publicId: `kyc_${custId}_${i}_${Date.now()}`,
           resourceType
         });
       }
@@ -733,16 +595,8 @@ export const updateCustomer = async (req: Request, res: Response) => {
       existing.kycDocuments.push(...newKycDocs);
     }
 
-    // 3. Save updates to MongoDB
     Object.assign(existing, updateFields);
     const updatedDoc = await existing.save();
-
-    // 4. Delete old Google Drive photo after successful DB update
-    if (newPhotoUploaded && oldPhotoFileId) {
-      googleDriveService.deleteFile(oldPhotoFileId).catch((err) => {
-        console.warn('[GoogleDrive] Cleanup old photo notice:', err);
-      });
-    }
 
     return res.json({
       success: true,
@@ -760,11 +614,6 @@ export const updateCustomer = async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/customers/:id
- * Deletion flow:
- *   1. Find customer in MongoDB.
- *   2. Delete customer photo and KYC files from Google Drive.
- *   3. Delete customer folder from Google Drive.
- *   4. Delete customer MongoDB document.
  */
 export const deleteCustomer = async (req: Request, res: Response) => {
   try {
@@ -797,43 +646,15 @@ export const deleteCustomer = async (req: Request, res: Response) => {
       });
     }
 
-    // 1. Delete Customer Photo from Google Drive
-    if (customer.customerPhoto?.fileId) {
-      try {
-        await googleDriveService.deleteFile(customer.customerPhoto.fileId);
-      } catch (delErr) {
-        console.warn('[GoogleDrive] Failed to delete customer photo:', delErr);
-      }
-    }
-
-    // 2. Delete all KYC Documents from Google Drive
-    if (customer.kycDocuments && Array.isArray(customer.kycDocuments)) {
-      for (const doc of customer.kycDocuments) {
-        if (doc.fileId) {
-          try {
-            await googleDriveService.deleteFile(doc.fileId);
-          } catch (delErr) {
-            console.warn(`[GoogleDrive] Failed to delete KYC doc ${doc.fileId}:`, delErr);
-          }
-        }
-      }
-    }
-
-    // 3. Delete customer folder hierarchy from Google Drive
-    if (customer.customerId) {
-      try {
-        await googleDriveService.deleteCustomerFolder(customer.customerId);
-      } catch (folderDelErr) {
-        console.warn(`[GoogleDrive] Failed to delete customer folder:`, folderDelErr);
-      }
-    }
-
-    // 4. Delete from MongoDB
-    await CustomerModel.deleteOne({ _id: customer._id });
+    // Soft delete
+    customer.isDeleted = true;
+    customer.deletedAt = new Date();
+    customer.deletedBy = (req as any).user?.email || (req as any).user?.id || 'ADMIN';
+    await customer.save();
 
     return res.json({
       success: true,
-      message: 'Customer and all associated Google Drive files permanently deleted successfully.'
+      message: 'Customer moved to trash successfully.'
     });
   } catch (error: any) {
     console.error('[CustomerController] deleteCustomer error:', error);
@@ -861,25 +682,54 @@ export const restoreCustomer = async (req: Request, res: Response) => {
     );
 
     if (!customer) {
-      return res.status(404).json({ success: false, message: 'Customer not found.' });
+      return res.status(404).json({
+        success: false,
+        message: `Customer with ID "${targetId}" not found.`,
+        error: { code: 'CUSTOMER_NOT_FOUND' }
+      });
     }
 
-    return res.json({ success: true, message: 'Customer restored successfully.', data: customer });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message || 'Restore failed' });
+    return res.json({
+      success: true,
+      message: 'Customer restored successfully.',
+      data: customer
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to restore customer.'
+    });
   }
 };
 
-export const deletePermanentlyCustomer = deleteCustomer;
+export const deletePermanentlyCustomer = async (req: Request, res: Response) => {
+  try {
+    const targetId = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(targetId);
 
-export default {
-  createCustomer,
-  getCustomers,
-  getCustomerById,
-  searchCustomers,
-  updateCustomer,
-  deleteCustomer,
-  restoreCustomer,
-  deletePermanentlyCustomer
+    const result = await CustomerModel.deleteOne({
+      $or: [
+        { customerId: targetId },
+        ...(isObjectId ? [{ _id: targetId }] : [])
+      ]
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Customer with ID "${targetId}" not found.`,
+        error: { code: 'CUSTOMER_NOT_FOUND' }
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Customer permanently deleted from database.'
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to permanently delete customer.'
+    });
+  }
 };
-

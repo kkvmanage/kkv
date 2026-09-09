@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useApp } from './context/AppContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Topbar } from './components/layout/Topbar';
+import { isAdminRole } from './config/permissions';
 
-// Page Views
+// Core Page Views
 import { Dashboard } from './pages/Dashboard';
 import { Customers } from './pages/Customers';
 import { AddCustomer } from './pages/AddCustomer';
@@ -25,8 +26,19 @@ import { AdminPanel } from './pages/AdminPanel';
 import { Settings } from './pages/Settings';
 import { NotificationCenter } from './components/notifications/NotificationCenter';
 
-import { ShieldAlert } from 'lucide-react';
+// Rental Management Page Views
+import { RentalDashboard } from './modules/rental/pages/RentalDashboard';
+import { RentalComplexes } from './modules/rental/pages/RentalComplexes';
+import { RentalComplexDetail } from './modules/rental/pages/RentalComplexDetail';
+import { RentalShops } from './modules/rental/pages/RentalShops';
+import { RentalShopDetail } from './modules/rental/pages/RentalShopDetail';
+import { RentalPayments } from './modules/rental/pages/RentalPayments';
+import { RentalExpenses } from './modules/rental/pages/RentalExpenses';
+import { RentalReports } from './modules/rental/pages/RentalReports';
+
 import { LoginView } from './components/auth/LoginView';
+import { AccessDenied } from './components/auth/AccessDenied';
+import { ForceChangePasswordModal } from './components/auth/ForceChangePasswordModal';
 
 export const App: React.FC = () => {
   const {
@@ -38,27 +50,22 @@ export const App: React.FC = () => {
     authLoading,
     hasPermission,
     loginWithCredentials,
-    loginWithGoogle,
-    resetPasswordEmail,
     isNotificationOpen,
     setIsNotificationOpen
   } = useApp();
 
-  // Login Form State — Production Ready (No Hardcoded Test Credentials)
+  // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [isGoogleLoggingIn, setIsGoogleLoggingIn] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     if (!loginEmail.trim() || !loginPassword.trim()) {
-      setLoginError('Please enter both email address and password.');
+      setLoginError('Please enter both email/staff ID and password.');
       return;
     }
 
@@ -71,74 +78,17 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setLoginError('');
-    setIsGoogleLoggingIn(true);
-    const res = await loginWithGoogle();
-    setIsGoogleLoggingIn(false);
-
-    if (!res.success) {
-      setLoginError(res.message || 'Google authentication failed.');
-    }
+  const getHomeRoute = () => {
+    return userRole === 'RENTAL_STAFF' ? 'rental-dashboard' : 'dashboard';
   };
-
-  const handlePasswordReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!resetEmail.trim()) return;
-    await resetPasswordEmail(resetEmail.trim());
-    setIsForgotPasswordOpen(false);
-  };
-
-  // ── Access Denied View for Unauthorized Direct Navigation ──────────────────
-  const renderAccessDenied = (moduleName: string) => (
-    <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '65vh' }}>
-      <div
-        className="card"
-        style={{
-          maxWidth: '480px',
-          textAlign: 'center',
-          padding: '36px 28px',
-          border: '1px solid rgba(239, 68, 68, 0.4)',
-          backgroundColor: 'rgba(239, 68, 68, 0.04)'
-        }}
-      >
-        <div
-          style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '50%',
-            backgroundColor: 'rgba(239, 68, 68, 0.15)',
-            color: '#ef4444',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 16px'
-          }}
-        >
-          <ShieldAlert size={28} />
-        </div>
-        <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px 0' }}>
-          ACCESS DENIED
-        </h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px 0', lineHeight: 1.5 }}>
-          You do not have permission to access <strong>{moduleName}</strong>. Your assigned role is <strong>{userRole || 'STAFF'}</strong>. Please contact the Master Admin if you require access.
-        </p>
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ margin: '0 auto', minWidth: '180px', justifyContent: 'center' }}
-          onClick={() => setCurrentPage('dashboard')}
-        >
-          Return to Dashboard
-        </button>
-      </div>
-    </div>
-  );
 
   // ── Route & Permission Guard ───────────────────────────────────────────────
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
+        if (userRole === 'RENTAL_STAFF') {
+          return <RentalDashboard onNavigate={(page: string) => setCurrentPage(page as any)} />;
+        }
         return <Dashboard />;
 
       case 'customers':
@@ -146,9 +96,16 @@ export const App: React.FC = () => {
       case 'add-customer-form':
       case 'search-customer':
       case 'customer-profile':
-        if (!hasPermission('customers')) return renderAccessDenied('Customer Management');
+        if (!hasPermission('customers', 'view')) {
+          return <AccessDenied requestedArea="Customer Management" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
         if (currentPage === 'customers') return <Customers />;
-        if (currentPage === 'customers-add' || currentPage === 'add-customer-form') return <AddCustomer />;
+        if (currentPage === 'customers-add' || currentPage === 'add-customer-form') {
+          if (!hasPermission('customers', 'create')) {
+            return <AccessDenied requestedArea="Create Customer" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+          }
+          return <AddCustomer />;
+        }
         if (currentPage === 'search-customer') return <SearchCustomer />;
         return <CustomerProfile />;
 
@@ -158,8 +115,15 @@ export const App: React.FC = () => {
       case 'total-loans':
       case 'rc-renewal-reminders':
       case 'bill-balance':
-        if (!hasPermission('loans')) return renderAccessDenied('Loan Management');
-        if (currentPage === 'loan-issue') return <LoanIssue />;
+        if (!hasPermission('loans', 'view')) {
+          return <AccessDenied requestedArea="Loan Management" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        if (currentPage === 'loan-issue') {
+          if (!hasPermission('loans', 'create')) {
+            return <AccessDenied requestedArea="Issue New Loan" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+          }
+          return <LoanIssue />;
+        }
         if (currentPage === 'loan-display') return <LoanDisplay />;
         if (currentPage === 'all-receipts') return <AllReceipts />;
         if (currentPage === 'total-loans') return <TotalLoans />;
@@ -168,30 +132,33 @@ export const App: React.FC = () => {
 
       case 'loan-receipts':
       case 'receipt-display':
-        if (!hasPermission('loanReceipts')) return renderAccessDenied('Loan Receipts');
+        if (!hasPermission('receipts', 'view')) {
+          return <AccessDenied requestedArea="Loan Receipts" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
         if (currentPage === 'loan-receipts') return <LoanReceipts />;
         return <ReceiptDisplay />;
 
       case 'pending-loans':
-        if (!hasPermission('pendingLoans')) return renderAccessDenied('Pending Loans Approval');
+        if (!hasPermission('loans', 'approve')) {
+          return <AccessDenied requestedArea="Pending Loans Approval" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
         return <PendingLoans />;
 
       case 'new-deposit':
       case 'deposit-display':
       case 'fd-customers':
       case 'fd-customers-deposits':
-        if (!hasPermission('fixedDeposits')) return renderAccessDenied('Fixed Deposits');
-        return <FixedDeposits />;
-
       case 'deposit-interest':
       case 'interest-display':
       case 'interest-pending':
-        if (!hasPermission('fdInterest')) return renderAccessDenied('Fixed Deposit Interest');
-        return <FixedDeposits />;
-
       case 'deposit-withdrawal':
       case 'withdrawal-display':
-        if (!hasPermission('fdWithdrawal')) return renderAccessDenied('Fixed Deposit Withdrawal');
+        if (!hasPermission('fd', 'view')) {
+          return <AccessDenied requestedArea="Fixed Deposits" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        if (currentPage === 'new-deposit' && !hasPermission('fd', 'create')) {
+          return <AccessDenied requestedArea="New Fixed Deposit" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
         return <FixedDeposits />;
 
       case 'day-book':
@@ -199,26 +166,92 @@ export const App: React.FC = () => {
       case 'profit-loss':
       case 'balance-sheet':
       case 'accounts':
+        if (!hasPermission('accounting', 'view')) {
+          return <AccessDenied requestedArea="Accounting & Ledgers" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
         return <Accounts />;
 
       case 'daily-reminders':
-        if (!hasPermission('notifications')) return renderAccessDenied('Daily Reminders');
         return <DailyReminders />;
 
       case 'notifications':
         return <NotificationCenter isFullPage={true} />;
 
+      // ── Rental Management Domain ──
+      case 'rental':
+      case 'rental-dashboard':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Rental Dashboard" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalDashboard onNavigate={(page: string) => setCurrentPage(page as any)} />;
+
+      case 'rental-complexes':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Rental Complexes" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalComplexes onSelectComplex={() => setCurrentPage('rental-complex-detail')} />;
+
+      case 'rental-complex-detail':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Complex Details" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalComplexDetail onBack={() => setCurrentPage('rental-complexes')} />;
+
+      case 'rental-shops':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Rental Shops" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalShops onSelectShop={() => setCurrentPage('rental-shop-detail')} />;
+
+      case 'rental-shop-detail':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Shop Details" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalShopDetail onBack={() => setCurrentPage('rental-shops')} />;
+
+      case 'rental-payments':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Rent Collection & Payments" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalPayments />;
+
+      case 'rental-expenses':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Rental Expenses" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalExpenses />;
+
+      case 'rental-reports':
+        if (!hasPermission('rental', 'view')) {
+          return <AccessDenied requestedArea="Rental Reports" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <RentalReports />;
+
+      // ── System & Admin Domain ──
       case 'backup-restore':
+        if (!hasPermission('backupRestore', 'view') && !isAdminRole(userRole)) {
+          return <AccessDenied requestedArea="Backup & Restore" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
+        return <AdminPanel />;
+
       case 'admin-panel':
-        if (userRole !== 'MASTER_ADMIN') return renderAccessDenied('Admin Panel & Data Management');
+        if (!hasPermission('staffManagement', 'view') && !isAdminRole(userRole)) {
+          return <AccessDenied requestedArea="Admin Panel" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
         return <AdminPanel />;
 
       case 'settings':
-        if (userRole !== 'MASTER_ADMIN') return renderAccessDenied('Branch Settings & Master Control');
+        if (!hasPermission('settings', 'view') && !isAdminRole(userRole)) {
+          return <AccessDenied requestedArea="Branch Settings & Master Control" onNavigateHome={() => setCurrentPage(getHomeRoute())} />;
+        }
         return <Settings />;
 
       default:
-        return <Dashboard />;
+        return userRole === 'RENTAL_STAFF' ? (
+          <RentalDashboard onNavigate={(page: string) => setCurrentPage(page as any)} />
+        ) : (
+          <Dashboard />
+        );
     }
   };
 
@@ -282,7 +315,7 @@ export const App: React.FC = () => {
         ))}
       </div>
 
-      {/* ── PRODUCTION FIREBASE AUTHENTICATION SCREEN ── */}
+      {/* ── CUSTOM JWT AUTHENTICATION SCREEN ── */}
       {(!userRole || !currentUser) && (
         <LoginView
           loginEmail={loginEmail}
@@ -293,15 +326,8 @@ export const App: React.FC = () => {
           setShowPassword={setShowPassword}
           loginError={loginError}
           isLoggingIn={isLoggingIn}
-          isGoogleLoggingIn={isGoogleLoggingIn}
           authLoading={authLoading}
           handleLogin={handleLogin}
-          handleGoogleSignIn={handleGoogleSignIn}
-          isForgotPasswordOpen={isForgotPasswordOpen}
-          setIsForgotPasswordOpen={setIsForgotPasswordOpen}
-          resetEmail={resetEmail}
-          setResetEmail={setResetEmail}
-          handlePasswordReset={handlePasswordReset}
         />
       )}
 
@@ -322,6 +348,11 @@ export const App: React.FC = () => {
           {/* Centralized Notification Center Modal / Flyout */}
           {isNotificationOpen && (
             <NotificationCenter isFullPage={false} onClose={() => setIsNotificationOpen(false)} />
+          )}
+
+          {/* Force Change Password Modal for newly created staff */}
+          {currentUser?.mustChangePassword && (
+            <ForceChangePasswordModal />
           )}
         </>
       )}

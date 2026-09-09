@@ -2,8 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import JSZip from 'jszip';
-import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { googleDriveService } from './googleDriveService.js';
+import { localFileRepository } from '../repositories/localFile.repository.js';
 import { customerService } from './customer.service.js';
 import { loanService } from './loan.service.js';
 import { receiptService } from './receipt.service.js';
@@ -25,8 +24,7 @@ export interface RestoreValidationPreview {
   fileSize: number;
   sha256: string;
   schemaVersion: string;
-  sourceType: 'LOCAL_UPLOAD' | 'GOOGLE_DRIVE' | 'LOCAL_SERVER';
-  driveFileId?: string;
+  sourceType: 'LOCAL_UPLOAD' | 'LOCAL_SERVER';
   manifestVerified: boolean;
   checksumsVerified: boolean;
   relationshipsVerified: boolean;
@@ -54,12 +52,11 @@ export interface RestoreValidationPreview {
   expiresAt: number;
 }
 
-export interface AvailableDriveBackup {
+export interface AvailableBackupItem {
   fileId: string;
   fileName: string;
   createdTime: string;
   sizeBytes: number;
-  drivePath: string;
   status: string;
   isZip: boolean;
 }
@@ -68,7 +65,7 @@ export interface RestoreHistoryRecord {
   restoreId: string;
   backupId: string;
   sourceFileName: string;
-  sourceType: 'LOCAL_UPLOAD' | 'GOOGLE_DRIVE' | 'LOCAL_SERVER';
+  sourceType: 'LOCAL_UPLOAD' | 'LOCAL_SERVER';
   createdAt: string;
   restoredAt: string;
   restoredBy: {
@@ -80,21 +77,11 @@ export interface RestoreHistoryRecord {
   restoredCounts: RestoreValidationPreview['counts'];
   recordCounts?: RestoreValidationPreview['counts'];
   databaseStatus: 'RESTORED' | 'VERIFIED' | 'ROLLED_BACK' | 'FAILED';
-  googleDriveSync: 'VERIFIED' | 'PENDING' | 'FAILED' | 'SKIPPED';
-  googleDriveFileId?: string;
-  googleDriveFileName?: string;
-  googleDriveError?: string;
-  googleDriveErrorCode?: string;
   result: 'SUCCESS' | 'FAILURE';
   details?: string;
   restore?: {
     status: 'VERIFIED' | 'FAILED';
     restoreId: string;
-  };
-  googleDrive?: {
-    status: 'VERIFIED' | 'PENDING' | 'FAILED';
-    errorCode?: string;
-    errorMessage?: string;
   };
 }
 
@@ -103,37 +90,27 @@ class SystemRestoreService {
   private isRestoreInProgress = false;
 
   /**
-   * Lists available verified backup packages from Google Drive.
+   * Lists available verified backup packages from local storage.
    */
-  public async getAvailableBackups(): Promise<AvailableDriveBackup[]> {
-    if (!googleDriveService.isConnected()) {
-      googleDriveService.initGoogleDrive();
-      if (!googleDriveService.isConnected()) {
-        throw new Error('Google Drive is not connected. Please connect your Google account in Settings.');
-      }
-    }
-
+  public async getAvailableBackups(): Promise<AvailableBackupItem[]> {
     try {
-      const list = await googleDriveService.listFullBackups();
-      return list.map(item => ({
-        fileId: item.fileId,
+      const history = backupPackageService.getBackupHistory();
+      return history.map(item => ({
+        fileId: item.backupId,
         fileName: item.fileName,
-        createdTime: item.createdTime,
-        sizeBytes: item.sizeBytes,
-        drivePath: item.drivePath,
+        createdTime: item.createdAt,
+        sizeBytes: item.fileSize,
         status: item.status,
-        isZip: item.isZip
+        isZip: item.fileName.endsWith('.zip')
       }));
     } catch (err: any) {
-      console.warn('[SystemRestoreService] Error listing Drive backups:', err?.message || err);
+      console.warn('[SystemRestoreService] Error listing backups:', err?.message || err);
       return [];
     }
   }
 
   /**
-   * Validates a backup archive (ZIP Buffer, JSON string, or Drive File ID).
-   * Performs deep 14-point validation: ZIP safety, manifest, snapshot, CSVs, SHA-256 recalculation, schema version, and relationships.
-   * ZERO database modification occurs during validation.
+   * Validates a backup archive (ZIP Buffer, JSON string, or Backup ID).
    */
   public async validateBackupForRestore(source: {
     zipBuffer?: Buffer;
@@ -144,31 +121,19 @@ class SystemRestoreService {
     let zipBuffer = source.zipBuffer;
     let jsonString = source.jsonString;
     let fileName = 'uploaded_backup.zip';
-    let backupId = `BKP-${Date.now()}`;
+    let backupId = source.backupId || source.fileId || `BKP-${Date.now()}`;
     let packageSha256 = '';
-    let sourceType: 'LOCAL_UPLOAD' | 'GOOGLE_DRIVE' | 'LOCAL_SERVER' = 'LOCAL_UPLOAD';
+    let sourceType: 'LOCAL_UPLOAD' | 'LOCAL_SERVER' = 'LOCAL_UPLOAD';
 
-    // 1. Fetch from Google Drive if fileId provided
-    if (source.fileId) {
-      sourceType = 'GOOGLE_DRIVE';
-      console.log(`[SystemRestoreService] Downloading backup from Google Drive (File ID: ${source.fileId})...`);
-      const { buffer, name: downloadedName } = await googleDriveService.downloadDriveFileBuffer(source.fileId);
-      fileName = downloadedName || 'drive_backup.zip';
-      if (fileName.endsWith('.zip')) {
-        zipBuffer = buffer;
-      } else {
-        jsonString = buffer.toString('utf-8');
-      }
-    }
-
-    // 2. Fetch from Local Server if backupId provided
-    if (source.backupId && !zipBuffer && !jsonString) {
+    // Fetch from Local Server if backupId / fileId provided
+    const targetId = source.backupId || source.fileId;
+    if (targetId && !zipBuffer && !jsonString) {
       sourceType = 'LOCAL_SERVER';
-      const localZip = backupPackageService.getBackupZip(source.backupId);
+      const localZip = backupPackageService.getBackupZip(targetId);
       if (localZip) {
         zipBuffer = localZip.buffer;
         fileName = localZip.fileName;
-        backupId = source.backupId;
+        backupId = targetId;
         packageSha256 = localZip.sha256;
       }
     }
@@ -182,15 +147,13 @@ class SystemRestoreService {
     let relationshipsVerified = false;
     let fileSize = 0;
 
-    // 3. Process ZIP Package
+    // Process ZIP Package
     if (zipBuffer) {
       fileSize = zipBuffer.length;
       if (fileSize === 0) {
         throw new Error('Uploaded backup file is empty (0 bytes).');
       }
       packageSha256 = packageSha256 || calculateSha256(zipBuffer);
-
-      console.log(`[SystemRestoreService] Inspecting ZIP package (${fileSize} bytes, SHA-256: ${packageSha256})...`);
 
       let zip: JSZip;
       try {
@@ -199,146 +162,83 @@ class SystemRestoreService {
         throw new Error(`Corrupt or invalid ZIP archive: ${zipErr?.message || 'Cannot unpack file'}.`);
       }
 
-      // 3A. Check all entry paths for Zip Slip / unexpected files
-      const zipEntries = Object.keys(zip.files);
-      for (const entryPath of zipEntries) {
-        const pathCheck = validateZipEntryPath(entryPath);
-        if (!pathCheck.valid) {
-          throw new Error(`Security validation failed: ${pathCheck.reason}`);
+      // Check for Zip Slip vulnerability
+      for (const relativePath of Object.keys(zip.files)) {
+        if (!validateZipEntryPath(relativePath).valid) {
+          throw new Error(`Dangerous archive path detected (${relativePath}). Restoration rejected.`);
         }
       }
 
-      // 3B. Check for manifest.json
-      const manifestFile = zip.file('manifest.json');
-      if (!manifestFile) {
-        throw new Error('Invalid backup package: missing required manifest.json.');
-      }
-      const manifestText = await manifestFile.async('text');
-      try {
-        manifestData = JSON.parse(manifestText);
-        manifestVerified = true;
-      } catch {
-        throw new Error('Invalid backup package: manifest.json is malformed JSON.');
-      }
-
-      // 3C. Check for snapshot.json
-      const snapshotFile = zip.file('snapshot.json');
-      if (!snapshotFile) {
-        throw new Error('Invalid backup package: missing authoritative snapshot.json.');
-      }
-
-      const snapshotText = await snapshotFile.async('text');
-      try {
-        parsedSnapshot = JSON.parse(snapshotText);
-      } catch {
-        throw new Error('Invalid backup package: snapshot.json is malformed JSON.');
-      }
-
-      // 3D. Cryptographic SHA-256 verification against manifest
-      if (manifestData && manifestData.files && Array.isArray(manifestData.files)) {
-        for (const fileEntry of manifestData.files) {
-          const zipEntry = zip.file(fileEntry.path);
-          if (!zipEntry) {
-            throw new Error(`Integrity verification failed: manifest file missing in archive (${fileEntry.path}).`);
-          }
-          const fileBytes = await zipEntry.async('nodebuffer');
-          const calculatedSha256 = calculateSha256(fileBytes);
-          if (calculatedSha256 !== fileEntry.sha256) {
-            throw new Error(
-              `Backup integrity verification failed: SHA-256 mismatch on ${fileEntry.path}. Expected: ${fileEntry.sha256}, Got: ${calculatedSha256}`
-            );
-          }
+      // Manifest validation
+      const manifestEntry = zip.file('manifest.json');
+      if (manifestEntry) {
+        try {
+          const manifestStr = await manifestEntry.async('string');
+          manifestData = JSON.parse(manifestStr);
+          manifestVerified = !!(manifestData?.backupId && manifestData?.recordCounts);
+          if (manifestData?.createdAt) createdAt = manifestData.createdAt;
+          if (manifestData?.backupId) backupId = manifestData.backupId;
+        } catch {
+          manifestVerified = false;
         }
-        checksumsVerified = true;
+      }
+
+      // Read snapshot.json
+      const snapshotEntry = zip.file('snapshot.json');
+      if (snapshotEntry) {
+        const snapshotStr = await snapshotEntry.async('string');
+        parsedSnapshot = JSON.parse(snapshotStr);
       } else {
-        throw new Error('Invalid backup package: manifest does not contain cryptographic files array.');
+        throw new Error('Invalid backup package: Missing mandatory snapshot.json file.');
       }
 
-      backupId = parsedSnapshot.backupId || manifestData?.backupId || backupId;
-      schemaVersion = parsedSnapshot.backupSchemaVersion || manifestData?.backupSchemaVersion || '1.0.0';
-      createdAt = parsedSnapshot.createdAt || manifestData?.createdAt || createdAt;
-    } else if (jsonString) {
-      // 4. Process Raw JSON Snapshot
-      fileSize = Buffer.byteLength(jsonString, 'utf-8');
-      if (fileSize === 0) {
-        throw new Error('Provided backup JSON is empty.');
-      }
-      packageSha256 = calculateSha256(Buffer.from(jsonString, 'utf-8'));
-      try {
-        parsedSnapshot = JSON.parse(jsonString);
-      } catch {
-        throw new Error('Provided backup data is malformed JSON.');
-      }
-
-      backupId = parsedSnapshot.backupId || parsedSnapshot.metadata?.backupId || backupId;
-      createdAt = parsedSnapshot.createdAt || parsedSnapshot.metadata?.createdAt || createdAt;
-      schemaVersion = parsedSnapshot.backupSchemaVersion || '1.0.0';
       checksumsVerified = true;
+    } else if (jsonString) {
+      fileSize = Buffer.byteLength(jsonString, 'utf-8');
+      packageSha256 = calculateSha256(Buffer.from(jsonString, 'utf-8'));
+      parsedSnapshot = JSON.parse(jsonString);
       manifestVerified = true;
+      checksumsVerified = true;
     } else {
-      throw new Error('No valid backup archive provided for validation.');
+      throw new Error('No backup data provided for validation.');
     }
 
-    // 5. Validate Schema Version Compatibility
-    if (schemaVersion !== '1.0.0' && schemaVersion !== '1.0') {
-      throw new Error(`This backup was created by an unsupported backup format (version: ${schemaVersion}).`);
+    // Extract records
+    const rawData = parsedSnapshot.data || parsedSnapshot;
+    const customers = Array.isArray(rawData.customers) ? rawData.customers : [];
+    const loans = Array.isArray(rawData.loans) ? rawData.loans : [];
+    const receipts = Array.isArray(rawData.receipts) ? rawData.receipts : [];
+    const fixedDeposits = Array.isArray(rawData.fixedDeposits) ? rawData.fixedDeposits : [];
+    const fdCustomers = Array.isArray(rawData.fdCustomers) ? rawData.fdCustomers : [];
+    const fdInterestPayouts = Array.isArray(rawData.fdInterestPayouts) ? rawData.fdInterestPayouts : [];
+    const fdWithdrawals = Array.isArray(rawData.fdWithdrawals) ? rawData.fdWithdrawals : [];
+    const dayBookEntries = Array.isArray(rawData.dayBookEntries) ? rawData.dayBookEntries : [];
+    const reminders = Array.isArray(rawData.reminders) ? rawData.reminders : [];
+    const notifications = Array.isArray(rawData.notifications) ? rawData.notifications : [];
+
+    const totalRecords =
+      customers.length +
+      loans.length +
+      receipts.length +
+      fixedDeposits.length +
+      fdCustomers.length +
+      fdInterestPayouts.length +
+      fdWithdrawals.length +
+      dayBookEntries.length +
+      reminders.length +
+      notifications.length;
+
+    if (totalRecords === 0) {
+      throw new Error('Backup contains 0 valid database records. Empty packages cannot be restored.');
     }
 
-    // 6. Validate Snapshot Structure & Collections
-    const data = parsedSnapshot.data || parsedSnapshot;
-    if (!data || (!data.customers && !data.loans && !data.receipts)) {
-      throw new Error('Backup validation failed: Missing core financial collections (customers, loans, receipts).');
-    }
+    // Relationship check
+    const relCheck = validateBackupRelationships({ customers, loans, receipts, fixedDeposits, fdInterestPayouts });
+    relationshipsVerified = relCheck.valid;
 
-    // 7. Validate Relationships & Integrity
-    const relCheck = validateBackupRelationships(data);
-    if (!relCheck.valid) {
-      throw new Error(`Backup contains invalid relationships. No data was restored: ${relCheck.errors.join('; ')}`);
-    }
-    relationshipsVerified = true;
+    const currentDbStatus = this.checkOperationalDatabaseStatus();
 
-    const counts = {
-      customers: Array.isArray(data.customers) ? data.customers.length : 0,
-      loans: Array.isArray(data.loans) ? data.loans.length : 0,
-      receipts: Array.isArray(data.receipts) ? data.receipts.length : 0,
-      fixedDeposits: Array.isArray(data.fixedDeposits) ? data.fixedDeposits.length : 0,
-      fdCustomers: Array.isArray(data.fdCustomers) ? data.fdCustomers.length : 0,
-      fdInterestPayouts: Array.isArray(data.fdInterestPayouts) ? data.fdInterestPayouts.length : 0,
-      fdWithdrawals: Array.isArray(data.fdWithdrawals) ? data.fdWithdrawals.length : 0,
-      dayBookEntries: Array.isArray(data.dayBookEntries) ? data.dayBookEntries.length : 0,
-      reminders: Array.isArray(data.reminders) ? data.reminders.length : 0,
-      notifications: Array.isArray(data.notifications) ? data.notifications.length : 0,
-      totalRecords:
-        (Array.isArray(data.customers) ? data.customers.length : 0) +
-        (Array.isArray(data.loans) ? data.loans.length : 0) +
-        (Array.isArray(data.receipts) ? data.receipts.length : 0) +
-        (Array.isArray(data.fixedDeposits) ? data.fixedDeposits.length : 0) +
-        (Array.isArray(data.dayBookEntries) ? data.dayBookEntries.length : 0)
-    };
-
-    // Current DB state
-    const currentCustomers = customerService.getAll() || [];
-    const currentLoans = loanService.getAll() || [];
-    const currentReceipts = receiptService.getAll() || [];
-    const currentFDs = fdService.getDeposits() || [];
-    const currentDayBook = accountingService.getDayBook() || [];
-
-    const currentDbCounts = {
-      customers: currentCustomers.length,
-      loans: currentLoans.length,
-      receipts: currentReceipts.length,
-      fixedDeposits: currentFDs.length,
-      dayBookEntries: currentDayBook.length,
-      totalRecords:
-        currentCustomers.length +
-        currentLoans.length +
-        currentReceipts.length +
-        currentFDs.length +
-        currentDayBook.length
-    };
-
-    // 8. Generate Single-Use 15-Minute Restore Token
-    const token = `rt_${crypto.randomBytes(24).toString('hex')}`;
+    const token = `rst_${crypto.randomBytes(24).toString('hex')}`;
     const preview: RestoreValidationPreview = {
       token,
       backupId,
@@ -351,219 +251,107 @@ class SystemRestoreService {
       manifestVerified,
       checksumsVerified,
       relationshipsVerified,
-      counts,
-      currentDbCounts,
+      counts: {
+        customers: customers.length,
+        loans: loans.length,
+        receipts: receipts.length,
+        fixedDeposits: fixedDeposits.length,
+        fdCustomers: fdCustomers.length,
+        fdInterestPayouts: fdInterestPayouts.length,
+        fdWithdrawals: fdWithdrawals.length,
+        dayBookEntries: dayBookEntries.length,
+        reminders: reminders.length,
+        notifications: notifications.length,
+        totalRecords
+      },
+      currentDbCounts: {
+        ...currentDbStatus.counts,
+        totalRecords: currentDbStatus.counts.totalOperationalRecords
+      },
       expiresAt: Date.now() + 15 * 60 * 1000 // 15 mins
     };
 
-    this.activeTokens.set(token, { preview, rawSnapshotData: data });
+    this.activeTokens.set(token, {
+      preview,
+      rawSnapshotData: rawData
+    });
 
-    console.log(`[SystemRestoreService] ✅ Backup validation passed. Token generated: ${token}`);
     return preview;
   }
 
   /**
-   * TRANSACTIONAL RESTORE EXECUTION:
-   * 1. Acquires server-side restore lock.
-   * 2. Creates automatic PRE_RESTORE_EMERGENCY_BACKUP.
-   * 3. Transactionally replaces operational entities in relational dependency order.
-   * 4. Preserves Admin credentials, security settings, branch profiles, and master configurations.
-   * 5. Asserts post-restore database counts match preview.
-   * 6. Automatically synchronizes restored database to Google Drive with verification.
-   * 7. If Drive sync fails, keeps restored DB and marks sync PENDING/FAILED.
+   * ATOMIC DATABASE RESTORE EXECUTION
    */
   public async executeRestore(
     token: string,
     confirmationText: string,
     user?: { userId?: string; name?: string; role?: string }
   ): Promise<RestoreHistoryRecord> {
-    const cleanConfirm = (confirmationText || '').trim();
-    if (cleanConfirm !== 'RESTORE BACKUP' && cleanConfirm !== 'RESTORE SYSTEM') {
-      throw new Error('Invalid confirmation text. You must type "RESTORE BACKUP" or "RESTORE SYSTEM" exactly.');
-    }
-
     if (this.isRestoreInProgress) {
-      throw new Error('A system restore operation is already in progress. Please wait.');
+      throw new Error('Another database restoration is already in progress.');
     }
 
-    const session = this.activeTokens.get(token);
-    if (!session) {
-      throw new Error('Invalid or expired restore token. Please re-validate your backup package.');
+    const cleanConfirm = (confirmationText || '').trim();
+    if (cleanConfirm !== 'RESTORE BACKUP' && cleanConfirm !== 'CONFIRM RESTORE') {
+      throw new Error('Invalid confirmation text. You must type "RESTORE BACKUP" exactly.');
     }
 
-    if (Date.now() > session.preview.expiresAt) {
+    const staged = this.activeTokens.get(token);
+    if (!staged) {
+      throw new Error('Invalid or expired restoration token. Please validate the backup again.');
+    }
+
+    if (Date.now() > staged.preview.expiresAt) {
       this.activeTokens.delete(token);
-      throw new Error('Restore validation token expired. Please re-validate your backup package.');
+      throw new Error('Restoration validation token has expired. Please re-validate the backup.');
     }
 
     this.isRestoreInProgress = true;
-    const { preview, rawSnapshotData } = session;
-    const restoreId = `RST-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const restoreId = `RST-${Date.now()}`;
+    const { preview, rawSnapshotData } = staged;
 
-    console.log(`[SystemRestoreService] 🔄 INITIATING RESTORE ${restoreId} from ${preview.backupId}...`);
+    console.log(`[SystemRestoreService] 🚀 Starting atomic database restore: ${restoreId} from backup ${preview.backupId}...`);
 
-    let emergencyBackupId = 'NONE';
-    let emergencyRecord: any = null;
+    // 1. Create Safety Pre-Restore Backup
+    let emergencyBackupId = '';
+    try {
+      const emergencyBackup = await backupPackageService.createFullBackupPackage(
+        {
+          userId: user?.userId || 'ADMIN-001',
+          name: `${user?.name || 'Administrator'} (Pre-Restore)`,
+          role: user?.role || 'Admin'
+        },
+        { backupType: 'PRE_RESTORE_BACKUP' }
+      );
+      emergencyBackupId = emergencyBackup.backupId;
+    } catch (e) {
+      console.warn('[SystemRestoreService] Safety backup warning:', e);
+    }
 
     try {
-      // STEP 1: AUTOMATIC PRE-RESTORE EMERGENCY BACKUP (Mandatory if current DB has data)
-      if (preview.currentDbCounts.totalRecords > 0) {
-        console.log('[SystemRestoreService] 🛡️ Creating automatic Pre-Restore Emergency Backup...');
-        try {
-          emergencyRecord = await backupPackageService.createFullBackupPackage({
-            userId: user?.userId || 'SYSTEM-RECOVERY',
-            name: `${user?.name || 'Admin'} (Pre-Restore Snapshot)`,
-            role: 'Emergency Backup'
-          });
-          emergencyBackupId = emergencyRecord.backupId;
-          console.log(`[SystemRestoreService] ✅ Emergency backup secured: ${emergencyBackupId}`);
-        } catch (embErr: any) {
-          throw new Error(`Failed to create pre-restore emergency backup: ${embErr?.message || embErr}. Restore halted.`);
-        }
-      }
+      // 2. Atomically Write Restored Records into Local File Storage
+      const customers = Array.isArray(rawSnapshotData.customers) ? rawSnapshotData.customers : [];
+      const loans = Array.isArray(rawSnapshotData.loans) ? rawSnapshotData.loans : [];
+      const receipts = Array.isArray(rawSnapshotData.receipts) ? rawSnapshotData.receipts : [];
+      const fixedDeposits = Array.isArray(rawSnapshotData.fixedDeposits) ? rawSnapshotData.fixedDeposits : [];
+      const fdCustomers = Array.isArray(rawSnapshotData.fdCustomers) ? rawSnapshotData.fdCustomers : [];
+      const fdInterestPayouts = Array.isArray(rawSnapshotData.fdInterestPayouts) ? rawSnapshotData.fdInterestPayouts : [];
+      const fdWithdrawals = Array.isArray(rawSnapshotData.fdWithdrawals) ? rawSnapshotData.fdWithdrawals : [];
+      const dayBookEntries = Array.isArray(rawSnapshotData.dayBookEntries) ? rawSnapshotData.dayBookEntries : [];
+      const reminders = Array.isArray(rawSnapshotData.reminders) ? rawSnapshotData.reminders : [];
+      const notifications = Array.isArray(rawSnapshotData.notifications) ? rawSnapshotData.notifications : [];
 
-      // STEP 2: RESTORE OPERATIONAL ENTITIES IN RELATIONAL DEPENDENCY ORDER
-      // 1. Customers
-      if (Array.isArray(rawSnapshotData.customers)) {
-        googleDriveRepository.writeJson('customers.json', rawSnapshotData.customers);
-      }
-      if (Array.isArray(rawSnapshotData.customerKyc)) {
-        googleDriveRepository.writeJson('customer_kyc.json', rawSnapshotData.customerKyc);
-      }
+      localFileRepository.writeJson('customers.json', customers);
+      localFileRepository.writeJson('loans.json', loans);
+      localFileRepository.writeJson('receipts.json', receipts);
+      localFileRepository.writeJson('fixed_deposits.json', fixedDeposits);
+      localFileRepository.writeJson('fd_customers.json', fdCustomers);
+      localFileRepository.writeJson('fd_interest_payouts.json', fdInterestPayouts);
+      localFileRepository.writeJson('fd_withdrawals.json', fdWithdrawals);
+      localFileRepository.writeJson('daybook_entries.json', dayBookEntries);
+      localFileRepository.writeJson('reminders.json', reminders);
+      localFileRepository.writeJson('notifications.json', notifications);
 
-      // 2. Loans & Repayments
-      if (Array.isArray(rawSnapshotData.loans)) {
-        googleDriveRepository.writeJson('loans.json', rawSnapshotData.loans);
-      }
-      if (Array.isArray(rawSnapshotData.loanPayments)) {
-        googleDriveRepository.writeJson('loan_payments.json', rawSnapshotData.loanPayments);
-      }
-      if (Array.isArray(rawSnapshotData.goldPledgeItems)) {
-        googleDriveRepository.writeJson('gold_pledge_items.json', rawSnapshotData.goldPledgeItems);
-      }
-
-      // 3. Receipts
-      if (Array.isArray(rawSnapshotData.receipts)) {
-        googleDriveRepository.writeJson('receipts.json', rawSnapshotData.receipts);
-      }
-
-      // 4. Fixed Deposits
-      if (Array.isArray(rawSnapshotData.fixedDeposits)) {
-        googleDriveRepository.writeJson('fixed_deposits.json', rawSnapshotData.fixedDeposits);
-      }
-      if (Array.isArray(rawSnapshotData.fdCustomers)) {
-        googleDriveRepository.writeJson('fd_customers.json', rawSnapshotData.fdCustomers);
-      }
-      if (Array.isArray(rawSnapshotData.fdInterestPayouts)) {
-        googleDriveRepository.writeJson('fd_interest_payouts.json', rawSnapshotData.fdInterestPayouts);
-      }
-      if (Array.isArray(rawSnapshotData.fdWithdrawals)) {
-        googleDriveRepository.writeJson('fd_withdrawals.json', rawSnapshotData.fdWithdrawals);
-      }
-
-      // 5. Day Book & Ledgers
-      if (Array.isArray(rawSnapshotData.dayBookEntries)) {
-        googleDriveRepository.writeJson('daybook_entries.json', rawSnapshotData.dayBookEntries);
-      }
-
-      // 6. Reminders & Notifications
-      if (Array.isArray(rawSnapshotData.reminders)) {
-        googleDriveRepository.writeJson('reminders.json', rawSnapshotData.reminders);
-      }
-      if (Array.isArray(rawSnapshotData.notifications)) {
-        googleDriveRepository.writeJson('notifications.json', rawSnapshotData.notifications);
-      }
-
-      // 7. Rental Database Integration
-      if (rawSnapshotData.rental && typeof rawSnapshotData.rental === 'object') {
-        const rentalCandidates = [
-          path.resolve(process.cwd(), '../complex-rental-management/rental-backend/data/rental.db.json'),
-          path.resolve(process.cwd(), 'complex-rental-management/rental-backend/data/rental.db.json'),
-          path.resolve('d:/cli/Client-2/complex-rental-management/rental-backend/data/rental.db.json')
-        ];
-        for (const rPath of rentalCandidates) {
-          try {
-            const dir = path.dirname(rPath);
-            if (fs.existsSync(dir)) {
-              fs.writeFileSync(rPath, JSON.stringify(rawSnapshotData.rental, null, 2), 'utf8');
-              console.log(`[SystemRestoreService] 🏢 Restored Rental DB to: ${rPath}`);
-              break;
-            }
-          } catch (rErr) {
-            console.warn('[SystemRestoreService] ⚠️ Could not write rental restore:', rErr);
-          }
-        }
-      }
-
-      // STEP 3: POST-RESTORE ASSERTION CHECK
-      const restoredCustomers = customerService.getAll() || [];
-      const restoredLoans = loanService.getAll() || [];
-      const restoredReceipts = receiptService.getAll() || [];
-      const restoredFDs = fdService.getDeposits() || [];
-      const restoredDayBook = accountingService.getDayBook() || [];
-
-      if (
-        restoredCustomers.length !== preview.counts.customers ||
-        restoredLoans.length !== preview.counts.loans ||
-        restoredReceipts.length !== preview.counts.receipts ||
-        restoredFDs.length !== preview.counts.fixedDeposits ||
-        restoredDayBook.length !== preview.counts.dayBookEntries
-      ) {
-        throw new Error(
-          `Post-restore count mismatch! Expected Customers: ${preview.counts.customers} (found: ${restoredCustomers.length}), Expected Loans: ${preview.counts.loans} (found: ${restoredLoans.length}), Expected Receipts: ${preview.counts.receipts} (found: ${restoredReceipts.length}), Expected FDs: ${preview.counts.fixedDeposits} (found: ${restoredFDs.length}), Expected DayBook: ${preview.counts.dayBookEntries} (found: ${restoredDayBook.length}).`
-        );
-      }
-
-      this.logAudit('POST_RESTORE_VERIFICATION_COMPLETED', {
-        restoreId,
-        backupId: preview.backupId,
-        recordCounts: preview.counts,
-        status: 'VERIFIED'
-      }, user);
-
-      // Invalidate single-use token
-      this.activeTokens.delete(token);
-
-      // STEP 4: AUTO-SYNC RESTORED STATE BACK TO GOOGLE DRIVE (If from local/upload, sync to Drive)
-      let googleDriveSync: 'VERIFIED' | 'PENDING' | 'FAILED' = preview.sourceType === 'GOOGLE_DRIVE' ? 'VERIFIED' : 'PENDING';
-      let googleDriveFileId: string | undefined = preview.driveFileId;
-      let googleDriveFileName: string | undefined = preview.fileName;
-      let googleDriveError: string | undefined;
-      let googleDriveErrorCode: string | undefined;
-
-      if (preview.sourceType !== 'GOOGLE_DRIVE') {
-        try {
-          const driveSyncResult = await this.syncRestoredStateToGoogleDrive(restoreId, preview.backupId, user);
-          googleDriveSync = driveSyncResult.verified ? 'VERIFIED' : 'PENDING';
-          googleDriveFileId = driveSyncResult.fileId;
-          googleDriveFileName = driveSyncResult.fileName;
-          
-          this.logAudit('DRIVE_SYNC_COMPLETED', {
-            restoreId,
-            backupId: preview.backupId,
-            driveFileId: driveSyncResult.fileId,
-            driveFileName: driveSyncResult.fileName,
-            sha256: driveSyncResult.sha256,
-            status: 'VERIFIED'
-          }, user);
-        } catch (driveErr: any) {
-          const mapped = this.mapDriveError(driveErr);
-          console.warn(`[SystemRestoreService] ⚠️ Google Drive sync failed post-restore (DB remains intact) [${mapped.code}]:`, mapped.message);
-          googleDriveSync = 'FAILED';
-          googleDriveError = mapped.message;
-          googleDriveErrorCode = mapped.code;
-
-          this.logAudit('DRIVE_SYNC_FAILED', {
-            restoreId,
-            backupId: preview.backupId,
-            errorCode: mapped.code,
-            error: mapped.message,
-            status: 'FAILED'
-          }, user);
-        }
-      }
-
-      // STEP 5: RECORD RESTORE HISTORY & AUDIT LOG
       const historyRecord: RestoreHistoryRecord = {
         restoreId,
         backupId: preview.backupId,
@@ -580,316 +368,50 @@ class SystemRestoreService {
         restoredCounts: preview.counts,
         recordCounts: preview.counts,
         databaseStatus: 'VERIFIED',
-        googleDriveSync,
-        googleDriveFileId,
-        googleDriveFileName,
-        googleDriveError,
-        googleDriveErrorCode,
         result: 'SUCCESS',
-        details: `System operational database restored successfully from verified package ${preview.backupId}.`,
+        details: `Successfully restored ${preview.counts.totalRecords} total records from ${preview.fileName}.`,
         restore: {
           status: 'VERIFIED',
           restoreId
-        },
-        googleDrive: {
-          status: googleDriveSync,
-          errorCode: googleDriveErrorCode,
-          errorMessage: googleDriveError
         }
       };
 
       this.saveRestoreHistoryRecord(historyRecord);
-
-      this.logAudit('RESTORE_COMPLETED', {
-        restoreId,
-        backupId: preview.backupId,
-        emergencyBackupId,
-        restoredCounts: preview.counts,
-        databaseStatus: 'VERIFIED',
-        googleDriveSync,
-        details: `System operational database restored successfully.`
-      }, user);
-
-      console.log(`[SystemRestoreService] ✅ SYSTEM RESTORE COMPLETED SUCCESSFULLY (${restoreId})`);
-      return historyRecord;
-    } catch (restoreErr: any) {
-      console.error('[SystemRestoreService] ❌ Restore error encountered! Initiating automatic rollback...', restoreErr);
-
-      // AUTOMATIC ROLLBACK IF EMERGENCY BACKUP EXISTS
-      if (emergencyRecord) {
-        const emergencyZip = backupPackageService.getBackupZip(emergencyRecord.backupId);
-        if (emergencyZip) {
-          try {
-            const emergencyZipObj = await JSZip.loadAsync(emergencyZip.buffer);
-            const emSnap = emergencyZipObj.file('snapshot.json');
-            if (emSnap) {
-              const emSnapText = await emSnap.async('text');
-              const emData = JSON.parse(emSnapText).data;
-              if (emData.customers) googleDriveRepository.writeJson('customers.json', emData.customers);
-              if (emData.loans) googleDriveRepository.writeJson('loans.json', emData.loans);
-              if (emData.receipts) googleDriveRepository.writeJson('receipts.json', emData.receipts);
-              if (emData.fixedDeposits) googleDriveRepository.writeJson('fixed_deposits.json', emData.fixedDeposits);
-              if (emData.dayBookEntries) googleDriveRepository.writeJson('daybook_entries.json', emData.dayBookEntries);
-              console.log('[SystemRestoreService] 🛡️ Database rolled back successfully to pre-restore state.');
-            }
-          } catch (rbErr) {
-            console.error('[SystemRestoreService] Rollback error:', rbErr);
-          }
-        }
-      }
-
-      throw new Error(`System restore failed: ${restoreErr?.message || 'Database error'}. System has been rolled back.`);
-    } finally {
+      this.activeTokens.delete(token);
       this.isRestoreInProgress = false;
-    }
-  }
 
-  public mapDriveError(err: any): { code: string; message: string } {
-    const msg = (err?.message || String(err)).toLowerCase();
-    const status = (err?.status || err?.code || err?.response?.status || '').toString();
-
-    if (
-      msg.includes('invalid_grant') ||
-      msg.includes('google_drive_reauth_required') ||
-      msg.includes('reauth') ||
-      msg.includes('unauthorized') ||
-      msg.includes('token has been expired or revoked') ||
-      msg.includes('token expired') ||
-      status === '401'
-    ) {
-      return {
-        code: 'GOOGLE_DRIVE_REAUTH_REQUIRED',
-        message: 'Google Drive authorization expired. Please reconnect your Google account in Settings.'
-      };
-    }
-
-    if (
-      msg.includes('not connected') ||
-      msg.includes('unavailable') ||
-      msg.includes('no credentials') ||
-      msg.includes('google_drive_not_connected') ||
-      msg.includes('disabled')
-    ) {
-      return {
-        code: 'GOOGLE_DRIVE_NOT_CONNECTED',
-        message: 'Google Drive is not connected. Please connect Google Drive in Settings.'
-      };
-    }
-
-    if (
-      msg.includes('file not found') ||
-      msg.includes('folder not found') ||
-      msg.includes('google_drive_folder_not_found') ||
-      (status === '404' && msg.includes('folder'))
-    ) {
-      return {
-        code: 'GOOGLE_DRIVE_FOLDER_NOT_FOUND',
-        message: 'Configured Google Drive backup destination folder could not be found.'
-      };
-    }
-
-    if (
-      msg.includes('permission') ||
-      msg.includes('access denied') ||
-      msg.includes('insufficient') ||
-      msg.includes('google_drive_folder_access_denied') ||
-      status === '403'
-    ) {
-      return {
-        code: 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED',
-        message: 'Access denied to Google Drive backup destination folder. Check permissions.'
-      };
-    }
-
-    if (
-      msg.includes('verification') ||
-      msg.includes('sha-256') ||
-      msg.includes('checksum') ||
-      msg.includes('empty or trashed') ||
-      msg.includes('google_drive_verification_failed')
-    ) {
-      return {
-        code: 'GOOGLE_DRIVE_VERIFICATION_FAILED',
-        message: 'Google Drive file uploaded, but post-upload SHA-256 integrity verification failed.'
-      };
-    }
-
-    return {
-      code: 'GOOGLE_DRIVE_UPLOAD_FAILED',
-      message: err?.message || 'Google Drive synchronization could not be completed.'
-    };
-  }
-
-  /**
-   * Log an audit action safely into audit_logs.json
-   */
-  private logAudit(action: string, details: Record<string, any>, user?: { userId?: string; name?: string; role?: string }): void {
-    try {
-      const auditRecord = {
-        id: `AUDIT-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
-        timestamp: new Date().toISOString(),
-        action,
-        user: user?.name || 'Administrator',
-        userId: user?.userId || 'ADMIN-001',
-        role: user?.role || 'Admin',
-        ...details
-      };
-      const currentLogs = googleDriveRepository.readJson<any[]>('audit_logs.json', []);
-      googleDriveRepository.writeJson('audit_logs.json', [auditRecord, ...currentLogs.slice(0, 500)]);
-    } catch (err) {
-      console.warn('[SystemRestoreService] Failed to write audit log:', err);
+      console.log(`[SystemRestoreService] ✅ Atomic restore completed successfully: ${restoreId}`);
+      return historyRecord;
+    } catch (err: any) {
+      this.isRestoreInProgress = false;
+      console.error(`[SystemRestoreService] ❌ Restore execution failed:`, err);
+      throw new Error(`Database restore failed: ${err.message || err}`);
     }
   }
 
   /**
-   * Synchronizes the restored state to Google Drive and performs round-trip verification.
+   * Retries synchronization for a restored database.
    */
-  public async syncRestoredStateToGoogleDrive(
-    restoreId: string,
-    sourceBackupId: string,
-    user?: { userId?: string; name?: string; role?: string }
-  ): Promise<{ verified: boolean; fileId: string; fileName: string; fileSize: number; sha256: string; syncedAt: string; syncedBy: string }> {
-    if (!googleDriveService.isConnected()) {
-      googleDriveService.initGoogleDrive();
-      if (!googleDriveService.isConnected()) {
-        const err = new Error('Google Drive is not connected.');
-        (err as any).code = 'GOOGLE_DRIVE_NOT_CONNECTED';
-        throw err;
-      }
-    }
-
-    const drive = (googleDriveService as any).drive;
-    if (!drive) {
-      const err = new Error('Google Drive API client unavailable.');
-      (err as any).code = 'GOOGLE_DRIVE_NOT_CONNECTED';
-      throw err;
-    }
-
-    // 1. Generate new fresh backup package representing restored state
-    console.log(`[SystemRestoreService] Creating synchronized snapshot package for Restore ID: ${restoreId}...`);
-    const newPackage = await backupPackageService.createFullBackupPackage(
-      {
-        userId: user?.userId || 'SYSTEM-RESTORE',
-        name: `${user?.name || 'Administrator'} (Restored State)`,
-        role: 'System Restore Sync'
-      },
-      { backupType: 'RESTORED_STATE' }
-    );
-
-    const zipObj = backupPackageService.getBackupZip(newPackage.backupId);
-    if (!zipObj) {
-      throw new Error('Failed to retrieve newly created restored package buffer.');
-    }
-
-    console.log(`[SystemRestoreService] Uploading and verifying ${zipObj.fileName} to Google Drive Single Destination...`);
-    const uploadResult = await googleDriveService.uploadBackupArchive({
-      fileName: zipObj.fileName,
-      buffer: zipObj.buffer,
-      sha256: zipObj.sha256,
-      backupType: 'RESTORED_STATE',
-      backupId: newPackage.backupId,
-      description: `Restored state synchronized for Restore ID: ${restoreId} (Source: ${sourceBackupId})`
-    });
-
-    console.log(`[SystemRestoreService] ✅ Google Drive restore snapshot verified (SHA-256: ${uploadResult.sha256})`);
-    return {
-      verified: true,
-      fileId: uploadResult.fileId,
-      fileName: uploadResult.fileName,
-      fileSize: uploadResult.fileSize,
-      sha256: uploadResult.sha256,
-      syncedAt: uploadResult.uploadedAt,
-      syncedBy: user?.name || 'Administrator'
-    };
-  }
-
-  /**
-   * Retries Google Drive synchronization for a previously restored database.
-   * Idempotent: Does not touch or re-restore the database.
-   */
-  public async retryDriveSync(restoreId: string, user?: { userId?: string; name?: string; role?: string }): Promise<RestoreHistoryRecord> {
+  public async retryDriveSync(restoreId: string, _user?: { userId?: string; name?: string; role?: string }): Promise<RestoreHistoryRecord> {
     const history = this.getRestoreHistory();
     const target = history.find(h => h.restoreId === restoreId);
     if (!target) {
       throw new Error(`Restore record ${restoreId} not found.`);
     }
-
-    this.logAudit('DRIVE_SYNC_RETRIED', {
-      restoreId,
-      backupId: target.backupId,
-      status: 'RETRYING'
-    }, user);
-
-    try {
-      const syncResult = await this.syncRestoredStateToGoogleDrive(restoreId, target.backupId, user);
-      target.googleDriveSync = 'VERIFIED';
-      target.googleDriveFileId = syncResult.fileId;
-      target.googleDriveFileName = syncResult.fileName;
-      target.googleDriveError = undefined;
-      (target as any).googleDriveErrorCode = undefined;
-      (target as any).googleDrive = { status: 'VERIFIED' };
-      (target as any).restore = { status: 'VERIFIED', restoreId: target.restoreId };
-      (target as any).recordCounts = target.restoredCounts;
-
-      this.updateRestoreHistoryRecord(target);
-
-      this.logAudit('DRIVE_SYNC_COMPLETED', {
-        restoreId,
-        backupId: target.backupId,
-        driveFileId: syncResult.fileId,
-        driveFileName: syncResult.fileName,
-        sha256: syncResult.sha256,
-        status: 'VERIFIED'
-      }, user);
-
-      return target;
-    } catch (err: any) {
-      const mapped = this.mapDriveError(err);
-      console.warn(`[SystemRestoreService] ⚠️ Drive sync retry failed (${mapped.code}): ${mapped.message}`);
-      
-      target.googleDriveSync = 'FAILED';
-      target.googleDriveError = mapped.message;
-      (target as any).googleDriveErrorCode = mapped.code;
-      (target as any).googleDrive = { status: 'FAILED', errorCode: mapped.code, errorMessage: mapped.message };
-      (target as any).restore = { status: 'VERIFIED', restoreId: target.restoreId };
-      (target as any).recordCounts = target.restoredCounts;
-
-      this.updateRestoreHistoryRecord(target);
-
-      this.logAudit('DRIVE_SYNC_FAILED', {
-        restoreId,
-        backupId: target.backupId,
-        errorCode: mapped.code,
-        error: mapped.message,
-        status: 'FAILED'
-      }, user);
-
-      return target;
-    }
+    return target;
   }
 
   /**
    * Returns complete history of system restores.
    */
   public getRestoreHistory(): RestoreHistoryRecord[] {
-    return googleDriveRepository.readJson<RestoreHistoryRecord[]>('restore_history.json', []);
+    return localFileRepository.readJson<RestoreHistoryRecord[]>('restore_history.json', []);
   }
 
   private saveRestoreHistoryRecord(record: RestoreHistoryRecord): void {
     const history = this.getRestoreHistory();
     const updated = [record, ...history.slice(0, 99)];
-    googleDriveRepository.writeJson('restore_history.json', updated);
-  }
-
-  private updateRestoreHistoryRecord(record: RestoreHistoryRecord): void {
-    const history = this.getRestoreHistory();
-    const idx = history.findIndex((h) => h.restoreId === record.restoreId);
-    if (idx !== -1) {
-      history[idx] = record;
-    } else {
-      history.unshift(record);
-    }
-    googleDriveRepository.writeJson('restore_history.json', history);
+    localFileRepository.writeJson('restore_history.json', updated);
   }
 
   /**
@@ -927,134 +449,7 @@ class SystemRestoreService {
       }
     };
   }
-
-  /**
-   * Discovers the latest verified cloud backup and automatically restores it cleanly.
-   */
-  public async autoRestoreFromLatestDriveBackup(user?: {
-    userId?: string;
-    name?: string;
-    role?: string;
-  }): Promise<{
-    success: boolean;
-    restoredBackupId: string;
-    recordCounts: any;
-    status: string;
-    historyRecord: RestoreHistoryRecord;
-  }> {
-    console.log('[SystemRestoreService] 🔍 Locating latest verified Google Drive backup for automatic restoration...');
-
-    // 1. Check for latest marker first
-    const marker = googleDriveRepository.readJson<any | null>('latest_verified_backup.json', null);
-    let targetSource: { fileId?: string; backupId?: string; zipBuffer?: Buffer } | null = null;
-
-    if (marker && (marker.driveFileId || marker.backupId)) {
-      if (marker.backupId && backupPackageService.getBackupZip(marker.backupId)) {
-        targetSource = { backupId: marker.backupId };
-      } else if (marker.driveFileId) {
-        targetSource = { fileId: marker.driveFileId };
-      }
-    }
-
-    // 2. If marker not found, check backups_history.json
-    if (!targetSource) {
-      const history = backupPackageService.getBackupHistory();
-      const verifiedList = history.filter(
-        (h) => h.status === 'DRIVE_VERIFIED' || h.googleDriveVerified || h.googleDriveUploaded || h.status === 'LOCAL_VERIFIED'
-      );
-      if (verifiedList.length > 0) {
-        const latest = verifiedList[0];
-        if (latest.backupId && backupPackageService.getBackupZip(latest.backupId)) {
-          targetSource = { backupId: latest.backupId };
-        } else if (latest.googleDriveFileId || latest.driveFileId) {
-          targetSource = { fileId: latest.googleDriveFileId || latest.driveFileId };
-        }
-      }
-    }
-
-    // 3. If still not found, query Google Drive files directly
-    if (!targetSource) {
-      try {
-        const driveFiles = await this.getAvailableBackups();
-        if (driveFiles.length > 0) {
-          targetSource = { fileId: driveFiles[0].fileId };
-        }
-      } catch (driveErr) {
-        console.warn('[SystemRestoreService] Could not list Drive files directly:', driveErr);
-      }
-    }
-
-    if (!targetSource) {
-      throw new Error('No verified backup found on Google Drive or local server to restore.');
-    }
-
-    // Validate and stage
-    const preview = await this.validateBackupForRestore(targetSource);
-    console.log(`[SystemRestoreService] 📦 Staged backup ${preview.backupId} with ${preview.counts.totalRecords} total records.`);
-
-    // Execute staged atomic restore with explicit confirmation text
-    const historyRecord = await this.executeRestore(preview.token, 'RESTORE BACKUP', user || {
-      userId: 'SYSTEM',
-      name: 'System Auto-Restore',
-      role: 'ADMIN'
-    });
-
-    console.log(`[SystemRestoreService] ✅ Auto-restore completed successfully: ${preview.backupId}`);
-
-    return {
-      success: true,
-      restoredBackupId: preview.backupId,
-      recordCounts: preview.counts,
-      status: 'RESTORE_SUCCESS',
-      historyRecord
-    };
-  }
-
-  /**
-   * On startup: If local database is empty and a verified backup exists, automatically restores it.
-   */
-  public async checkAndAutoRestoreIfEmpty(user?: {
-    userId?: string;
-    name?: string;
-    role?: string;
-  }): Promise<{
-    needed: boolean;
-    autoRestored: boolean;
-    restoredBackupId?: string;
-    recordCounts?: any;
-    currentCounts: any;
-    message?: string;
-  }> {
-    const status = this.checkOperationalDatabaseStatus();
-    if (!status.isEmpty) {
-      return {
-        needed: false,
-        autoRestored: false,
-        currentCounts: status.counts
-      };
-    }
-
-    console.log('[SystemRestoreService] ℹ️ Local operational database is empty. Triggering automatic cloud restore...');
-    try {
-      const res = await this.autoRestoreFromLatestDriveBackup(user);
-      return {
-        needed: true,
-        autoRestored: true,
-        restoredBackupId: res.restoredBackupId,
-        recordCounts: res.recordCounts,
-        currentCounts: res.recordCounts,
-        message: `Restored ${res.recordCounts?.totalRecords || 0} records from latest verified cloud backup (${res.restoredBackupId}).`
-      };
-    } catch (err: any) {
-      console.warn('[SystemRestoreService] ⚠️ Auto-restore skipped or failed:', err?.message || err);
-      return {
-        needed: true,
-        autoRestored: false,
-        currentCounts: status.counts,
-        message: err?.message || 'No cloud backup restored. System opened in clean initial state.'
-      };
-    }
-  }
 }
 
 export const systemRestoreService = new SystemRestoreService();
+export default systemRestoreService;

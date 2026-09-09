@@ -3,70 +3,25 @@ import { backupService } from '../services/backup.service.js';
 import { backupCloseService } from '../services/backupClose.service.js';
 import { systemRestoreService } from '../services/systemRestore.service.js';
 import { syncQueueService } from '../services/syncQueue.service.js';
-import { googleDriveService } from '../services/googleDriveService.js';
 
 export const createBackup = async (req: Request, res: Response) => {
   try {
     const { backupData, deviceId } = req.body || {};
-
-    // 1. Verify Google Drive Connectivity & Permissions
-    const rootCheck = await googleDriveService.testRootFolderAccess();
-    if (!rootCheck.accessible) {
-      const errorCode = rootCheck.errorCode || 'GOOGLE_DRIVE_FOLDER_NOT_ACCESSIBLE';
-      let statusCode = 503;
-      if (errorCode === 'GOOGLE_DRIVE_FOLDER_ACCESS_DENIED') statusCode = 403;
-      if (errorCode === 'GOOGLE_DRIVE_FOLDER_NOT_FOUND') statusCode = 404;
-
-      return res.status(statusCode).json({
-        success: false,
-        error: errorCode,
-        errorCode,
-        stage: 'root-folder-access',
-        message: rootCheck.error || 'The configured Google Drive folder could not be accessed.'
-      });
-    }
-
-    // 2. Perform Cloud Backup
     const result = await backupService.createCloudBackup(backupData, deviceId);
-    const targetFolderId = googleDriveService.getRootFolderId();
 
     return res.status(200).json({
       success: true,
-      message: 'Backup uploaded successfully',
+      message: 'Backup created successfully',
       fileId: result.driveFileId,
-      folderId: targetFolderId,
       verified: true,
       data: result
     });
   } catch (err: any) {
     console.error('[BackupController] Error creating backup:', err?.message || err);
-    const msg = err?.message || 'Failed to create cloud backup in Google Drive';
-    let statusCode = 500;
-    let errorCode = 'GOOGLE_DRIVE_BACKUP_FAILED';
-
-    if (msg.includes('GOOGLE_DRIVE_NOT_CONNECTED') || msg.includes('not connected')) {
-      statusCode = 503;
-      errorCode = 'GOOGLE_DRIVE_NOT_CONNECTED';
-    } else if (msg.includes('GOOGLE_DRIVE_REAUTH_REQUIRED') || msg.includes('expired') || msg.includes('revoked')) {
-      statusCode = 401;
-      errorCode = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
-    } else if (msg.includes('GOOGLE_DRIVE_QUOTA_EXCEEDED') || msg.includes('quota')) {
-      statusCode = 507;
-      errorCode = 'GOOGLE_DRIVE_QUOTA_EXCEEDED';
-    } else if (msg.includes('GOOGLE_DRIVE_FOLDER_NOT_FOUND')) {
-      statusCode = 404;
-      errorCode = 'GOOGLE_DRIVE_FOLDER_NOT_FOUND';
-    } else if (msg.includes('GOOGLE_DRIVE_FOLDER_ACCESS_DENIED') || msg.includes('not accessible')) {
-      statusCode = 403;
-      errorCode = 'GOOGLE_DRIVE_FOLDER_NOT_ACCESSIBLE';
-    }
-
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
-      error: errorCode,
-      errorCode,
-      stage: 'backup-execution',
-      message: msg
+      error: 'BACKUP_FAILED',
+      message: err?.message || 'Failed to create backup'
     });
   }
 };
@@ -88,7 +43,7 @@ export const backupAndCloseSession = async (req: Request, res: Response) => {
       return res.status(500).json({
         success: false,
         localDataSafe: true,
-        message: result.message || 'Cloud backup could not be verified. Your local data is safe.',
+        message: result.message || 'Backup process failed. Your local data is safe.',
         error: result.error,
         errorCode: result.errorCode
       });
@@ -104,60 +59,28 @@ export const backupAndCloseSession = async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       localDataSafe: true,
-      message: 'Cloud backup could not be verified. Your local data is safe.',
+      message: 'Backup process failed. Your local data is safe.',
       error: err?.message || 'Backup & Close process failed'
     });
   }
 };
 
 /**
- * On App Startup: checks if local DB is empty and auto-restores latest verified Drive backup.
+ * On App Startup: checks local database status.
  */
 export const checkAutoRestore = async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user || {
-      userId: req.headers['user-id'] as string || 'SYSTEM',
-      name: 'System Auto-Restore',
-      role: 'ADMIN'
-    };
-
-    const result = await systemRestoreService.checkAndAutoRestoreIfEmpty(user);
+    const status = systemRestoreService.checkOperationalDatabaseStatus();
     return res.json({
       success: true,
-      ...result
+      isEmpty: status.isEmpty,
+      counts: status.counts
     });
   } catch (err: any) {
     console.error('[BackupController] checkAutoRestore error:', err);
     return res.status(500).json({
       success: false,
-      message: 'Failed to verify auto-restore state.',
-      error: err?.message || err
-    });
-  }
-};
-
-/**
- * Explicitly triggers restore from the latest verified cloud backup.
- */
-export const autoRestoreLatest = async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user || {
-      userId: req.headers['user-id'] as string || 'STAFF-001',
-      name: req.headers['user-name'] as string || 'Staff User',
-      role: req.headers['user-role'] as string || 'STAFF'
-    };
-
-    const result = await systemRestoreService.autoRestoreFromLatestDriveBackup(user);
-    return res.json({
-      success: true,
-      message: 'System restored successfully from latest cloud backup.',
-      data: result
-    });
-  } catch (err: any) {
-    console.error('[BackupController] autoRestoreLatest error:', err);
-    return res.status(500).json({
-      success: false,
-      message: err?.message || 'Failed to restore latest cloud backup.',
+      message: 'Failed to verify database status.',
       error: err?.message || err
     });
   }
@@ -185,7 +108,7 @@ export const exportBackup = (req: Request, res: Response) => {
   const result = backupService.exportBackup();
   return res.json({
     success: true,
-    message: 'Backup exported to Google Drive backups folder',
+    message: 'Backup exported successfully',
     data: result
   });
 };

@@ -986,7 +986,7 @@ export const FixedDeposits: React.FC = () => {
                                 <Eye size={12} />
                                 <span>View Customer</span>
                               </button>
-                              {userRole === 'MASTER_ADMIN' && (
+                              {userRole === 'ADMIN' && (
                                 <button
                                   type="button"
                                   className="btn btn-sm"

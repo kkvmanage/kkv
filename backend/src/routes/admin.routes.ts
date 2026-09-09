@@ -11,7 +11,6 @@ import {
   getBackupHistory,
   downloadBackupZip,
   acknowledgeDownload,
-  uploadBackupToDrive,
   getWipePreview,
   initiateWipeBackup,
   confirmSystemWipe,
@@ -20,7 +19,6 @@ import {
   executeSystemRestore,
   getRestoreHistory,
   retryDriveSync,
-  downloadDriveBackupFile,
   getRentalSummary,
   getRentalComplexes,
   getRentalShops,
@@ -32,9 +30,8 @@ import {
   getDatabaseStatus,
   migrateToAtlas
 } from '../controllers/admin.controller.js';
-import { driveController } from '../controllers/drive.controller.js';
-
-import { requireMasterAdmin } from '../middleware/rbac.middleware.js';
+import staffRoutes from './staff.routes.js';
+import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -43,10 +40,18 @@ const upload = multer({
 
 const router = Router();
 
-router.get('/settings', getMasterSettings);
-router.put('/settings', requireMasterAdmin, updateMasterSettings);
+// Apply Authentication & Admin Authorization to all Admin routes
+router.use(authenticateUser);
+router.use(authorizeRoles('ADMIN'));
 
-// Rental Admin Integration Endpoints (Read-Only)
+// Staff Management subrouter mounted under /api/admin/staff
+router.use('/staff', staffRoutes);
+
+// Master Settings
+router.get('/settings', getMasterSettings);
+router.put('/settings', updateMasterSettings);
+
+// Rental Admin Integration Endpoints
 router.get('/rental-summary', getRentalSummary);
 router.get('/rental/summary', getRentalSummary);
 router.get('/rental/complexes', getRentalComplexes);
@@ -58,37 +63,27 @@ router.get('/rental/expenses', getRentalExpenses);
 router.get('/rental/sync-status', getRentalSyncStatus);
 
 router.get('/whatsapp-templates', getWhatsAppTemplates);
-router.put('/whatsapp-templates', requireMasterAdmin, updateWhatsAppTemplates);
+router.put('/whatsapp-templates', updateWhatsAppTemplates);
+router.post('/unlock', unlockMasterControl);
 
-router.post('/unlock', requireMasterAdmin, unlockMasterControl);
-
-// Database & MongoDB Atlas Management
+// Database & MongoDB Management
 router.get('/database/status', getDatabaseStatus);
-router.post('/database/migrate-to-atlas', requireMasterAdmin, migrateToAtlas);
+router.post('/database/migrate-to-atlas', migrateToAtlas);
 
-// Google Drive Health Check & Auth Flow
+// Storage & Backup Status
 router.get('/backup/drive-health', getDriveHealth);
 router.get('/drive-health', getDriveHealth);
-router.get('/backup/google-drive/status', driveController.getStatus);
-router.get('/backup/google-drive/oauth-config', driveController.getOAuthConfig);
-router.get('/backup/google-drive/connect', driveController.connect);
-router.get('/backup/google-drive/callback', driveController.callback);
-router.post('/backup/google-drive/disconnect', requireMasterAdmin, driveController.disconnect);
 
-// Production Backup Package APIs
+// Backup Package APIs
 router.post('/backup/create', createBackupPackage);
 router.get('/backup/history', getBackupHistory);
 router.get('/backup/:backupId/download', downloadBackupZip);
 router.post('/backup/:backupId/acknowledge-download', acknowledgeDownload);
-router.post('/backup/:backupId/upload-to-drive', uploadBackupToDrive);
-router.post('/backup/:backupId/sync-drive', uploadBackupToDrive);
-router.get('/backup/google-drive/files', getAvailableRestoreBackups);
-router.get('/backup/google-drive/files/:fileId/download', downloadDriveBackupFile);
 
 // Wipe All Data Workflow
-router.get('/wipe-all-data/preview', requireMasterAdmin, getWipePreview);
-router.post('/wipe-all-data/initiate', requireMasterAdmin, initiateWipeBackup);
-router.post('/wipe-all-data/confirm', requireMasterAdmin, confirmSystemWipe);
+router.get('/wipe-all-data/preview', getWipePreview);
+router.post('/wipe-all-data/initiate', initiateWipeBackup);
+router.post('/wipe-all-data/confirm', confirmSystemWipe);
 
 // System Restore Workflow
 router.get('/system/backups', getAvailableRestoreBackups);

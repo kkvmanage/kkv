@@ -1,80 +1,21 @@
 import bcrypt from 'bcrypt';
 import mongoose from 'mongoose';
-import { StaffModel, IStaff, IUserPermissions, StaffRole } from '../models/Staff.js';
+import {
+  StaffModel,
+  IStaff,
+  IUserPermissions,
+  StaffRole,
+  getDefaultPermissionsForRole,
+  normalizeUserPermissions,
+  ADMIN_DEFAULT_PERMISSIONS,
+  STAFF_DEFAULT_PERMISSIONS,
+  RENTAL_STAFF_DEFAULT_PERMISSIONS
+} from '../models/Staff.js';
 import { StaffAuditModel } from '../models/StaffAudit.js';
 import { generateStaffId } from '../utils/staffIdGenerator.js';
 import { sessionService } from './session.service.js';
 
-const MASTER_ADMIN_EMAIL = 'goldfinancekkv@gmail.com';
-
-export const getDefaultPermissionsForRole = (role: string): IUserPermissions => {
-  switch (role) {
-    case 'MASTER_ADMIN':
-      return {
-        customers: true,
-        loans: true,
-        loanReceipts: true,
-        pendingLoans: true,
-        fixedDeposits: true,
-        fdInterest: true,
-        fdWithdrawal: true,
-        notifications: true,
-        adminPanel: true,
-        masterControl: true,
-        fdInterestRates: true,
-        bulkFdDateChange: true,
-        devices: true,
-        staffManagement: true,
-        settings: true,
-        permanentDelete: true,
-        rental: true
-      };
-    case 'RENTAL_STAFF':
-      return {
-        customers: false,
-        loans: false,
-        loanReceipts: false,
-        pendingLoans: false,
-        fixedDeposits: false,
-        fdInterest: false,
-        fdWithdrawal: false,
-        notifications: true,
-        adminPanel: false,
-        masterControl: false,
-        fdInterestRates: false,
-        bulkFdDateChange: false,
-        devices: false,
-        staffManagement: false,
-        settings: false,
-        permanentDelete: false,
-        rental: true
-      };
-    case 'STAFF':
-    case 'ADMIN':
-    case 'MANAGER':
-    case 'OPERATOR':
-    default:
-      return {
-        customers: true,
-        loans: true,
-        loanReceipts: true,
-        pendingLoans: true,
-        fixedDeposits: true,
-        fdInterest: true,
-        fdWithdrawal: true,
-        notifications: true,
-        adminPanel: false,
-        masterControl: false,
-        fdInterestRates: false,
-        bulkFdDateChange: false,
-        devices: false,
-        staffManagement: false,
-        settings: false,
-        permanentDelete: false,
-        rental: false
-      };
-  }
-};
+const MASTER_ADMIN_EMAIL = 'admin@kkvgoldfinance.com';
 
 export interface StaffVerificationResult {
   success: boolean;
@@ -106,33 +47,34 @@ class StaffService {
 
     try {
       const existingAdmin = await StaffModel.findOne({
-        $or: [{ email: MASTER_ADMIN_EMAIL }, { role: 'MASTER_ADMIN' }]
+        $or: [{ email: MASTER_ADMIN_EMAIL }, { role: 'ADMIN' }, { role: 'MASTER_ADMIN' }]
       });
 
       if (!existingAdmin) {
-        console.log('[StaffService] Seeding default Master Admin in MongoDB...');
+        console.log('[StaffService] Seeding default Admin in MongoDB...');
         const passwordHash = await bcrypt.hash('admin123', 10);
         await StaffModel.create({
           staffId: 'KKV-STAFF-000001',
-          uid: 'uid_master_admin_01',
-          fullName: 'Master Admin',
-          displayName: 'Master Admin',
+          uid: 'uid_admin_01',
+          fullName: 'System Administrator',
+          displayName: 'Administrator',
           email: MASTER_ADMIN_EMAIL,
           phoneNumber: '9876543210',
           phone: '9876543210',
-          role: 'MASTER_ADMIN',
+          role: 'ADMIN',
           passwordHash,
           status: 'active',
           isActive: true,
-          permissions: getDefaultPermissionsForRole('MASTER_ADMIN'),
+          mustChangePassword: false,
+          permissions: getDefaultPermissionsForRole('ADMIN'),
           department: 'Executive Administration',
           createdByUid: 'SYSTEM',
           createdByEmail: 'system@kkvgoldfinance.com'
         });
-        console.log('[StaffService] Master Admin seeded successfully in MongoDB.');
+        console.log('[StaffService] Administrator seeded successfully in MongoDB.');
       }
     } catch (err) {
-      console.warn('[StaffService] Master Admin seeding notice:', err);
+      console.warn('[StaffService] Administrator seeding notice:', err);
     }
   }
 
@@ -142,15 +84,20 @@ class StaffService {
   public async listStaff(): Promise<any[]> {
     await this.ensureMasterAdmin();
     const staff = await StaffModel.find({}).sort({ createdAt: -1 }).lean();
-    return staff.map((s: any) => ({
-      ...s,
-      id: s.staffId || s.uid || s._id?.toString(),
-      uid: s.uid || s.staffId,
-      displayName: s.fullName || s.displayName,
-      name: s.fullName || s.displayName,
-      phone: s.phoneNumber || s.phone,
-      isActive: s.status === 'active' || s.status === 'ACTIVE' || s.isActive === true
-    }));
+    return staff.map((s: any) => {
+      const role = s.role === 'MASTER_ADMIN' ? 'ADMIN' : s.role;
+      return {
+        ...s,
+        id: s.staffId || s.uid || s._id?.toString(),
+        uid: s.uid || s.staffId,
+        displayName: s.fullName || s.displayName,
+        name: s.fullName || s.displayName,
+        phone: s.phoneNumber || s.phone,
+        role,
+        permissions: normalizeUserPermissions(s.permissions, role),
+        isActive: s.status === 'active' || s.status === 'ACTIVE' || s.isActive === true
+      };
+    });
   }
 
   /**
@@ -170,12 +117,15 @@ class StaffService {
 
     if (!staff) return null;
 
+    const role = (staff.role as string) === 'MASTER_ADMIN' ? 'ADMIN' : staff.role;
     return {
       ...staff,
       id: staff.staffId || staff.uid || staff._id?.toString(),
       displayName: staff.fullName || staff.displayName,
       name: staff.fullName || staff.displayName,
       phone: staff.phoneNumber || staff.phone,
+      role,
+      permissions: normalizeUserPermissions(staff.permissions, role),
       isActive: staff.status === 'active' || staff.status === 'ACTIVE' || staff.isActive === true
     };
   }
@@ -203,7 +153,7 @@ class StaffService {
       permissions?: Partial<IUserPermissions>;
       department?: string;
     },
-    actorUid: string = 'uid_master_admin_01',
+    actorUid: string = 'uid_admin_01',
     actorEmail: string = MASTER_ADMIN_EMAIL,
     ipAddress: string = '',
     userAgent: string = ''
@@ -212,7 +162,8 @@ class StaffService {
     const fullName = (data.fullName || data.displayName || '').trim();
     const rawPhone = (data.phoneNumber || data.phone || '').trim();
     const phone = rawPhone.replace(/\D/g, '');
-    const role = (data.role || 'STAFF') as StaffRole;
+    let role = (data.role || 'STAFF') as StaffRole;
+    if ((role as string) === 'MASTER_ADMIN') role = 'ADMIN';
 
     if (!email) throw new Error('Email address is required.');
     if (!fullName) throw new Error('Full name is required.');
@@ -242,11 +193,12 @@ class StaffService {
     const rawPassword = data.password && data.password.trim() ? data.password.trim() : (role === 'RENTAL_STAFF' ? 'rental123' : '1234');
     const passwordHash = await bcrypt.hash(rawPassword, 10);
 
-    // 5. Setup permissions
-    const permissions: IUserPermissions = {
-      ...getDefaultPermissionsForRole(role),
-      ...(data.permissions || {})
-    };
+    // 5. Setup permissions using structured normalizer
+    const basePermissions = getDefaultPermissionsForRole(role);
+    const permissions: IUserPermissions = normalizeUserPermissions(
+      data.permissions ? { ...basePermissions, ...data.permissions } : basePermissions,
+      role
+    );
 
     // 6. Save permanent MongoDB record
     const createdStaff = await StaffModel.create({
@@ -261,6 +213,7 @@ class StaffService {
       passwordHash,
       status: 'active',
       isActive: true,
+      mustChangePassword: true,
       permissions,
       department: data.department || (role === 'RENTAL_STAFF' ? 'Rental Management' : 'Finance Operations'),
       createdByUid: actorUid,
@@ -298,7 +251,7 @@ class StaffService {
   public async updateStaff(
     uidOrStaffId: string,
     updates: any,
-    actorUid: string = 'uid_master_admin_01',
+    actorUid: string = 'uid_admin_01',
     actorEmail: string = MASTER_ADMIN_EMAIL,
     ipAddress: string = '',
     userAgent: string = ''
@@ -338,7 +291,9 @@ class StaffService {
     }
 
     if (updates.role) {
-      staff.role = updates.role;
+      let r = updates.role;
+      if (r === 'MASTER_ADMIN') r = 'ADMIN';
+      staff.role = r;
     }
 
     if (updates.department) {
@@ -356,10 +311,7 @@ class StaffService {
     }
 
     if (updates.permissions) {
-      staff.permissions = {
-        ...staff.permissions,
-        ...updates.permissions
-      };
+      staff.permissions = normalizeUserPermissions(updates.permissions, staff.role);
     }
 
     staff.updatedAt = new Date();
@@ -389,7 +341,7 @@ class StaffService {
   public async updatePassword(
     uidOrStaffId: string,
     newPassword: string,
-    actorUid: string = 'uid_master_admin_01',
+    actorUid: string = 'uid_admin_01',
     actorEmail: string = MASTER_ADMIN_EMAIL,
     ipAddress: string = '',
     userAgent: string = ''
@@ -413,6 +365,7 @@ class StaffService {
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
     staff.passwordHash = passwordHash;
+    staff.mustChangePassword = false;
     staff.updatedAt = new Date();
     await staff.save();
 
@@ -438,7 +391,7 @@ class StaffService {
   public async toggleStaffStatus(
     uidOrStaffId: string,
     isActive: boolean,
-    actorUid: string = 'uid_master_admin_01',
+    actorUid: string = 'uid_admin_01',
     actorEmail: string = MASTER_ADMIN_EMAIL,
     ipAddress: string = '',
     userAgent: string = ''
@@ -489,7 +442,7 @@ class StaffService {
    */
   public async deleteStaff(
     uidOrStaffId: string,
-    actorUid: string = 'uid_master_admin_01',
+    actorUid: string = 'uid_admin_01',
     actorEmail: string = MASTER_ADMIN_EMAIL,
     ipAddress: string = '',
     userAgent: string = ''
@@ -507,8 +460,8 @@ class StaffService {
       throw new Error(`Staff member with ID "${uidOrStaffId}" not found.`);
     }
 
-    if (staff.role === 'MASTER_ADMIN') {
-      throw new Error('Master Admin account cannot be deleted.');
+    if (staff.role === 'ADMIN' || (staff.role as string) === 'MASTER_ADMIN') {
+      throw new Error('Administrator account cannot be deleted.');
     }
 
     // Revoke sessions
@@ -559,7 +512,8 @@ class StaffService {
       id: s.staffId || s.uid || s._id?.toString(),
       displayName: s.fullName || s.displayName,
       name: s.fullName || s.displayName,
-      phone: s.phoneNumber || s.phone
+      phone: s.phoneNumber || s.phone,
+      permissions: normalizeUserPermissions(s.permissions, s.role)
     }));
   }
 
@@ -615,8 +569,10 @@ class StaffService {
       };
     }
 
+    const normalizedRole = staff.role === 'MASTER_ADMIN' ? 'ADMIN' : staff.role;
+
     // Check portal access
-    if (targetPortal === 'RENTAL' && staff.role !== 'RENTAL_STAFF' && staff.role !== 'MASTER_ADMIN') {
+    if (targetPortal === 'RENTAL' && normalizedRole !== 'RENTAL_STAFF' && normalizedRole !== 'ADMIN') {
       return {
         success: false,
         unauthorizedRole: true,
@@ -657,11 +613,11 @@ class StaffService {
         name: staff.fullName,
         displayName: staff.fullName,
         email: staff.email,
-        role: staff.role,
+        role: normalizedRole,
         status: staff.status === 'active' ? 'active' : 'inactive',
         isActive: staff.isActive,
         phone: staff.phoneNumber,
-        permissions: staff.permissions
+        permissions: normalizeUserPermissions(staff.permissions, normalizedRole)
       }
     };
   }
@@ -677,6 +633,8 @@ class StaffService {
       return { success: false, notFound: true, message: 'Staff account not found.' };
     }
 
+    const normalizedRole = staff.role === 'MASTER_ADMIN' ? 'ADMIN' : staff.role;
+
     return {
       success: true,
       user: {
@@ -686,11 +644,11 @@ class StaffService {
         name: staff.fullName,
         displayName: staff.fullName,
         email: staff.email,
-        role: staff.role,
+        role: normalizedRole,
         status: staff.status === 'active' ? 'active' : 'inactive',
         isActive: staff.isActive,
         phone: staff.phoneNumber,
-        permissions: staff.permissions
+        permissions: normalizeUserPermissions(staff.permissions, normalizedRole)
       }
     };
   }

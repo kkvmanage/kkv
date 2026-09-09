@@ -15,27 +15,29 @@ import {
   requestPasswordReset,
   resetPassword
 } from '../controllers/staff.controller.js';
+import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
-// Public / Auth verification routes
-router.get('/audit', getAuditLogs);
-router.get('/search', searchStaff);
-router.post('/verify-staff', verifyStaffCredentials);
-router.post('/auth/verify-staff', verifyStaffCredentials);
-router.post('/lookup', lookupStaff);
-router.get('/by-email/:email', lookupStaff);
+// Staff Directory & Management - Admin Only
+router.get('/', authenticateUser, authorizeRoles('ADMIN'), getStaffList);
+router.post('/create', authenticateUser, authorizeRoles('ADMIN'), createStaff);
+router.post('/', authenticateUser, authorizeRoles('ADMIN'), createStaff);
+
+router.get('/audit', authenticateUser, authorizeRoles('ADMIN'), getAuditLogs);
+router.get('/search', authenticateUser, authorizeRoles('ADMIN'), searchStaff);
+router.get('/:uid', authenticateUser, authorizeRoles('ADMIN'), getStaffProfile);
+router.put('/:uid/password', authenticateUser, authorizeRoles('ADMIN'), updateStaffPassword);
+router.post('/:uid/reset-password', authenticateUser, authorizeRoles('ADMIN'), updateStaffPassword);
+router.put('/:uid', authenticateUser, authorizeRoles('ADMIN'), updateStaff);
+router.patch('/:uid', authenticateUser, authorizeRoles('ADMIN'), updateStaff);
+router.post('/:uid/status', authenticateUser, authorizeRoles('ADMIN'), toggleStaffStatus);
+router.patch('/:uid/status', authenticateUser, authorizeRoles('ADMIN'), toggleStaffStatus);
+router.post('/:uid/revoke-sessions', authenticateUser, authorizeRoles('ADMIN'), revokeStaffSessions);
+router.delete('/:uid', authenticateUser, authorizeRoles('ADMIN'), deleteStaff);
+
+// Fallback password reset
 router.post('/forgot-password', requestPasswordReset);
 router.post('/reset-password', resetPassword);
-
-// Staff Directory & Management
-router.get('/', getStaffList);
-router.post('/create', createStaff);
-router.get('/:uid', getStaffProfile);
-router.put('/:uid/password', updateStaffPassword);
-router.put('/:uid', updateStaff);
-router.post('/:uid/status', toggleStaffStatus);
-router.post('/:uid/revoke-sessions', revokeStaffSessions);
-router.delete('/:uid', deleteStaff);
 
 export default router;

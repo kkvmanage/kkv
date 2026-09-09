@@ -18,8 +18,76 @@ import {
   X
 } from 'lucide-react';
 import { UserProfile, UserRole, UserPermissions } from '../types';
-import { MASTER_ADMIN_EMAIL, getDefaultPermissionsForRole } from '../config/firebase';
+import {
+  MASTER_ADMIN_EMAIL,
+  getDefaultPermissionsForRole,
+  normalizePermissions,
+  isAdminRole
+} from '../config/permissions';
 import { LoanConfigurationSection } from '../components/admin/LoanConfigurationSection';
+
+export const PERMISSION_MODULES = [
+  {
+    key: 'customers',
+    label: 'Customers',
+    description: 'Profiles, KYC verification, customer search',
+    actions: ['view', 'create', 'update', 'delete']
+  },
+  {
+    key: 'loans',
+    label: 'Loan Operations',
+    description: 'Gold & silver loans, disbursements, pledges, close loan',
+    actions: ['view', 'create', 'update', 'delete', 'approve']
+  },
+  {
+    key: 'receipts',
+    label: 'Receipts & Repayments',
+    description: 'Repayment receipts, interest collections, payment vouchers',
+    actions: ['view', 'create', 'update', 'delete']
+  },
+  {
+    key: 'fd',
+    label: 'Fixed Deposits',
+    description: 'Deposit contracts, interest payouts, withdrawals',
+    actions: ['view', 'create', 'update', 'delete']
+  },
+  {
+    key: 'accounting',
+    label: 'Accounting & Ledgers',
+    description: 'Day Book, trial balance, profit & loss, balance sheet',
+    actions: ['view', 'create', 'update', 'delete']
+  },
+  {
+    key: 'rental',
+    label: 'Rental Management',
+    description: 'Commercial complexes, shops, tenants, rent collections',
+    actions: ['view', 'create', 'update', 'delete', 'approve']
+  },
+  {
+    key: 'reports',
+    label: 'Reports & Analytics',
+    description: 'Audit statements, financial summaries, CSV/PDF export',
+    actions: ['view', 'export']
+  },
+  {
+    key: 'staffManagement',
+    label: 'Staff Management',
+    description: 'Manage staff accounts, roles, security permissions',
+    actions: ['view', 'create', 'update', 'delete']
+  },
+  {
+    key: 'settings',
+    label: 'Branch Settings',
+    description: 'Branch configuration, interest rates, master controls',
+    actions: ['view', 'update']
+  },
+  {
+    key: 'backupRestore',
+    label: 'Backup & Recovery',
+    description: 'Data backups, system exports, disaster recovery',
+    actions: ['view', 'create', 'restore', 'delete']
+  }
+];
 
 export const Settings: React.FC = () => {
   const {
@@ -38,7 +106,7 @@ export const Settings: React.FC = () => {
     setCurrentPage
   } = useApp();
 
-  const isMasterAdmin = userRole === 'MASTER_ADMIN';
+  const isMasterAdmin = isAdminRole(userRole);
 
   const [activeTab, setActiveTab] = useState<'branch' | 'financial' | 'loan-types' | 'security' | 'printer'>('branch');
 
@@ -188,6 +256,11 @@ export const Settings: React.FC = () => {
     setCustomPerms(getDefaultPermissionsForRole(role));
   };
 
+  const handleRoleChangeForEdit = (role: 'STAFF' | 'RENTAL_STAFF') => {
+    setEditRole(role);
+    setEditPerms(getDefaultPermissionsForRole(role));
+  };
+
   const handleOpenAddStaff = () => {
     setAddName('');
     setAddEmail('');
@@ -223,10 +296,11 @@ export const Settings: React.FC = () => {
 
   const handleOpenManageStaff = (staff: UserProfile) => {
     setManagingStaff(staff);
-    setEditName(staff.displayName);
+    setEditName(staff.displayName || staff.fullName || '');
     setEditPhone(staff.phone || '');
-    setEditRole(staff.role === 'RENTAL_STAFF' ? 'RENTAL_STAFF' : 'STAFF');
-    setEditPerms(staff.permissions);
+    const currentRole = staff.role === 'RENTAL_STAFF' ? 'RENTAL_STAFF' : 'STAFF';
+    setEditRole(currentRole);
+    setEditPerms(normalizePermissions(staff.permissions, currentRole));
   };
 
   const handleSaveEditStaff = async () => {
@@ -235,7 +309,7 @@ export const Settings: React.FC = () => {
     const res = await updateStaffProfile(managingStaff.uid, {
       displayName: editName.trim(),
       phone: editPhone.trim(),
-      role: managingStaff.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase() ? 'MASTER_ADMIN' : editRole,
+      role: isAdminRole(managingStaff.role) ? 'ADMIN' : editRole,
       permissions: editPerms
     });
     setIsSubmitting(false);
@@ -845,7 +919,7 @@ export const Settings: React.FC = () => {
                   <RefreshCw size={14} />
                   <span>Refresh</span>
                 </button>
-                {userRole === 'MASTER_ADMIN' && (
+                {isMasterAdmin && (
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
@@ -933,13 +1007,13 @@ export const Settings: React.FC = () => {
                                 padding: '3px 8px',
                                 borderRadius: '4px',
                                 backgroundColor:
-                                  staff.role === 'MASTER_ADMIN'
+                                  staff.role === 'ADMIN'
                                     ? 'var(--color-gold-subtle)'
                                     : staff.role === 'RENTAL_STAFF'
                                     ? 'rgba(201, 162, 39, 0.15)'
                                     : 'rgba(59, 130, 246, 0.15)',
                                 color:
-                                  staff.role === 'MASTER_ADMIN'
+                                  staff.role === 'ADMIN'
                                     ? 'var(--color-gold-light)'
                                     : staff.role === 'RENTAL_STAFF'
                                     ? 'var(--color-gold-light)'
@@ -1113,36 +1187,145 @@ export const Settings: React.FC = () => {
 
       {/* ── MODAL: ADD STAFF ── */}
       {isAddStaffModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
-          <div className="card" style={{ width: '450px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="card-header">
-              <h3 className="card-title">Add New Staff Member</h3>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: '16px' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '640px', maxHeight: '90vh', overflowY: 'auto', backgroundColor: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-light)', padding: '24px' }}>
+            <div className="card-header" style={{ marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <UserPlus size={18} color="var(--color-primary-accent)" />
+                <h3 className="card-title" style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>Create New Staff User</h3>
+              </div>
+              <button type="button" onClick={() => setIsAddStaffModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
             </div>
             <form onSubmit={handleCreateStaff} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div className="form-group">
-                <label className="form-label required">Full Name</label>
-                <input type="text" className="input-control" value={addName} onChange={(e) => setAddName(e.target.value)} required />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>Full Name</label>
+                  <input type="text" className="input-control" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="e.g. Ramesh Kumar" required />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>Email Address</label>
+                  <input type="email" className="input-control" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="staff@kkvgold.com" required />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 700 }}>Phone Number</label>
+                  <input type="tel" className="input-control" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} placeholder="9876543210" />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>Primary Role</label>
+                  <select className="select-control" value={addRole} onChange={(e) => handleRoleChangeForAdd(e.target.value as any)}>
+                    <option value="STAFF">STAFF (Finance &amp; Operations)</option>
+                    <option value="RENTAL_STAFF">RENTAL_STAFF (Complex &amp; Shop Rentals Only)</option>
+                  </select>
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label required">Email Address</label>
-                <input type="email" className="input-control" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required />
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '12px', fontWeight: 700 }}>Temporary / Initial Password</label>
+                <input type="password" placeholder="Default: 1234 (User will be forced to change on first login)" className="input-control" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Phone Number</label>
-                <input type="tel" className="input-control" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} />
+
+              {/* Granular Permission Matrix */}
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px', marginTop: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label className="form-label" style={{ fontWeight: 800, fontSize: '12px', margin: 0, color: 'var(--color-gold-light)' }}>
+                    MODULE-BASED ACCESS PERMISSIONS
+                  </label>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Fine-tune allowed actions per module
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {PERMISSION_MODULES.map((mod) => {
+                    const modPerms = (customPerms as any)[mod.key] || {};
+                    const allActive = mod.actions.every((act) => Boolean(modPerms[act]));
+                    return (
+                      <div
+                        key={mod.key}
+                        style={{
+                          backgroundColor: 'var(--bg-surface-secondary)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: '8px',
+                          padding: '10px 12px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <div>
+                            <span style={{ fontWeight: 700, fontSize: '12.5px', color: 'var(--text-primary)' }}>{mod.label}</span>
+                            <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', margin: 0 }}>{mod.description}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...((customPerms as any)[mod.key] || {}) };
+                              mod.actions.forEach((act) => {
+                                updated[act] = !allActive;
+                              });
+                              setCustomPerms({
+                                ...customPerms,
+                                [mod.key]: updated
+                              });
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: allActive ? 'var(--color-gold-light)' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '2px 6px'
+                            }}
+                          >
+                            {allActive ? 'Clear All' : 'Select All'}
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {mod.actions.map((act) => {
+                            const isChecked = Boolean(modPerms[act]);
+                            return (
+                              <button
+                                key={act}
+                                type="button"
+                                onClick={() => {
+                                  const cur = (customPerms as any)[mod.key] || {};
+                                  setCustomPerms({
+                                    ...customPerms,
+                                    [mod.key]: {
+                                      ...cur,
+                                      [act]: !isChecked
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 8px',
+                                  fontSize: '11px',
+                                  borderRadius: '4px',
+                                  border: isChecked ? '1px solid var(--color-gold-primary)' : '1px solid var(--border-subtle)',
+                                  backgroundColor: isChecked ? 'var(--color-gold-subtle)' : 'transparent',
+                                  color: isChecked ? 'var(--color-gold-light)' : 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  fontWeight: isChecked ? 700 : 500
+                                }}
+                              >
+                                <span>{isChecked ? '✓' : '○'}</span>
+                                <span style={{ textTransform: 'capitalize' }}>{act}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label required">Role</label>
-                <select className="select-control" value={addRole} onChange={(e) => handleRoleChangeForAdd(e.target.value as any)}>
-                  <option value="STAFF">Staff (Finance Operations)</option>
-                  <option value="RENTAL_STAFF">Rental Staff (Complex Rental Management Only)</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Initial Password</label>
-                <input type="password" placeholder="Default: 1234" className="input-control" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} />
-              </div>
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setIsAddStaffModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? 'Creating...' : 'Create Staff'}</button>
               </div>
@@ -1153,28 +1336,136 @@ export const Settings: React.FC = () => {
 
       {/* ── MODAL: MANAGE / EDIT STAFF ── */}
       {managingStaff && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
-          <div className="card" style={{ width: '460px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="card-header">
-              <h3 className="card-title">Manage Staff: {managingStaff.displayName}</h3>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: '16px' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '640px', maxHeight: '90vh', overflowY: 'auto', backgroundColor: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-light)', padding: '24px' }}>
+            <div className="card-header" style={{ marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Edit2 size={18} color="var(--color-primary-accent)" />
+                <h3 className="card-title" style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>Manage Staff: {managingStaff.displayName}</h3>
+              </div>
+              <button type="button" onClick={() => setManagingStaff(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div className="form-group">
-                <label className="form-label required">Full Name</label>
-                <input type="text" className="input-control" value={editName} onChange={(e) => setEditName(e.target.value)} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>Full Name</label>
+                  <input type="text" className="input-control" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 700 }}>Phone Number</label>
+                  <input type="tel" className="input-control" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+                  <label className="form-label required" style={{ fontSize: '12px', fontWeight: 700 }}>Assigned Role</label>
+                  <select className="select-control" value={editRole} onChange={(e) => handleRoleChangeForEdit(e.target.value as any)}>
+                    <option value="STAFF">STAFF (Finance &amp; Operations)</option>
+                    <option value="RENTAL_STAFF">RENTAL_STAFF (Complex &amp; Shop Rentals Only)</option>
+                  </select>
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Phone Number</label>
-                <input type="tel" className="input-control" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+
+              {/* Granular Permission Matrix for Editing */}
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px', marginTop: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label className="form-label" style={{ fontWeight: 800, fontSize: '12px', margin: 0, color: 'var(--color-gold-light)' }}>
+                    MODULE-BASED ACCESS PERMISSIONS
+                  </label>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Fine-tune allowed actions per module
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {PERMISSION_MODULES.map((mod) => {
+                    const modPerms = (editPerms as any)[mod.key] || {};
+                    const allActive = mod.actions.every((act) => Boolean(modPerms[act]));
+                    return (
+                      <div
+                        key={mod.key}
+                        style={{
+                          backgroundColor: 'var(--bg-surface-secondary)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: '8px',
+                          padding: '10px 12px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <div>
+                            <span style={{ fontWeight: 700, fontSize: '12.5px', color: 'var(--text-primary)' }}>{mod.label}</span>
+                            <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', margin: 0 }}>{mod.description}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...((editPerms as any)[mod.key] || {}) };
+                              mod.actions.forEach((act) => {
+                                updated[act] = !allActive;
+                              });
+                              setEditPerms({
+                                ...editPerms,
+                                [mod.key]: updated
+                              });
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: allActive ? 'var(--color-gold-light)' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '2px 6px'
+                            }}
+                          >
+                            {allActive ? 'Clear All' : 'Select All'}
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {mod.actions.map((act) => {
+                            const isChecked = Boolean(modPerms[act]);
+                            return (
+                              <button
+                                key={act}
+                                type="button"
+                                onClick={() => {
+                                  const cur = (editPerms as any)[mod.key] || {};
+                                  setEditPerms({
+                                    ...editPerms,
+                                    [mod.key]: {
+                                      ...cur,
+                                      [act]: !isChecked
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 8px',
+                                  fontSize: '11px',
+                                  borderRadius: '4px',
+                                  border: isChecked ? '1px solid var(--color-gold-primary)' : '1px solid var(--border-subtle)',
+                                  backgroundColor: isChecked ? 'var(--color-gold-subtle)' : 'transparent',
+                                  color: isChecked ? 'var(--color-gold-light)' : 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  fontWeight: isChecked ? 700 : 500
+                                }}
+                              >
+                                <span>{isChecked ? '✓' : '○'}</span>
+                                <span style={{ textTransform: 'capitalize' }}>{act}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label required">Assigned Role</label>
-                <select className="select-control" value={editRole} onChange={(e) => setEditRole(e.target.value as any)}>
-                  <option value="STAFF">Staff (Finance Operations)</option>
-                  <option value="RENTAL_STAFF">Rental Staff (Complex Rental Management Only)</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setManagingStaff(null)}>Cancel</button>
                 <button type="button" className="btn btn-primary" disabled={isSubmitting} onClick={handleSaveEditStaff}>{isSubmitting ? 'Saving...' : 'Save Changes'}</button>
               </div>

@@ -2,8 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import JSZip from 'jszip';
 import { getBackupsDirectory, ensureDirectoryExists } from '../config/storage.js';
-import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { googleDriveService } from './googleDriveService.js';
+import { localFileRepository } from '../repositories/localFile.repository.js';
 import { customerService } from './customer.service.js';
 import { loanService } from './loan.service.js';
 import { receiptService } from './receipt.service.js';
@@ -32,16 +31,7 @@ export interface BackupHistoryRecord {
   downloadAcknowledged: boolean;
   downloadAcknowledgedAt?: string;
   downloadAcknowledgedBy?: string;
-  googleDriveUploaded: boolean;
-  googleDriveFileId?: string;
-  googleDriveUploadedAt?: string;
-  googleDriveVerified?: boolean;
-  driveAuthMode?: 'OAUTH' | 'SERVICE_ACCOUNT' | 'NONE';
-  driveAccount?: string;
-  driveFileId?: string;
-  driveFolderId?: string;
-  driveSyncStatus?: 'LOCAL_VERIFIED' | 'DRIVE_PENDING' | 'DRIVE_VERIFIED' | 'FAILED';
-  status: 'CREATED' | 'VERIFIED' | 'LOCAL_VERIFIED' | 'DRIVE_PENDING' | 'DRIVE_VERIFIED' | 'FAILED' | 'RESTORED';
+  status: 'CREATED' | 'VERIFIED' | 'LOCAL_VERIFIED' | 'FAILED' | 'RESTORED';
 }
 
 function formatBackupTimestamp(d: Date = new Date()): string {
@@ -101,81 +91,28 @@ class BackupPackageService {
     const fdInterestPayouts = fdService.getPayouts() || [];
     const fdWithdrawals = fdService.getWithdrawals() || [];
     const dayBookEntries = accountingService.getDayBook() || [];
-    const reminders = googleDriveRepository.readJson<any[]>('reminders.json', []) || [];
-    const auditLogs = googleDriveRepository.readJson<any[]>('audit_logs.json', []) || [];
-    const notifications = googleDriveRepository.readJson<any[]>('notifications.json', []) || [];
+    const reminders = localFileRepository.readJson<any[]>('reminders.json', []) || [];
+    const notifications = localFileRepository.readJson<any[]>('notifications.json', []) || [];
+    const auditLogs = localFileRepository.readJson<any[]>('audit_logs.json', []) || [];
 
-    // Extract sub-entities for specialized CSV exports
+    // Auxiliary entity extractions
     const customerKycList: any[] = [];
-    customers.forEach((c: any) => {
-      if (c.idProofNumber || c.panNumber || c.kycVerified || c.proofType) {
-        customerKycList.push({
-          customerId: c.id,
-          customerName: c.name,
-          mobileNumber: c.mobile,
-          proofType: c.proofType || 'Aadhaar',
-          idProofNumber: c.idProofNumber || '',
-          panNumber: c.panNumber || '',
-          kycVerified: !!c.kycVerified,
-          kycDate: c.kycDate || c.createdAt || ''
-        });
-      }
+    customers.forEach(c => {
+      if ((c as any).kyc) customerKycList.push({ customerId: c.id, ...(c as any).kyc });
     });
 
     const loanPaymentsList: any[] = [];
     const loanInterestHistoryList: any[] = [];
     const goldPledgeItemsList: any[] = [];
-
-    loans.forEach((loan: any) => {
-      // Payments / Repayments
-      if (Array.isArray(loan.repayments)) {
-        loan.repayments.forEach((rep: any, idx: number) => {
-          loanPaymentsList.push({
-            paymentId: rep.id || `${loan.loanNo}-PAY-${idx + 1}`,
-            loanNo: loan.loanNo,
-            customerId: loan.customerId,
-            paymentDate: rep.date || rep.paymentDate,
-            principalPaid: rep.principalAmount || rep.principalPaid || 0,
-            interestPaid: rep.interestAmount || rep.interestPaid || 0,
-            totalAmount: rep.amount || rep.totalPaid || 0,
-            paymentMode: rep.mode || rep.paymentMode || 'Cash',
-            receiptNo: rep.receiptNo || '',
-            remarks: rep.remarks || ''
-          });
-        });
+    loans.forEach(l => {
+      if (Array.isArray(l.items)) {
+        l.items.forEach(it => goldPledgeItemsList.push({ loanId: l.id, loanNo: l.loanNo, ...it }));
       }
-
-      // Interest history
-      if (Array.isArray(loan.interestHistory)) {
-        loan.interestHistory.forEach((hist: any, idx: number) => {
-          loanInterestHistoryList.push({
-            historyId: hist.id || `${loan.loanNo}-INT-${idx + 1}`,
-            loanNo: loan.loanNo,
-            customerId: loan.customerId,
-            date: hist.date,
-            interestCharged: hist.interestCharged || hist.amount || 0,
-            rate: hist.interestRate || loan.interestRate || 0,
-            remarks: hist.remarks || ''
-          });
-        });
+      if (Array.isArray((l as any).payments)) {
+        (l as any).payments.forEach((p: any) => loanPaymentsList.push({ loanId: l.id, loanNo: l.loanNo, ...p }));
       }
-
-      // Gold Pledge Items
-      if (Array.isArray(loan.items)) {
-        loan.items.forEach((item: any, idx: number) => {
-          goldPledgeItemsList.push({
-            itemId: item.id || `${loan.loanNo}-ITEM-${idx + 1}`,
-            loanNo: loan.loanNo,
-            customerId: loan.customerId,
-            itemName: item.name || item.itemName || 'Gold Ornament',
-            purity: item.purity || '22K',
-            grossWeightGrams: item.grossWeight || item.grossWeightGrams || 0,
-            netWeightGrams: item.netWeight || item.netWeightGrams || 0,
-            itemCount: item.count || item.quantity || 1,
-            estimatedValue: item.marketValue || item.estimatedValue || 0,
-            remarks: item.remarks || ''
-          });
-        });
+      if (Array.isArray((l as any).interestHistory)) {
+        (l as any).interestHistory.forEach((h: any) => loanInterestHistoryList.push({ loanId: l.id, loanNo: l.loanNo, ...h }));
       }
     });
 
@@ -188,9 +125,11 @@ class BackupPackageService {
       goldPledgeItems: goldPledgeItemsList.length,
       receipts: receipts.length,
       fixedDeposits: fixedDeposits.length,
+      fdCustomers: fdCustomers.length,
       fdInterestPayouts: fdInterestPayouts.length,
       fdWithdrawals: fdWithdrawals.length,
       dayBookEntries: dayBookEntries.length,
+      reminders: reminders.length,
       notifications: notifications.length,
       auditLogs: auditLogs.length,
       totalRecords:
@@ -342,11 +281,6 @@ class BackupPackageService {
       recordCounts,
       backupType,
       downloadAcknowledged: false,
-      googleDriveUploaded: false,
-      driveAuthMode: googleDriveService.getAuthMode(),
-      driveAccount: googleDriveService.getConnectedAccount(),
-      driveFolderId: googleDriveService.getFullBackupsFolderId() || googleDriveService.getRootFolderId(),
-      driveSyncStatus: 'LOCAL_VERIFIED',
       status: 'LOCAL_VERIFIED'
     };
 
@@ -364,20 +298,8 @@ class BackupPackageService {
       sha256: zipSha256,
       details: `Full backup package created with ${recordCounts.totalRecords} total operational records.`
     };
-    const currentLogs = googleDriveRepository.readJson<any[]>('audit_logs.json', []);
-    googleDriveRepository.writeJson('audit_logs.json', [auditRecord, ...currentLogs.slice(0, 500)]);
-
-    // 7. Automatic Google Drive Upload if Connected
-    if (googleDriveService.isConnected()) {
-      try {
-        console.log(`[BackupPackageService] ☁️ Automatically uploading ${fileName} to Google Drive kkv finance folder...`);
-        await this.uploadBackupToDrive(backupId);
-        const updated = this.getBackupHistory().find(r => r.backupId === backupId);
-        if (updated) return updated;
-      } catch (driveErr: any) {
-        console.warn(`[BackupPackageService] ⚠️ Automatic Google Drive upload failed for ${backupId} (Local backup remains intact):`, driveErr?.message || driveErr);
-      }
-    }
+    const currentLogs = localFileRepository.readJson<any[]>('audit_logs.json', []);
+    localFileRepository.writeJson('audit_logs.json', [auditRecord, ...currentLogs.slice(0, 500)]);
 
     return historyRecord;
   }
@@ -440,8 +362,8 @@ class BackupPackageService {
       backupId,
       details: 'Administrator explicitly acknowledged downloading the verified backup package to local workstation.'
     };
-    const currentLogs = googleDriveRepository.readJson<any[]>('audit_logs.json', []);
-    googleDriveRepository.writeJson('audit_logs.json', [auditRecord, ...currentLogs.slice(0, 500)]);
+    const currentLogs = localFileRepository.readJson<any[]>('audit_logs.json', []);
+    localFileRepository.writeJson('audit_logs.json', [auditRecord, ...currentLogs.slice(0, 500)]);
 
     console.log(`[BackupPackageService] 📥 Download acknowledged for backup: ${backupId}`);
     return { success: true, acknowledgedAt: now };
@@ -458,55 +380,10 @@ class BackupPackageService {
   }
 
   /**
-   * Uploads verified ZIP package to Google Drive into KKV_GOLD_FINANCE/Backups/Full_System_Backups.
-   */
-  public async uploadBackupToDrive(backupId: string): Promise<{ success: boolean; fileId: string; drivePath: string; sha256: string }> {
-    const zipData = this.getBackupZip(backupId);
-    if (!zipData) {
-      throw new Error(`Backup file "${backupId}" not found on server.`);
-    }
-
-    const history = this.getBackupHistory();
-    const record = history.find(r => r.backupId === backupId || r.fileName === backupId);
-
-    const uploadRes = await googleDriveService.uploadBackupArchive({
-      buffer: zipData.buffer,
-      fileName: zipData.fileName,
-      backupType: record?.backupType || 'FULL_BACKUP',
-      sha256: zipData.sha256,
-      description: `KKV Gold Finance Full Backup ${backupId}`
-    });
-
-    // Update history record
-    if (record) {
-      record.googleDriveUploaded = true;
-      record.googleDriveFileId = uploadRes.fileId;
-      record.googleDriveUploadedAt = uploadRes.syncedAt;
-      record.googleDriveVerified = true;
-      record.driveAuthMode = googleDriveService.getAuthMode();
-      record.driveAccount = googleDriveService.getConnectedAccount();
-      record.driveFileId = uploadRes.fileId;
-      record.driveFolderId = uploadRes.folderId;
-      record.driveSyncStatus = 'DRIVE_VERIFIED';
-      record.status = 'DRIVE_VERIFIED';
-      this.updateHistoryRecord(record);
-    }
-
-    console.log(`[BackupPackageService] ☁️ Backup ${backupId} successfully verified on Google Drive (File ID: ${uploadRes.fileId})`);
-
-    return {
-      success: true,
-      fileId: uploadRes.fileId,
-      drivePath: uploadRes.drivePath,
-      sha256: uploadRes.sha256
-    };
-  }
-
-  /**
    * Returns list of all historical backups.
    */
   public getBackupHistory(): BackupHistoryRecord[] {
-    return googleDriveRepository.readJson<BackupHistoryRecord[]>(this.historyFile, []);
+    return localFileRepository.readJson<BackupHistoryRecord[]>(this.historyFile, []);
   }
 
   private saveHistoryRecord(record: BackupHistoryRecord): void {
@@ -517,7 +394,7 @@ class BackupPackageService {
     } else {
       list.unshift(record);
     }
-    googleDriveRepository.writeJson(this.historyFile, list);
+    localFileRepository.writeJson(this.historyFile, list);
   }
 
   private updateHistoryRecord(record: BackupHistoryRecord): void {
@@ -526,3 +403,4 @@ class BackupPackageService {
 }
 
 export const backupPackageService = new BackupPackageService();
+export default backupPackageService;

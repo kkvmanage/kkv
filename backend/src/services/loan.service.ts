@@ -1,6 +1,5 @@
 import Decimal from 'decimal.js';
-import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { googleDriveService } from './googleDriveService.js';
+import { localFileRepository } from '../repositories/localFile.repository.js';
 import { syncQueueService } from './syncQueue.service.js';
 import { Loan, Receipt, LoanTypeConfig } from '../types/index.js';
 import { customerService } from './customer.service.js';
@@ -16,7 +15,7 @@ const initialLoans: Loan[] = [];
 
 export class LoanService {
   public getAll(): Loan[] {
-    let list = googleDriveRepository.readJson<Loan[]>(FILE_NAME, initialLoans);
+    let list = localFileRepository.readJson<Loan[]>(FILE_NAME, initialLoans);
     if (!Array.isArray(list)) {
       list = [];
     }
@@ -64,14 +63,6 @@ export class LoanService {
     const loans = this.getAll();
     const loanNo = loanData.loanNo || (await counterService.getNextLoanNo());
     const id = `L-${Date.now()}`;
-    let driveFolderId: string | undefined;
-
-    try {
-      const folders = await googleDriveService.ensureLoanFolders(id);
-      driveFolderId = folders.loanFolderId;
-    } catch (e) {
-      console.warn('[LoanService] Drive folder setup warning:', e);
-    }
 
     const effectivePrincipal = Number(loanData.principal ?? (loanData as any).principalAmount ?? (loanData as any).loanAmount ?? 0);
 
@@ -181,15 +172,12 @@ export class LoanService {
       date: loanData.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
       lastInterestPaidDate: loanData.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
       nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
-      driveFolderId,
-      documentDriveIds: [],
-      receiptDriveIds: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     loans.unshift(newLoan);
-    googleDriveRepository.writeJson(FILE_NAME, loans);
+    localFileRepository.writeJson(FILE_NAME, loans);
 
     // Enqueue background sync event
     syncQueueService.enqueue('loan', newLoan.loanNo, 'CREATE', newLoan);
@@ -260,7 +248,7 @@ export class LoanService {
     loans[index].outstandingPrincipal = 0;
     loans[index].status = 'CLOSED';
 
-    googleDriveRepository.writeJson(FILE_NAME, loans);
+    localFileRepository.writeJson(FILE_NAME, loans);
     syncQueueService.enqueue('loan', loans[index].loanNo, 'UPDATE', loans[index]);
     return loans[index];
   }
@@ -270,7 +258,7 @@ export class LoanService {
     const index = loans.findIndex((l) => l.id === id || l.loanNo.toLowerCase() === id.toLowerCase());
     if (index === -1) return null;
     loans[index] = { ...loans[index], ...updates };
-    googleDriveRepository.writeJson(FILE_NAME, loans);
+    localFileRepository.writeJson(FILE_NAME, loans);
     syncQueueService.enqueue('loan', loans[index].loanNo, 'UPDATE', loans[index]);
     return loans[index];
   }
@@ -279,7 +267,7 @@ export class LoanService {
     const loans = this.getAll();
     const filtered = loans.filter((l) => l.id !== id && l.loanNo.toLowerCase() !== id.toLowerCase());
     if (filtered.length === loans.length) return false;
-    googleDriveRepository.writeJson(FILE_NAME, filtered);
+    localFileRepository.writeJson(FILE_NAME, filtered);
     syncQueueService.enqueue('loan', id, 'DELETE', { id, isDeleted: true });
     return true;
   }

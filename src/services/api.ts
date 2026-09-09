@@ -1,7 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 
-// Central Finance Backend API Client for Local & Desktop Multi-Staff Deployment
-// Supports Centralized MongoDB Atlas + Cloudinary + Optional Google Drive
+// Supports Centralized MongoDB Atlas + Local Storage Vault + Custom JWT Auth & RBAC
 
 let customApiBaseUrl: string | null = null;
 
@@ -34,7 +33,7 @@ function generateIdempotencyKey(): string {
   return 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
 }
 
-function getStoredAuthToken(): string | null {
+export function getStoredAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
   return (
     sessionStorage.getItem('kkv_auth_token') ||
@@ -43,6 +42,19 @@ function getStoredAuthToken(): string | null {
     localStorage.getItem('kkv_session_token') ||
     null
   );
+}
+
+export function setStoredAuthToken(token: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (token) {
+    sessionStorage.setItem('kkv_auth_token', token);
+    localStorage.setItem('kkv_auth_token', token);
+  } else {
+    sessionStorage.removeItem('kkv_auth_token');
+    localStorage.removeItem('kkv_auth_token');
+    sessionStorage.removeItem('kkv_session_token');
+    localStorage.removeItem('kkv_session_token');
+  }
 }
 
 // ── Centralized Axios Client ────────────────────────────────────────────────
@@ -72,6 +84,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      console.warn('[API Auth] 401 Unauthorized received. Session expired.');
+      setStoredAuthToken(null);
+    }
     if (!error.response) {
       console.warn('[API Error] Unable to connect to KKV Gold Finance backend. Make sure the backend is running on port 8080.');
     }
@@ -97,6 +113,18 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T 
       headers,
     });
     
+    if (res.status === 401) {
+      console.warn(`[Auth 401] Unauthorized on ${endpoint}`);
+      setStoredAuthToken(null);
+      return null;
+    }
+
+    if (res.status === 403) {
+      console.warn(`[Auth 403] Access Denied on ${endpoint}`);
+      const errorJson = await res.json().catch(() => null);
+      throw new Error(errorJson?.message || 'Access Denied: You do not have permission for this action.');
+    }
+
     if (res.status === 409) {
       console.warn(`[Concurrency Conflict] Record modified concurrently on ${endpoint}.`);
       const errorJson = await res.json().catch(() => null);
@@ -113,60 +141,89 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T 
     const json = await res.json();
     return json.data ?? json;
   } catch (err: any) {
-    if (err.message && err.message.includes('Conflict:')) {
+    if (err.message && (err.message.includes('Conflict:') || err.message.includes('Access Denied'))) {
       throw err;
     }
-    console.warn(`[API Error] Unable to connect to KKV Gold Finance backend at ${baseUrl}${endpoint}. Make sure the backend is running on port 8080.`);
+    console.warn(`[API Error] Unable to connect to backend at ${baseUrl}${endpoint}.`);
     return null;
   }
 }
 
-function uploadWithProgress<T>(
-  endpoint: string,
-  formData: FormData,
-  onProgress?: (percent: number) => void
-): Promise<{ success: boolean; data?: T; message?: string }> {
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${getApiBaseUrl()}${endpoint}`);
-
-    if (onProgress && xhr.upload) {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          onProgress(percent);
-        }
-      };
-    }
-
-    xhr.onload = () => {
-      try {
-        const json = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({ success: true, data: json.data || json, message: json.message });
-        } else {
-          resolve({ success: false, message: json.message || 'Upload failed' });
-        }
-      } catch {
-        resolve({ success: false, message: 'Invalid server response' });
-      }
-    };
-
-    xhr.onerror = () => {
-      resolve({ success: false, message: 'Network error occurred during upload' });
-    };
-
-    xhr.send(formData);
-  });
-}
-
 export const apiService = {
-  // Health & Search & Drive Status
-  async getHealth() {
-    return fetchJson<{ application: string; storage: string; googleDrive: string }>('/health');
+  // ── Authentication & Identity ──────────────────────────────────────────────
+  async login(credentials: { email?: string; username?: string; password?: string }) {
+    const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Invalid credentials.');
+    }
+    if (json.token) {
+      setStoredAuthToken(json.token);
+    }
+    return json;
   },
-  async getDriveStatus() {
-    return fetchJson<{ connected: boolean; googleAccount?: string; rootFolderConfigured?: boolean; message?: string }>('/google-drive/status');
+
+  async getMe() {
+    const token = getStoredAuthToken();
+    if (!token) return null;
+    const res = await fetch(`${getApiBaseUrl()}/auth/me`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        setStoredAuthToken(null);
+      }
+      return null;
+    }
+    const json = await res.json();
+    return json.user || json.data || json;
+  },
+
+  async changePassword(payload: { currentPassword: string; newPassword: string }) {
+    const token = getStoredAuthToken();
+    const res = await fetch(`${getApiBaseUrl()}/auth/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to change password');
+    }
+    return json;
+  },
+
+  async logout() {
+    const token = getStoredAuthToken();
+    try {
+      if (token) {
+        await fetch(`${getApiBaseUrl()}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          }
+        });
+      }
+    } finally {
+      setStoredAuthToken(null);
+    }
+    return { success: true };
+  },
+
+  // ── Health & Global Search ─────────────────────────────────────────────────
+  async getHealth() {
+    return fetchJson<{ application: string; storage: string }>('/health');
   },
   async globalSearch(query: string) {
     if (!query || !query.trim()) {
@@ -191,79 +248,8 @@ export const apiService = {
       throw new Error(err.message || 'Location link resolution failed');
     }
   },
-  async createCloudBackup(backupData?: any, deviceId?: string) {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/backup/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ backupData, deviceId })
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => null);
-        throw new Error(json?.message || 'Failed to create cloud backup');
-      }
-      const json = await res.json();
-      return json.data;
-    } catch (err: any) {
-      throw new Error(err.message || 'Cloud backup service unreachable');
-    }
-  },
 
-  // Google Drive Endpoints
-  async uploadDriveFile(
-    file: File,
-    meta?: { folderId?: string; customerId?: string; loanId?: string; category?: string },
-    onProgress?: (percent: number) => void
-  ) {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (meta?.folderId) formData.append('folderId', meta.folderId);
-    if (meta?.customerId) formData.append('customerId', meta.customerId);
-    if (meta?.loanId) formData.append('loanId', meta.loanId);
-    if (meta?.category) formData.append('category', meta.category);
-
-    return uploadWithProgress<any>('/drive/upload', formData, onProgress);
-  },
-
-  async getDriveFiles(folderId?: string, search?: string) {
-    const params = new URLSearchParams();
-    if (folderId) params.append('folderId', folderId);
-    if (search) params.append('search', search);
-    const queryString = params.toString() ? `?${params.toString()}` : '';
-    return fetchJson<any[]>(`/drive/files${queryString}`);
-  },
-
-  async deleteDriveFile(fileId: string) {
-    return fetchJson<{ success: boolean; message: string }>(`/drive/file/${fileId}`, {
-      method: 'DELETE'
-    });
-  },
-
-  async uploadCustomerDocument(
-    customerId: string,
-    file: File,
-    category: 'profile' | 'kyc' = 'kyc',
-    onProgress?: (percent: number) => void
-  ) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('category', category);
-    return uploadWithProgress<any>(`/drive/customers/${customerId}/documents`, formData, onProgress);
-  },
-
-  async uploadLoanDocument(
-    loanId: string,
-    file: File,
-    category: 'document' | 'receipt' = 'document',
-    onProgress?: (percent: number) => void
-  ) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('category', category);
-    return uploadWithProgress<any>(`/drive/loans/${loanId}/documents`, formData, onProgress);
-  },
-
-  // Customers
+  // ── Customers ──────────────────────────────────────────────────────────────
   async getCustomers(includeDeleted: boolean = false) {
     return fetchJson<any[]>(`/customers${includeDeleted ? '?includeDeleted=true' : ''}`);
   },
@@ -320,27 +306,23 @@ export const apiService = {
       throw new Error(msg);
     }
   },
-  async deleteCustomer(id: string, userRole: string = 'ADMIN') {
+  async deleteCustomer(id: string) {
     return fetchJson<{ success: boolean; message: string }>(`/customers/${id}`, {
-      method: 'DELETE',
-      headers: { 'user-role': userRole }
+      method: 'DELETE'
     });
   },
-  async restoreCustomer(id: string, userRole: string = 'ADMIN') {
+  async restoreCustomer(id: string) {
     return fetchJson<{ success: boolean; message: string }>(`/customers/${id}/restore`, {
-      method: 'POST',
-      headers: { 'user-role': userRole }
+      method: 'POST'
     });
   },
-  async deleteCustomerPermanently(id: string, userRole: string = 'ADMIN') {
+  async deleteCustomerPermanently(id: string) {
     return fetchJson<{ success: boolean; message: string }>(`/customers/${id}/permanent`, {
-      method: 'DELETE',
-      headers: { 'user-role': userRole }
+      method: 'DELETE'
     });
   },
 
-
-  // Loans
+  // ── Loans ──────────────────────────────────────────────────────────────────
   async getLoans() {
     return fetchJson<any[]>('/loans');
   },
@@ -356,7 +338,7 @@ export const apiService = {
     });
   },
 
-  // Receipts
+  // ── Receipts ───────────────────────────────────────────────────────────────
   async getReceipts() {
     return fetchJson<any[]>('/receipts');
   },
@@ -367,7 +349,7 @@ export const apiService = {
     });
   },
 
-  // Fixed Deposits
+  // ── Fixed Deposits ─────────────────────────────────────────────────────────
   async getFDCustomers() {
     return fetchJson<any[]>('/fd/customers');
   },
@@ -401,15 +383,20 @@ export const apiService = {
   async getFDConfig() {
     return fetchJson<any>('/fd/config');
   },
-  async updateFDConfig(config: any, userRole: string = 'MASTER_ADMIN') {
+  async updateFDConfig(config: any) {
     return fetchJson<any>('/fd/config', {
       method: 'PUT',
-      headers: { 'user-role': userRole },
       body: JSON.stringify(config)
     });
   },
+  async bulkUpdateFDDates(fdNos: string[], newDepositDate?: string, offsetDays?: number) {
+    return fetchJson<any>('/fd/deposits/bulk-date-change', {
+      method: 'POST',
+      body: JSON.stringify({ fdNos, newDepositDate, offsetDays })
+    });
+  },
 
-  // Accounting / Day Book
+  // ── Accounting / Day Book ──────────────────────────────────────────────────
   async getDayBook() {
     return fetchJson<any[]>('/accounting/day-book');
   },
@@ -423,19 +410,18 @@ export const apiService = {
     return fetchJson<{ cashInHand: number; cashAtBank: number }>('/accounting/balances');
   },
 
-  // Dashboard
+  // ── Dashboard ──────────────────────────────────────────────────────────────
   async getDashboardSummary() {
     return fetchJson<any>('/dashboard/summary');
   },
 
-  // Admin & Settings
+  // ── Admin & Settings ───────────────────────────────────────────────────────
   async getMasterSettings() {
     return fetchJson<any>('/admin/settings');
   },
-  async updateMasterSettings(settings: any, userRole: string = 'MASTER_ADMIN') {
+  async updateMasterSettings(settings: any) {
     return fetchJson<any>('/admin/settings', {
       method: 'PUT',
-      headers: { 'user-role': userRole },
       body: JSON.stringify(settings)
     });
   },
@@ -449,7 +435,13 @@ export const apiService = {
     });
   },
 
-  // Backup & Restore
+  // ── Backup & Restore ───────────────────────────────────────────────────────
+  async createCloudBackup(backupData?: any, deviceId?: string) {
+    return fetchJson<any>('/backup/create', {
+      method: 'POST',
+      body: JSON.stringify({ backupData, deviceId })
+    });
+  },
   async exportBackup() {
     return fetchJson<any>('/backup/export');
   },
@@ -462,20 +454,11 @@ export const apiService = {
   async backupAndClose(user?: { userId?: string; name?: string; role?: string }) {
     return fetchJson<any>('/backup/close', {
       method: 'POST',
-      headers: {
-        'user-id': user?.userId || 'STAFF-001',
-        'user-name': user?.name || 'Staff User',
-        'user-role': user?.role || 'STAFF'
-      }
+      body: JSON.stringify(user || {})
     });
   },
   async checkAutoRestore() {
     return fetchJson<any>('/backup/auto-restore-check');
-  },
-  async restoreLatestBackup() {
-    return fetchJson<any>('/backup/restore-latest', {
-      method: 'POST'
-    });
   },
   async getSyncStatus() {
     return fetchJson<any>('/sync/status');
@@ -489,7 +472,7 @@ export const apiService = {
     return fetchJson<any>('/sync/events');
   },
 
-  // Telegram Integration
+  // ── Telegram Integration ───────────────────────────────────────────────────
   async getTelegramConfig() {
     return fetchJson<any>('/telegram/config');
   },
@@ -509,77 +492,16 @@ export const apiService = {
       method: 'POST'
     });
   },
-  async bulkUpdateFDDates(fdNos: string[], newDepositDate?: string, offsetDays?: number) {
-    return fetchJson<any>('/fd/deposits/bulk-date-change', {
-      method: 'POST',
-      body: JSON.stringify({ fdNos, newDepositDate, offsetDays })
-    });
-  },
 
-  // Google Drive Health & OAuth Management
-  async getDriveHealth(): Promise<{
-    success: boolean;
-    configured: boolean;
-    authType: 'SERVICE_ACCOUNT' | 'OAUTH' | 'NONE';
-    googlePrincipal: string;
-    googleAccount?: string;
-    driveAccessible: boolean;
-    folderAccessible: boolean;
-    folderName?: string;
-    folderIdConfigured: boolean;
-    writable?: boolean;
-    canUpload?: boolean;
-    errorCode?: string;
-    message?: string;
-  }> {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/admin/backup/drive-health`);
-      const json = await res.json();
-      return json;
-    } catch (err: any) {
-      return {
-        success: false,
-        configured: false,
-        authType: 'NONE',
-        googlePrincipal: '',
-        driveAccessible: false,
-        folderAccessible: false,
-        folderIdConfigured: false,
-        errorCode: 'NETWORK_ERROR',
-        message: err?.message || 'Failed to connect to backend for Drive health check'
-      };
-    }
-  },
-
-  async getGoogleDriveAuthUrl(): Promise<{ success: boolean; url?: string; message?: string }> {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/auth/google-drive/start?json=true`);
-      const json = await res.json();
-      return json;
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Failed to initiate Google OAuth.' };
-    }
-  },
-
-  async disconnectGoogleDrive(): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/drive/disconnect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const json = await res.json();
-      return json;
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Failed to disconnect Google Drive.' };
-    }
-  },
-
-  // Production Backup Package Management
+  // ── Production Backup Package Management ───────────────────────────────────
   async createBackupPackage(): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
       const res = await fetch(`${getApiBaseUrl()}/admin/backup/create`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
       });
       const json = await res.json();
       return {
@@ -594,7 +516,11 @@ export const apiService = {
 
   async getBackupHistory(): Promise<{ success: boolean; data?: any[]; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/admin/backup/history`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/backup/history`, {
+        headers: {
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
+      });
       const json = await res.json();
       return {
         success: res.ok && json.success,
@@ -613,7 +539,10 @@ export const apiService = {
     try {
       const res = await fetch(`${getApiBaseUrl()}/admin/backup/${encodeURIComponent(backupId)}/acknowledge-download`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
       });
       const json = await res.json();
       return {
@@ -626,47 +555,18 @@ export const apiService = {
     }
   },
 
-  async uploadBackupToDrive(backupId: string): Promise<{ success: boolean; data?: any; message?: string }> {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/admin/backup/${encodeURIComponent(backupId)}/upload-to-drive`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const json = await res.json();
-      return {
-        success: res.ok && json.success,
-        data: json.data,
-        message: json.message
-      };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Failed to upload backup to Google Drive.' };
-    }
-  },
-
-  // Wipe All Data Integration
+  // ── Wipe All Data ──────────────────────────────────────────────────────────
   async getWipePreview(): Promise<{
     success: boolean;
-    data?: {
-      counts: {
-        customers: number;
-        loans: number;
-        receipts: number;
-        fixedDeposits: number;
-        fdCustomers: number;
-        fdInterestPayouts: number;
-        fdWithdrawals: number;
-        dayBookEntries: number;
-        reminders: number;
-        notifications: number;
-        totalOperationalRecords: number;
-      };
-      wipeableEntities: string[];
-      preservedSystemData: string[];
-    };
+    data?: any;
     message?: string;
   }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/admin/wipe-all-data/preview`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/wipe-all-data/preview`, {
+        headers: {
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
+      });
       const json = await res.json();
       return {
         success: res.ok && json.success,
@@ -682,7 +582,10 @@ export const apiService = {
     try {
       const res = await fetch(`${getApiBaseUrl()}/admin/wipe-all-data/initiate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        },
         body: JSON.stringify({ confirmationText })
       });
       const json = await res.json();
@@ -700,7 +603,10 @@ export const apiService = {
     try {
       const res = await fetch(`${getApiBaseUrl()}/admin/wipe-all-data/confirm`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        },
         body: JSON.stringify({ token, confirmationText })
       });
       const json = await res.json();
@@ -714,10 +620,14 @@ export const apiService = {
     }
   },
 
-  // System Restore Integration
+  // ── System Restore ─────────────────────────────────────────────────────────
   async getRestoreBackups(): Promise<{ success: boolean; data?: any[]; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/admin/system/backups`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/system/backups`, {
+        headers: {
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
+      });
       const json = await res.json();
       return {
         success: res.ok && json.success,
@@ -725,7 +635,7 @@ export const apiService = {
         message: json.message
       };
     } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to fetch Google Drive backups.' };
+      return { success: false, data: [], message: err?.message || 'Failed to fetch backups.' };
     }
   },
 
@@ -736,18 +646,25 @@ export const apiService = {
     jsonString?: string;
   }): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
+      const token = getStoredAuthToken();
       let res: Response;
       if (payload.file) {
         const formData = new FormData();
         formData.append('backupFile', payload.file);
         res = await fetch(`${getApiBaseUrl()}/admin/system/restore/validate`, {
           method: 'POST',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
           body: formData
         });
       } else {
         res = await fetch(`${getApiBaseUrl()}/admin/system/restore/validate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
           body: JSON.stringify({
             fileId: payload.fileId,
             backupId: payload.backupId,
@@ -766,11 +683,15 @@ export const apiService = {
     }
   },
 
-  async executeSystemRestore(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string; restore?: any; googleDrive?: any; recordCounts?: any }> {
+  async executeSystemRestore(token: string, confirmationText: string): Promise<{ success: boolean; data?: any; message?: string; restore?: any; recordCounts?: any }> {
     try {
+      const authToken = getStoredAuthToken();
       const res = await fetch(`${getApiBaseUrl()}/admin/system/restore`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
         body: JSON.stringify({ token, confirmationText })
       });
       const json = await res.json();
@@ -779,7 +700,6 @@ export const apiService = {
         data: json.data,
         message: json.message,
         restore: json.restore,
-        googleDrive: json.googleDrive,
         recordCounts: json.recordCounts
       };
     } catch (err: any) {
@@ -789,7 +709,11 @@ export const apiService = {
 
   async getRestoreHistory(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/admin/system/restore/history`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/system/restore/history`, {
+        headers: {
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
+      });
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data || [] };
     } catch (err: any) {
@@ -797,31 +721,14 @@ export const apiService = {
     }
   },
 
-  async retryRestoreDriveSync(restoreId: string): Promise<{ success: boolean; data?: any; message?: string; errorCode?: string; restore?: any; googleDrive?: any; recordCounts?: any }> {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/admin/system/restore/${restoreId}/sync-drive`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const json = await res.json();
-      return {
-        success: res.ok && json.success,
-        data: json.data,
-        message: json.message,
-        errorCode: json.errorCode || json.error?.code,
-        restore: json.restore,
-        googleDrive: json.googleDrive,
-        recordCounts: json.recordCounts
-      };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Failed to sync restore to Google Drive.' };
-    }
-  },
-
-  // ── Device & Active Session Management ─────────────────────────────────────
+  // ── Device & Session Management ────────────────────────────────────────────
   async getSessions(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/sessions`);
+      const res = await fetch(`${getApiBaseUrl()}/sessions`, {
+        headers: {
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
+      });
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data || [] };
     } catch (err: any) {
@@ -833,7 +740,10 @@ export const apiService = {
     try {
       const res = await fetch(`${getApiBaseUrl()}/sessions/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        },
         body: JSON.stringify(sessionData)
       });
       const json = await res.json();
@@ -847,7 +757,10 @@ export const apiService = {
     try {
       const res = await fetch(`${getApiBaseUrl()}/sessions/${sessionId}/revoke`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
       });
       const json = await res.json();
       return { success: res.ok && json.success, message: json.message };
@@ -860,7 +773,10 @@ export const apiService = {
     try {
       const res = await fetch(`${getApiBaseUrl()}/sessions/revoke-others`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        },
         body: JSON.stringify({ currentSessionId })
       });
       const json = await res.json();
@@ -874,7 +790,10 @@ export const apiService = {
     try {
       const res = await fetch(`${getApiBaseUrl()}/sessions/revoke-all`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
       });
       const json = await res.json();
       return { success: res.ok && json.success, revokedCount: json.revokedCount, message: json.message };
@@ -885,7 +804,11 @@ export const apiService = {
 
   async checkSessionStatus(sessionId: string): Promise<{ success: boolean; data?: { isValid: boolean; session?: any }; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/sessions/check/${sessionId}`);
+      const res = await fetch(`${getApiBaseUrl()}/sessions/check/${sessionId}`, {
+        headers: {
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
+      });
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data };
     } catch (err: any) {
@@ -893,13 +816,12 @@ export const apiService = {
     }
   },
 
-  // ── Staff & Role-Based Access Control ──────────────────────────────────────
-  async getStaffList(actorHeaders?: { uid?: string; email?: string }): Promise<{ success: boolean; data: any[]; message?: string }> {
+  // ── Staff Management (ADMIN Only) ──────────────────────────────────────────
+  async getStaffList(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/staff`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/staff`, {
         headers: {
-          'x-actor-uid': actorHeaders?.uid || '',
-          'x-actor-email': actorHeaders?.email || ''
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
         }
       });
       const json = await res.json();
@@ -909,39 +831,33 @@ export const apiService = {
     }
   },
 
-  async createStaff(
-    staffData: any,
-    actorHeaders?: { uid?: string; email?: string }
-  ): Promise<{ success: boolean; data?: any; message?: string }> {
+  async createStaff(staffData: any): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/create`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/staff`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-actor-uid': actorHeaders?.uid || '',
-          'x-actor-email': actorHeaders?.email || ''
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
         },
         body: JSON.stringify(staffData)
       });
       const json = await res.json();
-      return { success: res.ok && json.success, data: json.data, message: json.message };
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || 'Failed to create staff account.');
+      }
+      return { success: true, data: json.data, message: json.message };
     } catch (err: any) {
       return { success: false, message: err?.message || 'Failed to create staff account.' };
     }
   },
 
-  async updateStaff(
-    uid: string,
-    updates: any,
-    actorHeaders?: { uid?: string; email?: string }
-  ): Promise<{ success: boolean; data?: any; message?: string }> {
+  async updateStaff(id: string, updates: any): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/staff/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'x-actor-uid': actorHeaders?.uid || '',
-          'x-actor-email': actorHeaders?.email || ''
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
         },
         body: JSON.stringify(updates)
       });
@@ -952,18 +868,13 @@ export const apiService = {
     }
   },
 
-  async toggleStaffStatus(
-    uid: string,
-    isActive: boolean,
-    actorHeaders?: { uid?: string; email?: string }
-  ): Promise<{ success: boolean; data?: any; message?: string }> {
+  async toggleStaffStatus(id: string, isActive: boolean): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}/status`, {
-        method: 'POST',
+      const res = await fetch(`${getApiBaseUrl()}/admin/staff/${id}/status`, {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-actor-uid': actorHeaders?.uid || '',
-          'x-actor-email': actorHeaders?.email || ''
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
         },
         body: JSON.stringify({ isActive })
       });
@@ -974,35 +885,29 @@ export const apiService = {
     }
   },
 
-  async revokeStaffSessions(
-    uid: string,
-    actorHeaders?: { uid?: string; email?: string }
-  ): Promise<{ success: boolean; revokedCount?: number; message?: string }> {
+  async resetStaffPassword(id: string, newPassword?: string): Promise<{ success: boolean; temporaryPassword?: string; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}/revoke-sessions`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/staff/${id}/reset-password`, {
         method: 'POST',
         headers: {
-          'x-actor-uid': actorHeaders?.uid || '',
-          'x-actor-email': actorHeaders?.email || ''
-        }
+          'Content-Type': 'application/json',
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        },
+        body: JSON.stringify({ newPassword })
       });
       const json = await res.json();
-      return { success: res.ok && json.success, revokedCount: json.revokedCount, message: json.message };
+      return { success: res.ok && json.success, temporaryPassword: json.temporaryPassword, message: json.message };
     } catch (err: any) {
-      return { success: false, message: err?.message || 'Failed to revoke staff sessions.' };
+      return { success: false, message: err?.message || 'Failed to reset staff password.' };
     }
   },
 
-  async deleteStaff(
-    uid: string,
-    actorHeaders?: { uid?: string; email?: string }
-  ): Promise<{ success: boolean; message?: string }> {
+  async deleteStaff(id: string): Promise<{ success: boolean; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/staff/${id}`, {
         method: 'DELETE',
         headers: {
-          'x-actor-uid': actorHeaders?.uid || '',
-          'x-actor-email': actorHeaders?.email || ''
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
         }
       });
       const json = await res.json();
@@ -1012,49 +917,29 @@ export const apiService = {
     }
   },
 
-  async searchStaff(query: string): Promise<{ success: boolean; data: any[]; message?: string }> {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/search?query=${encodeURIComponent(query)}`);
-      const json = await res.json();
-      return { success: res.ok && json.success, data: json.data || [] };
-    } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to search staff.' };
-    }
-  },
-
-  async updateStaffPassword(
-    uid: string,
-    newPassword: string,
-    actorHeaders?: { uid?: string; email?: string }
-  ): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/${uid}/password`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-actor-uid': actorHeaders?.uid || '',
-          'x-actor-email': actorHeaders?.email || ''
-        },
-        body: JSON.stringify({ newPassword })
-      });
-      const json = await res.json();
-      return { success: res.ok && json.success, message: json.message };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Failed to update staff password.' };
-    }
-  },
-
   async getStaffAuditLogs(): Promise<{ success: boolean; data: any[]; message?: string }> {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/staff/audit`);
+      const res = await fetch(`${getApiBaseUrl()}/admin/audit-logs`, {
+        headers: {
+          ...(getStoredAuthToken() ? { Authorization: `Bearer ${getStoredAuthToken()}` } : {})
+        }
+      });
       const json = await res.json();
       return { success: res.ok && json.success, data: json.data || [] };
     } catch (err: any) {
-      return { success: false, data: [], message: err?.message || 'Failed to load staff audit logs.' };
+      return { success: false, data: [], message: err?.message || 'Failed to fetch audit logs' };
     }
+  },
+
+  downloadBackup(backupId: string) {
+    const token = getStoredAuthToken();
+    const url = `${getApiBaseUrl()}/backups/${backupId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    window.open(url, '_blank');
+  },
+
+  async restoreLatestBackup(): Promise<{ success: boolean; data?: any; message?: string }> {
+    return this.restoreBackup(true);
   }
 };
 
 export default apiService;
-
-

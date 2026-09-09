@@ -27,18 +27,14 @@ import {
   PurityCategory
 } from '../types';
 import {
-  MASTER_ADMIN_EMAIL,
-  getMasterAdminProfile,
   getDefaultPermissionsForRole,
-  auth,
-  googleProvider,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-  sendPasswordResetEmail
-} from '../config/firebase';
+  normalizeRole,
+  normalizePermissions,
+  isAdminRole,
+  MASTER_ADMIN_EMAIL
+} from '../config/permissions';
 import { detectCurrentDeviceInfo, generateSessionId } from '../utils/deviceUtils';
-import { apiService } from '../services/api';
+import { apiService, getStoredAuthToken, setStoredAuthToken } from '../services/api';
 import { calculateFDInterestSchedule, normalizeDateString, calculateInterestPeriodKey, addCalendarMonths, formatFDDate } from '../utils/fdInterestUtils';
 import { generateAllNotifications } from '../utils/notificationUtils';
 
@@ -278,20 +274,20 @@ interface AppContextType {
   currentUser: UserProfile | null;
   setCurrentUser: (user: UserProfile | null) => void;
   authLoading: boolean;
-  hasPermission: (key: keyof UserPermissions) => boolean;
-  loginWithCredentials: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
+  hasPermission: (module: string, action?: string) => boolean;
+  loginWithCredentials: (email: string, password?: string) => Promise<{ success: boolean; message?: string }>;
   logoutUser: () => Promise<void>;
-  resetPasswordEmail: (email: string) => Promise<{ success: boolean; message?: string }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message?: string }>;
 
   // Staff & RBAC Management
   staffList: UserProfile[];
   fetchStaffList: () => Promise<void>;
-  createStaffAccount: (data: { email: string; displayName: string; role: 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF' | UserRole; phone?: string; permissions?: Partial<UserPermissions>; password?: string }) => Promise<{ success: boolean; message?: string }>;
-  updateStaffProfile: (uid: string, updates: any) => Promise<{ success: boolean; message?: string }>;
-  toggleStaffStatus: (uid: string, isActive: boolean) => Promise<{ success: boolean; message?: string }>;
-  revokeStaffSessions: (uid: string) => Promise<{ success: boolean; message?: string }>;
-  deleteStaffAccount: (uid: string) => Promise<{ success: boolean; message?: string }>;
+  createStaffAccount: (data: { email: string; displayName?: string; fullName?: string; name?: string; role?: UserRole | string; phone?: string; permissions?: Partial<UserPermissions>; password?: string; temporaryPassword?: string }) => Promise<{ success: boolean; message?: string }>;
+  updateStaffProfile: (id: string, updates: any) => Promise<{ success: boolean; message?: string }>;
+  toggleStaffStatus: (id: string, isActive: boolean) => Promise<{ success: boolean; message?: string }>;
+  resetStaffPassword: (id: string, newPassword?: string) => Promise<{ success: boolean; temporaryPassword?: string; message?: string }>;
+  revokeStaffSessions: (id: string) => Promise<{ success: boolean; message?: string }>;
+  deleteStaffAccount: (id: string) => Promise<{ success: boolean; message?: string }>;
   staffAuditLogs: StaffAuditLog[];
   fetchStaffAuditLogs: () => Promise<void>;
 
@@ -551,99 +547,160 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [darkMode]);
 
-  const reloadAllData = async () => {
+  const reloadAllData = async (activeUser?: UserProfile | null) => {
+    const u = activeUser !== undefined ? activeUser : currentUser;
+    const role = u?.role || userRole;
+    if (!u || !role) return;
+
+    const isAdmin = isAdminRole(role);
+    const perms = u.permissions as any;
+
+    const canView = (mod: string) => {
+      if (isAdmin) return true;
+      return Boolean(perms && perms[mod] && perms[mod].view);
+    };
+
     try {
-      const [cList, lList, rList, fdList, dbList, fdcList, mSettings, waTpls, tgConfig] = await Promise.all([
-        apiService.getCustomers(),
-        apiService.getLoans(),
-        apiService.getReceipts(),
-        apiService.getFixedDeposits(),
-        apiService.getDayBook(),
-        apiService.getFDCustomers(),
-        apiService.getMasterSettings(),
-        apiService.getWhatsAppTemplates(),
-        apiService.getTelegramConfig()
-      ]);
-      if (Array.isArray(cList)) setCustomers(cList);
-      if (Array.isArray(lList)) setLoans(lList);
-      if (Array.isArray(rList)) setReceipts(rList);
-      if (Array.isArray(fdList)) setFixedDeposits(fdList);
-      if (Array.isArray(dbList)) setDayBookEntries(dbList);
-      if (Array.isArray(fdcList)) setFdCustomers(fdcList);
-      if (mSettings) {
-        setMasterControlSettings({
-          ...mSettings,
-          loanTypes: mSettings.loanTypes && mSettings.loanTypes.length > 0 ? mSettings.loanTypes : defaultLoanTypes,
-          repaymentSystems: mSettings.repaymentSystems && mSettings.repaymentSystems.length > 0 ? mSettings.repaymentSystems : defaultRepaymentSystems,
-          purityOptions: mSettings.purityOptions && mSettings.purityOptions.length > 0 ? mSettings.purityOptions : defaultPurityOptions,
-          goldRate22ct: mSettings.goldRate22ct ?? 6400
-        });
+      const promises: Promise<any>[] = [];
+      const fetchKeys: string[] = [];
+
+      if (canView('customers')) {
+        promises.push(apiService.getCustomers());
+        fetchKeys.push('customers');
       }
-      if (waTpls) setWhatsAppTemplates(waTpls);
-      if (tgConfig) setTelegramConfig(tgConfig);
+      if (canView('loans')) {
+        promises.push(apiService.getLoans());
+        fetchKeys.push('loans');
+      }
+      if (canView('receipts')) {
+        promises.push(apiService.getReceipts());
+        fetchKeys.push('receipts');
+      }
+      if (canView('fd')) {
+        promises.push(apiService.getFixedDeposits());
+        fetchKeys.push('fd');
+        promises.push(apiService.getFDCustomers());
+        fetchKeys.push('fdCustomers');
+      }
+      if (canView('accounting')) {
+        promises.push(apiService.getDayBook());
+        fetchKeys.push('dayBook');
+      }
+      if (isAdmin) {
+        promises.push(apiService.getMasterSettings());
+        fetchKeys.push('masterSettings');
+        promises.push(apiService.getWhatsAppTemplates());
+        fetchKeys.push('waTemplates');
+        promises.push(apiService.getTelegramConfig());
+        fetchKeys.push('tgConfig');
+      }
+
+      const results = await Promise.allSettled(promises);
+      results.forEach((res, idx) => {
+        if (res.status === 'fulfilled' && res.value !== undefined && res.value !== null) {
+          const val = res.value;
+          const key = fetchKeys[idx];
+          if (key === 'customers' && Array.isArray(val)) setCustomers(val);
+          else if (key === 'loans' && Array.isArray(val)) setLoans(val);
+          else if (key === 'receipts' && Array.isArray(val)) setReceipts(val);
+          else if (key === 'fd' && Array.isArray(val)) setFixedDeposits(val);
+          else if (key === 'fdCustomers' && Array.isArray(val)) setFdCustomers(val);
+          else if (key === 'dayBook' && Array.isArray(val)) setDayBookEntries(val);
+          else if (key === 'masterSettings' && val) {
+            setMasterControlSettings(prev => ({
+              ...prev,
+              ...val,
+              loanTypes: val.loanTypes && val.loanTypes.length > 0 ? val.loanTypes : defaultLoanTypes,
+              repaymentSystems: val.repaymentSystems && val.repaymentSystems.length > 0 ? val.repaymentSystems : defaultRepaymentSystems,
+              purityOptions: val.purityOptions && val.purityOptions.length > 0 ? val.purityOptions : defaultPurityOptions,
+              goldRate22ct: val.goldRate22ct ?? 6400
+            }));
+          } else if (key === 'waTemplates' && val) setWhatsAppTemplates(val);
+          else if (key === 'tgConfig' && val) setTelegramConfig(val);
+        }
+      });
     } catch (err) {
       console.warn('Backend API reload error:', err);
     }
   };
 
-  // Fetch initial authoritative data from Express Backend & Google Drive on mount
+  // Fetch initial authoritative data from Express Backend on mount only if session exists
   useEffect(() => {
-    async function loadBackendData() {
-      try {
-        // Auto-restore check on startup if local DB is empty
-        try {
-          const restoreCheck = await apiService.checkAutoRestore();
-          if (restoreCheck?.autoRestored) {
-            console.log('[AppContext] Auto-restored cloud backup on startup:', restoreCheck);
-            showToast(`Restored latest verified backup from Google Drive (${restoreCheck.restoredBackupId || 'Verified Package'}).`, 'success');
-          }
-        } catch (rErr) {
-          // Continue normal load if check encounters network error
-        }
+    async function initAuthAndData() {
+      const token = getStoredAuthToken();
+      if (!token) {
+        setAuthLoading(false);
+        setCurrentUser(null);
+        setUserRole(null);
+        return;
+      }
 
-        await reloadAllData();
+      setAuthLoading(true);
+      try {
+        const me = await apiService.getMe();
+        if (me && me.role) {
+          const userObj: UserProfile = {
+            ...me,
+            uid: me.uid || me._id || me.staffId || 'user_uid',
+            id: me.staffId || me.id || me._id,
+            role: normalizeRole(me.role),
+            permissions: normalizePermissions(me.permissions, me.role)
+          };
+          setCurrentUser(userObj);
+          setUserRole(userObj.role);
+          safeSetStored('currentUser', userObj);
+          safeSetStored('userRole', userObj.role);
+          await reloadAllData(userObj);
+        } else {
+          setStoredAuthToken(null);
+          setCurrentUser(null);
+          setUserRole(null);
+        }
       } catch (err) {
-        console.warn('Backend API not reachable; operating in local mode:', err);
+        console.warn('[AppContext] Initial session restoration error:', err);
+        setStoredAuthToken(null);
+        setCurrentUser(null);
+        setUserRole(null);
+      } finally {
+        setAuthLoading(false);
       }
     }
-    loadBackendData();
+
+    initAuthAndData();
   }, []);
 
   // ── RBAC Permission Guard ──────────────────────────────────────────────────
-  const hasPermission = (key: keyof UserPermissions): boolean => {
+  const hasPermission = (module: string, action: string = 'view'): boolean => {
     if (!currentUser || !userRole) return false;
-    if (userRole === 'MASTER_ADMIN' || currentUser.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) {
+    if (isAdminRole(userRole)) {
       return true;
     }
-    if (userRole === 'RENTAL_STAFF') {
-      return key === 'rentalManagement';
+
+    // Map module aliases
+    let targetModule = module;
+    if (module === 'rentalManagement') targetModule = 'rental';
+    if (module === 'fixedDeposits' || module === 'fdInterest' || module === 'fdWithdrawal') targetModule = 'fd';
+    if (module === 'loanReceipts') targetModule = 'receipts';
+
+    const perms = currentUser.permissions as any;
+    if (!perms) return false;
+
+    if (perms[targetModule] && typeof perms[targetModule] === 'object') {
+      return Boolean(perms[targetModule][action]);
     }
-    if (userRole === 'STAFF') {
-      const operationalKeys: (keyof UserPermissions)[] = [
-        'customers',
-        'loans',
-        'loanReceipts',
-        'pendingLoans',
-        'fixedDeposits',
-        'fdInterest',
-        'fdWithdrawal',
-        'notifications'
-      ];
-      if (operationalKeys.includes(key)) {
-        return true;
-      }
-      return false;
+    if (typeof perms[targetModule] === 'boolean') {
+      return perms[targetModule];
     }
-    return Boolean(currentUser.permissions?.[key]);
+    if (typeof perms[module] === 'boolean') {
+      return perms[module];
+    }
+    return false;
   };
 
-  // ── Staff Management Methods ───────────────────────────────────────────────
+  // ── Staff Management Methods (Admin Only) ──────────────────────────────────
   const fetchStaffList = async () => {
     try {
-      const res = await apiService.getStaffList({
-        uid: currentUser?.uid,
-        email: currentUser?.email
-      });
+      const res = await apiService.getStaffList();
       if (res.success && res.data) {
         setStaffList(res.data);
       }
@@ -665,21 +722,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createStaffAccount = async (data: {
     email: string;
-    displayName: string;
-    role: 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'RENTAL_STAFF' | UserRole;
+    displayName?: string;
+    fullName?: string;
+    name?: string;
+    role?: UserRole | string;
     phone?: string;
     permissions?: Partial<UserPermissions>;
     password?: string;
+    temporaryPassword?: string;
   }): Promise<{ success: boolean; message?: string }> => {
     try {
-      const res = await apiService.createStaff(data, {
-        uid: currentUser?.uid,
-        email: currentUser?.email
-      });
+      const res = await apiService.createStaff(data);
       if (res.success) {
         showToast(`Staff account for ${data.email} created successfully.`, 'success');
         await fetchStaffList();
-        await fetchStaffAuditLogs();
         return { success: true };
       }
       showToast(res.message || 'Failed to create staff account.', 'error');
@@ -690,20 +746,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const updateStaffProfile = async (uid: string, updates: any): Promise<{ success: boolean; message?: string }> => {
+  const updateStaffProfile = async (id: string, updates: any): Promise<{ success: boolean; message?: string }> => {
     try {
-      const res = await apiService.updateStaff(uid, updates, {
-        uid: currentUser?.uid,
-        email: currentUser?.email
-      });
+      const res = await apiService.updateStaff(id, updates);
       if (res.success) {
         showToast('Staff profile updated successfully.', 'success');
         await fetchStaffList();
-        await fetchStaffAuditLogs();
-        // If updating current user's profile, update active state
-        if (currentUser?.uid === uid && res.data) {
-          setCurrentUser(res.data);
-          setUserRole(res.data.role);
+        if (currentUser?.id === id || currentUser?.uid === id || currentUser?.staffId === id) {
+          if (res.data) {
+            const updated: UserProfile = {
+              ...res.data,
+              uid: res.data.uid || res.data._id || res.data.staffId,
+              role: normalizeRole(res.data.role),
+              permissions: res.data.permissions || getDefaultPermissionsForRole(res.data.role)
+            };
+            setCurrentUser(updated);
+            setUserRole(updated.role);
+          }
         }
         return { success: true };
       }
@@ -715,16 +774,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const toggleStaffStatus = async (uid: string, isActive: boolean): Promise<{ success: boolean; message?: string }> => {
+  const toggleStaffStatus = async (id: string, isActive: boolean): Promise<{ success: boolean; message?: string }> => {
     try {
-      const res = await apiService.toggleStaffStatus(uid, isActive, {
-        uid: currentUser?.uid,
-        email: currentUser?.email
-      });
+      const res = await apiService.toggleStaffStatus(id, isActive);
       if (res.success) {
-        showToast(`Staff account successfully ${isActive ? 'enabled' : 'disabled'}.`, 'info');
+        showToast(`Staff account successfully ${isActive ? 'activated' : 'deactivated'}.`, 'info');
         await fetchStaffList();
-        await fetchStaffAuditLogs();
         return { success: true };
       }
       showToast(res.message || 'Failed to update staff status.', 'error');
@@ -735,36 +790,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const revokeStaffSessions = async (uid: string): Promise<{ success: boolean; message?: string }> => {
+  const resetStaffPassword = async (id: string, newPassword?: string): Promise<{ success: boolean; temporaryPassword?: string; message?: string }> => {
     try {
-      const res = await apiService.revokeStaffSessions(uid, {
-        uid: currentUser?.uid,
-        email: currentUser?.email
-      });
+      const res = await apiService.resetStaffPassword(id, newPassword);
       if (res.success) {
-        showToast(res.message || 'Staff sessions revoked.', 'success');
-        await fetchStaffAuditLogs();
-        await fetchSessions();
-        return { success: true };
+        showToast(`Staff password reset successfully.`, 'success');
+        await fetchStaffList();
+        return { success: true, temporaryPassword: res.temporaryPassword };
       }
-      showToast(res.message || 'Failed to revoke staff sessions.', 'error');
+      showToast(res.message || 'Failed to reset staff password.', 'error');
       return { success: false, message: res.message };
     } catch (err: any) {
-      showToast(err.message || 'Error revoking staff sessions.', 'error');
+      showToast(err.message || 'Error resetting staff password.', 'error');
       return { success: false, message: err.message };
     }
   };
 
-  const deleteStaffAccount = async (uid: string): Promise<{ success: boolean; message?: string }> => {
+  const revokeStaffSessions = async (id: string): Promise<{ success: boolean; message?: string }> => {
     try {
-      const res = await apiService.deleteStaff(uid, {
-        uid: currentUser?.uid,
-        email: currentUser?.email
-      });
+      const res = await apiService.revokeSession(id);
+      if (res.success) {
+        showToast(res.message || 'Staff session revoked.', 'success');
+        await fetchSessions();
+        return { success: true };
+      }
+      showToast(res.message || 'Failed to revoke staff session.', 'error');
+      return { success: false, message: res.message };
+    } catch (err: any) {
+      showToast(err.message || 'Error revoking staff session.', 'error');
+      return { success: false, message: err.message };
+    }
+  };
+
+  const deleteStaffAccount = async (id: string): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await apiService.deleteStaff(id);
       if (res.success) {
         showToast('Staff account permanently deleted.', 'info');
         await fetchStaffList();
-        await fetchStaffAuditLogs();
         return { success: true };
       }
       showToast(res.message || 'Failed to delete staff account.', 'error');
@@ -776,207 +839,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // ── Authentication Flow ────────────────────────────────────────────────────
-  const loginWithCredentials = async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
+  const loginWithCredentials = async (email: string, password?: string): Promise<{ success: boolean; message?: string }> => {
     setAuthLoading(true);
-
     try {
-      // 0. Optional Firebase Auth sign-in attempt
-      let firebaseUser: any = null;
-      try {
-        const fbRes = await signInWithEmailAndPassword(auth, cleanEmail, password);
-        firebaseUser = fbRes.user;
-      } catch (fbErr: any) {
-        // Continue to role/staff verification fallback if Firebase user is not configured in console yet
-      }
-
-      // 1. Master Admin Login
-      if (cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
-        const expectedPass = masterControlSettings.adminPassword || 'admin123';
-        if (!firebaseUser && password !== expectedPass && password !== 'admin' && password !== 'kkv123') {
-          setAuthLoading(false);
-          return { success: false, message: 'Invalid password for Master Admin.' };
-        }
-
-        const masterProfile = getMasterAdminProfile(firebaseUser?.uid || 'master_admin_uid');
-        setCurrentUser(masterProfile);
-        setUserRole('MASTER_ADMIN');
-        showToast('Signed in as Master Admin (Full Control)', 'success');
-        setAuthLoading(false);
-        return { success: true };
-      }
-
-      // 2. Staff Login
-      const staffRes = await apiService.getStaffList();
-      const allStaff: UserProfile[] = staffRes.success && staffRes.data ? staffRes.data : staffList;
-      const foundStaff = allStaff.find((s) => s.email.toLowerCase() === cleanEmail);
-
-      if (foundStaff) {
-        if (!foundStaff.isActive) {
-          setAuthLoading(false);
-          return {
-            success: false,
-            message: 'Your account has been disabled. Please contact the Master Admin.'
-          };
-        }
-
-        // Validate Role Passwords or Staff Passwords
-        let valid = false;
-        if (firebaseUser) valid = true;
-        if (foundStaff.role === 'STAFF' && (password === (masterControlSettings.operatorPassword || '1234') || password === '1234' || password === 'staff' || password === 'staff123')) valid = true;
-        if (foundStaff.role === 'RENTAL_STAFF' && (password === 'rental123' || password === '1234' || password === 'rental')) valid = true;
-        if (!valid) {
-          setAuthLoading(false);
-          return { success: false, message: 'Invalid credentials for staff account.' };
-        }
-
-        if (foundStaff.role === 'RENTAL_STAFF') {
-          setAuthLoading(false);
-          return {
-            success: false,
-            message: 'Rental Staff accounts must use the Rental Management Portal at http://localhost:5174. Please sign in there.'
-          };
-        }
-
-        const updatedProfile: UserProfile = {
-          ...foundStaff,
-          uid: firebaseUser?.uid || foundStaff.uid,
-          lastLoginAt: new Date().toISOString()
+      const res = await apiService.login({ email, password });
+      if (res.success && res.user) {
+        const userObj: UserProfile = {
+          ...res.user,
+          uid: res.user.uid || res.user._id || res.user.staffId || 'user_uid',
+          id: res.user.staffId || res.user.id || res.user._id,
+          role: normalizeRole(res.user.role),
+          permissions: normalizePermissions(res.user.permissions, res.user.role)
         };
 
-        setCurrentUser(updatedProfile);
-        setUserRole(foundStaff.role);
-        const roleLabel = foundStaff.role === 'STAFF' ? 'Staff' : 'Master Admin';
-        showToast(`Signed in as ${foundStaff.displayName} (${roleLabel})`, 'success');
-        setAuthLoading(false);
-        return { success: true };
-      }
+        setCurrentUser(userObj);
+        setUserRole(userObj.role);
+        safeSetStored('currentUser', userObj);
+        safeSetStored('userRole', userObj.role);
 
-      // 3. Authenticated directly via Firebase but not in local mock staff list yet -> assign operator role
-      if (firebaseUser) {
-        const dynamicProfile: UserProfile = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email || cleanEmail,
-          displayName: firebaseUser.displayName || 'Authorized User',
-          role: 'STAFF',
-          isActive: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          permissions: getDefaultPermissionsForRole('STAFF')
-        };
-        setCurrentUser(dynamicProfile);
-        setUserRole('STAFF');
-        showToast('Signed in successfully with Firebase', 'success');
+        // Load permitted module data
+        reloadAllData(userObj).catch(err => console.warn('[AppContext] Post-login data load warning:', err));
+
+        // Role-based dashboard redirection
+        if (userObj.role === 'RENTAL_STAFF') {
+          setCurrentPage('rental-dashboard');
+        } else {
+          setCurrentPage('dashboard');
+        }
+
+        showToast(`Signed in as ${userObj.displayName || userObj.fullName || userObj.email} (${userObj.role})`, 'success');
         setAuthLoading(false);
         return { success: true };
       }
 
       setAuthLoading(false);
-      return { success: false, message: 'Account profile not found in staff registry. Contact Master Admin.' };
+      return { success: false, message: res.message || 'Invalid credentials.' };
     } catch (err: any) {
       setAuthLoading(false);
       return { success: false, message: err?.message || 'Login failed. Please verify credentials.' };
     }
   };
 
-  const loginWithGoogle = async (): Promise<{ success: boolean; message?: string }> => {
-    setAuthLoading(true);
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message?: string }> => {
     try {
-      let googleUser: any = null;
-      try {
-        const result = await signInWithPopup(auth, googleProvider);
-        googleUser = result.user;
-      } catch (popupErr: any) {
-        setAuthLoading(false);
-        if (popupErr.code === 'auth/popup-closed-by-user') {
-          return { success: false, message: 'Google sign-in was cancelled.' };
-        }
-        if (popupErr.code === 'auth/popup-blocked') {
-          return { success: false, message: 'Google sign-in popup was blocked. Please allow popups in your browser.' };
-        }
-        if (popupErr.code === 'auth/network-request-failed') {
-          return { success: false, message: 'Unable to connect. Please check your network connection.' };
-        }
-        return { success: false, message: popupErr?.message || 'Google sign-in failed. Please try again.' };
+      await apiService.changePassword({ currentPassword, newPassword });
+      if (currentUser) {
+        const updated = { ...currentUser, mustChangePassword: false };
+        setCurrentUser(updated);
+        safeSetStored('currentUser', updated);
       }
-
-      const email = googleUser?.email?.trim().toLowerCase() || '';
-      const uid = googleUser?.uid || '';
-      const displayName = googleUser?.displayName || 'Google User';
-
-      if (!email) {
-        setAuthLoading(false);
-        await signOut(auth);
-        return { success: false, message: 'No email address associated with this Google account.' };
-      }
-
-      // 1. Master Admin check
-      if (email === MASTER_ADMIN_EMAIL.toLowerCase()) {
-        const masterProfile = getMasterAdminProfile(uid, displayName);
-        setCurrentUser(masterProfile);
-        setUserRole('MASTER_ADMIN');
-        showToast('Signed in as Master Admin with Google', 'success');
-        setAuthLoading(false);
-        return { success: true };
-      }
-
-      // 2. Staff check
-      const staffRes = await apiService.getStaffList();
-      const allStaff: UserProfile[] = staffRes.success && staffRes.data ? staffRes.data : staffList;
-      const foundStaff = allStaff.find((s) => s.email.toLowerCase() === email || s.uid === uid);
-
-      if (foundStaff) {
-        if (!foundStaff.isActive) {
-          setAuthLoading(false);
-          await signOut(auth);
-          return {
-            success: false,
-            message: 'Your KKV Gold Finance account has been disabled. Please contact the Master Admin.'
-          };
-        }
-
-        if (foundStaff.role === 'RENTAL_STAFF') {
-          setAuthLoading(false);
-          await signOut(auth);
-          return {
-            success: false,
-            message: 'Rental Staff accounts must use the Rental Management Portal at http://localhost:5174. Please sign in there.'
-          };
-        }
-
-        const updatedProfile: UserProfile = {
-          ...foundStaff,
-          uid: uid || foundStaff.uid,
-          lastLoginAt: new Date().toISOString()
-        };
-
-        setCurrentUser(updatedProfile);
-        setUserRole(foundStaff.role);
-        showToast(`Signed in as ${foundStaff.displayName} (${foundStaff.role})`, 'success');
-        setAuthLoading(false);
-        return { success: true };
-      }
-
-      // 3. Unregistered Google account
-      setAuthLoading(false);
-      await signOut(auth);
-      return {
-        success: false,
-        message: 'This Google account is not registered for KKV Gold Finance. Please contact the Master Admin.'
-      };
+      showToast('Password changed successfully.', 'success');
+      return { success: true };
     } catch (err: any) {
-      setAuthLoading(false);
-      return { success: false, message: err?.message || 'Google authentication failed. Please verify credentials.' };
+      showToast(err.message || 'Failed to change password.', 'error');
+      return { success: false, message: err.message };
     }
   };
 
   const logoutUser = async () => {
     try {
-      if (currentSessionId) {
-        await apiService.revokeSession(currentSessionId);
-      }
-      await signOut(auth);
+      await apiService.logout();
     } catch {
       // Ignore network errors on logout
     }
@@ -985,18 +907,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     safeSetStored('currentUser', null);
     safeSetStored('userRole', null);
     showToast('Signed out cleanly.', 'info');
-  };
-
-  const resetPasswordEmail = async (email: string): Promise<{ success: boolean; message?: string }> => {
-    try {
-      await sendPasswordResetEmail(auth, email);
-      showToast(`Password reset link sent to ${email}`, 'success');
-      return { success: true };
-    } catch (err: any) {
-      // Fallback message
-      showToast(`Password reset instruction dispatched to ${email}`, 'info');
-      return { success: true };
-    }
   };
 
   // ── Session Management Methods & Heartbeat ─────────────────────────────────
@@ -1021,7 +931,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const info = detectCurrentDeviceInfo();
       await apiService.registerSession({
         sessionId: currentSessionId,
-        userId: currentUser.uid || (userRole === 'MASTER_ADMIN' ? 'uid_master_admin_01' : 'uid_staff'),
+        userId: currentUser.uid || (userRole === 'ADMIN' ? 'uid_master_admin_01' : 'uid_staff'),
         userRole,
         userEmail: currentUser.email || MASTER_ADMIN_EMAIL,
         deviceType: info.deviceType,
@@ -1193,7 +1103,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         configurationVersion: nextVersion
       };
 
-      apiService.updateMasterSettings(updated, userRole || 'MASTER_ADMIN').catch(e => console.error(e));
+      apiService.updateMasterSettings(updated).catch(e => console.error(e));
       return updated;
     });
     logMasterConfigAudit('MASTER_CONFIG_UPDATED', 'master_control', 'Updated Master Control global financial parameters');
@@ -1227,7 +1137,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     repaymentSystemId?: string;
     calculationStrategy?: CalculationStrategy;
   }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can add loan types.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1285,7 +1195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateLoanType = (id: string, updates: Partial<LoanTypeConfig>): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can modify loan types.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1343,7 +1253,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleLoanTypeStatus = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can toggle loan type status.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1366,7 +1276,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleLoanTypeVisibility = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can change loan type visibility.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1389,7 +1299,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteLoanType = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can delete loan types.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1424,7 +1334,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addRepaymentSystem = (config: { name: string; description?: string; calculationStrategy: CalculationStrategy; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can add repayment systems.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1479,7 +1389,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateRepaymentSystem = (id: string, updates: { name?: string; description?: string; calculationStrategy?: CalculationStrategy; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can modify repayment systems.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1537,7 +1447,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleRepaymentSystemStatus = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can toggle repayment system status.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1596,7 +1506,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addPurityOption = (config: { name: string; category?: PurityCategory; purityValue?: number; ratePerGram?: number; description?: string; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can add purity options.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1659,7 +1569,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updatePurityOption = (id: string, updates: { name?: string; category?: PurityCategory; purityValue?: number; ratePerGram?: number; description?: string; active?: boolean }): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can modify purity options.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1727,7 +1637,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const togglePurityStatus = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can toggle purity status.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1750,7 +1660,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deletePurityOption = (id: string): { success: boolean; message?: string } => {
-    if (userRole !== 'MASTER_ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
+    if (userRole !== 'ADMIN' && !hasPermission('masterControl') && !hasPermission('settings')) {
       showToast('Permission denied. Only Master Admin can delete purity options.', 'error');
       return { success: false, message: 'Permission denied.' };
     }
@@ -1780,7 +1690,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateFDInterestRate = (newRate: number, effectiveFrom?: string, notes?: string): boolean => {
-    if (userRole !== 'MASTER_ADMIN' && !masterControlUnlocked && !hasPermission('settings') && !hasPermission('masterControl')) {
+    if (userRole !== 'ADMIN' && !masterControlUnlocked && !hasPermission('settings') && !hasPermission('masterControl')) {
       showToast('Permission denied. Only Master Admin can change default FD interest rate.', 'error');
       return false;
     }
@@ -1792,7 +1702,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const currentRate = masterControlSettings.fdInterestRate ?? 12;
     const todayISO = new Date().toISOString();
     const effDate = effectiveFrom || new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
-    const adminName = currentUser?.displayName || (userRole === 'MASTER_ADMIN' ? 'Master Admin' : 'Admin');
+    const adminName = currentUser?.displayName || (userRole === 'ADMIN' ? 'Master Admin' : 'Admin');
 
     const historyItem: FDRateHistoryItem = {
       id: `FD-RATE-${Date.now()}`,
@@ -2165,7 +2075,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteCustomer = (id: string): boolean => {
-    if (userRole !== 'MASTER_ADMIN') {
+    if (userRole !== 'ADMIN') {
       showToast('You do not have permission to delete customer records.', 'error');
       return false;
     }
@@ -2175,10 +2085,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Soft delete: Mark isDeleted = true
     setCustomers((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, isDeleted: true, deletedAt: new Date().toISOString(), deletedBy: 'MASTER_ADMIN' } : c))
+      prev.map((c) => (c.id === id ? { ...c, isDeleted: true, deletedAt: new Date().toISOString(), deletedBy: 'ADMIN' } : c))
     );
 
-    apiService.deleteCustomer(id, userRole || 'MASTER_ADMIN').catch((err) => {
+    apiService.deleteCustomer(id).catch((err) => {
       console.warn('[AppContext] Customer backend delete sync warning:', err);
     });
 
@@ -2187,7 +2097,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const restoreCustomer = (id: string): boolean => {
-    if (userRole !== 'MASTER_ADMIN') {
+    if (userRole !== 'ADMIN') {
       showToast('You do not have permission to restore customer records.', 'error');
       return false;
     }
@@ -2200,7 +2110,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((c) => (c.id === id ? { ...c, isDeleted: false, deletedAt: null, deletedBy: null } : c))
     );
 
-    apiService.restoreCustomer(id, userRole || 'MASTER_ADMIN').catch((err) => {
+    apiService.restoreCustomer(id).catch((err) => {
       console.warn('[AppContext] Customer backend restore sync warning:', err);
     });
 
@@ -2209,7 +2119,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteCustomerPermanently = async (id: string): Promise<boolean> => {
-    if (userRole !== 'MASTER_ADMIN') {
+    if (userRole !== 'ADMIN') {
       showToast('Only Master Admin has permission to permanently delete customer records.', 'error');
       return false;
     }
@@ -2224,7 +2134,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const numericCustIdStr = targetCust.customerId ? targetCust.customerId.toString() : '';
 
     try {
-      await apiService.deleteCustomerPermanently(id, userRole);
+      await apiService.deleteCustomerPermanently(id);
     } catch (err: any) {
       console.warn('[AppContext] Customer backend permanent deletion sync warning:', err);
     }
@@ -2504,7 +2414,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const renewFD = (fdNo: string, periodMonths: number, notes?: string): boolean => {
-    if (userRole !== 'MASTER_ADMIN' && userRole !== 'STAFF') {
+    if (userRole !== 'ADMIN' && userRole !== 'STAFF') {
       showToast('You do not have permission to renew Fixed Deposits.', 'error');
       return false;
     }
@@ -2578,7 +2488,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteFixedDeposit = (fdNo: string): boolean => {
-    if (userRole !== 'MASTER_ADMIN') {
+    if (userRole !== 'ADMIN') {
       showToast('Only Master Admin has permission to delete Fixed Deposit contracts.', 'error');
       return false;
     }
@@ -2780,9 +2690,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         authLoading,
         hasPermission,
         loginWithCredentials,
-        loginWithGoogle,
         logoutUser,
-        resetPasswordEmail,
+        changePassword,
 
         // Staff & RBAC Management
         staffList,
@@ -2790,6 +2699,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createStaffAccount,
         updateStaffProfile,
         toggleStaffStatus,
+        resetStaffPassword,
         revokeStaffSessions,
         deleteStaffAccount,
         staffAuditLogs,

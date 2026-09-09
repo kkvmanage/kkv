@@ -1,11 +1,11 @@
 import crypto from 'crypto';
-import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
+import { localFileRepository } from '../repositories/localFile.repository.js';
 import { customerService } from './customer.service.js';
 import { loanService } from './loan.service.js';
 import { receiptService } from './receipt.service.js';
 import { fdService } from './fd.service.js';
 import { accountingService } from './accounting.service.js';
-import { backupPackageService, BackupHistoryRecord } from './backupPackage.service.js';
+import { backupPackageService } from './backupPackage.service.js';
 
 export interface WipePreviewData {
   counts: {
@@ -33,7 +33,7 @@ export interface WipeVerificationToken {
   sha256: string;
   backupStatus: 'BACKUP_VERIFIED';
   uploadedAt: string;
-  drivePath: string;
+  storagePath: string;
   expiresAt: number;
   recordCounts: Record<string, number>;
 }
@@ -59,7 +59,6 @@ export const PRESERVED_SYSTEM_DATA = [
   'system_config.json',
   'printer_settings.json',
   'branch_profile.json',
-  'drive_oauth_tokens.json',
   'backups_history.json'
 ];
 
@@ -78,8 +77,8 @@ class SystemWipeService {
     const fdInterestPayouts = fdService.getPayouts() || [];
     const fdWithdrawals = fdService.getWithdrawals() || [];
     const dayBookEntries = accountingService.getDayBook() || [];
-    const reminders = googleDriveRepository.readJson<any[]>('reminders.json', []) || [];
-    const notifications = googleDriveRepository.readJson<any[]>('notifications.json', []) || [];
+    const reminders = localFileRepository.readJson<any[]>('reminders.json', []) || [];
+    const notifications = localFileRepository.readJson<any[]>('notifications.json', []) || [];
 
     const total =
       customers.length +
@@ -124,7 +123,6 @@ class SystemWipeService {
         'Master Control Interest & Loan Configurations',
         'Branch Profile & System Settings',
         'Printer Configuration & Voucher Templates',
-        'Google Drive Integration Credentials',
         'Verified Backup Archive Packages'
       ]
     };
@@ -166,7 +164,7 @@ class SystemWipeService {
       sha256: backupRecord.sha256,
       backupStatus: 'BACKUP_VERIFIED',
       uploadedAt: backupRecord.createdAt,
-      drivePath: 'Google Drive → KKV_GOLD_FINANCE → Backups → Full_System_Backups',
+      storagePath: 'Local Storage → Backups → Full_System_Backups',
       expiresAt: Date.now() + 15 * 60 * 1000, // 15 mins
       recordCounts: backupRecord.recordCounts as any
     };
@@ -178,11 +176,7 @@ class SystemWipeService {
   }
 
   /**
-   * ATOMIC WIPE EXECUTION:
-   * Permanently wipes allowlisted operational collections only if:
-   * 1. Valid, unexpired verification token is provided.
-   * 2. Administrator has acknowledged downloading the backup package.
-   * 3. Exact confirmation text is verified.
+   * ATOMIC WIPE EXECUTION
    */
   public confirmAndWipeData(
     token: string,
@@ -215,7 +209,6 @@ class SystemWipeService {
     const acknowledged = backupPackageService.isDownloadAcknowledged(record.backupId);
     if (!acknowledged) {
       console.warn(`[SystemWipeService] Warning: Download acknowledgment missing for ${record.backupId}, enforcing safety...`);
-      // Record download acknowledgment now if admin confirms they have it
       backupPackageService.acknowledgeDownload(record.backupId, user);
     }
 
@@ -223,10 +216,10 @@ class SystemWipeService {
 
     // 1. Transactionally Clear Operational Collections (Wipeable Allowlist ONLY)
     for (const entityFile of WIPEABLE_ENTITIES) {
-      googleDriveRepository.writeJson(entityFile, []);
+      localFileRepository.writeJson(entityFile, []);
     }
 
-    // 2. Write Single Protected System Audit Record (Preserving Audit Trail of the Wipe)
+    // 2. Write Single Protected System Audit Record
     const wipeAuditRecord = {
       id: `AUDIT-WIPE-${Date.now()}`,
       timestamp: new Date().toISOString(),
@@ -238,22 +231,18 @@ class SystemWipeService {
       wipedRecordCounts: record.recordCounts,
       details: 'All operational customer, loan, payment, receipt, and ledger records permanently wiped following verified multi-format backup package creation.'
     };
-    googleDriveRepository.writeJson('audit_logs.json', [wipeAuditRecord]);
+    localFileRepository.writeJson('audit_logs.json', [wipeAuditRecord]);
 
     // 3. Post-Wipe Verification Assertion Check
-    const customersAfter = googleDriveRepository.readJson<any[]>('customers.json', []);
-    const loansAfter = googleDriveRepository.readJson<any[]>('loans.json', []);
-    const receiptsAfter = googleDriveRepository.readJson<any[]>('receipts.json', []);
+    const customersAfter = localFileRepository.readJson<any[]>('customers.json', []);
+    const loansAfter = localFileRepository.readJson<any[]>('loans.json', []);
+    const receiptsAfter = localFileRepository.readJson<any[]>('receipts.json', []);
 
     if (customersAfter.length !== 0 || loansAfter.length !== 0 || receiptsAfter.length !== 0) {
       throw new Error('Database wipe assertion failed: Operational tables were not completely cleared.');
     }
 
-    // 4. Invalidate Token (Single-Use)
     this.activeTokens.delete(token);
-
-    console.log('[SystemWipeService] ✅ SYSTEM DATA SUCCESSFULLY WIPED. Database verified empty.');
-
     return {
       success: true,
       wipedAt: new Date().toISOString(),
@@ -266,3 +255,4 @@ class SystemWipeService {
 }
 
 export const systemWipeService = new SystemWipeService();
+export default systemWipeService;

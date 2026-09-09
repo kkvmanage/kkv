@@ -1,4 +1,4 @@
-import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
+import { localFileRepository } from '../repositories/localFile.repository.js';
 import { MasterControlSettings, WhatsAppTemplates, TelegramConfig } from '../types/index.js';
 
 const SETTINGS_FILE = 'settings.json';
@@ -195,8 +195,8 @@ const defaultTelegramConfig: TelegramConfig = {
 
 export class AdminService {
   public getMasterSettings(): MasterControlSettings {
-    const raw = googleDriveRepository.readJson<MasterControlSettings>(SETTINGS_FILE, defaultMasterSettings);
-    const mergedLoanTypes = (raw.loanTypes && raw.loanTypes.length > 0 ? raw.loanTypes : defaultMasterSettings.loanTypes || []).map((lt) => {
+    const raw = localFileRepository.readJson<MasterControlSettings>(SETTINGS_FILE, defaultMasterSettings);
+    const mergedLoanTypes = (raw.loanTypes && raw.loanTypes.length > 0 ? raw.loanTypes : defaultMasterSettings.loanTypes || []).map((lt: any) => {
       const defaultMatch = defaultMasterSettings.loanTypes?.find((d) => d.id === lt.id);
       return {
         ...defaultMatch,
@@ -267,29 +267,29 @@ export class AdminService {
       configurationVersion: nextVersion
     };
 
-    googleDriveRepository.writeJson(SETTINGS_FILE, updated);
+    localFileRepository.writeJson(SETTINGS_FILE, updated);
     return updated;
   }
 
   public getWhatsAppTemplates(): WhatsAppTemplates {
-    return googleDriveRepository.readJson<WhatsAppTemplates>(WA_FILE, defaultWhatsAppTemplates);
+    return localFileRepository.readJson<WhatsAppTemplates>(WA_FILE, defaultWhatsAppTemplates);
   }
 
   public updateWhatsAppTemplates(data: Partial<WhatsAppTemplates>): WhatsAppTemplates {
     const current = this.getWhatsAppTemplates();
     const updated = { ...current, ...data };
-    googleDriveRepository.writeJson(WA_FILE, updated);
+    localFileRepository.writeJson(WA_FILE, updated);
     return updated;
   }
 
   public getTelegramConfig(): TelegramConfig {
-    return googleDriveRepository.readJson<TelegramConfig>(TG_FILE, defaultTelegramConfig);
+    return localFileRepository.readJson<TelegramConfig>(TG_FILE, defaultTelegramConfig);
   }
 
   public updateTelegramConfig(data: Partial<TelegramConfig>): TelegramConfig {
     const current = this.getTelegramConfig();
     const updated = { ...current, ...data };
-    googleDriveRepository.writeJson(TG_FILE, updated);
+    localFileRepository.writeJson(TG_FILE, updated);
     return updated;
   }
 

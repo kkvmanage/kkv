@@ -650,35 +650,46 @@ export interface DeviceInfo {
   isCurrent: boolean;
 }
 
-export type UserRole = 'MASTER_ADMIN' | 'STAFF' | 'RENTAL_STAFF';
+export type UserRole = 'ADMIN' | 'STAFF' | 'RENTAL_STAFF';
+
+export interface ModuleActionPermissions {
+  view?: boolean;
+  create?: boolean;
+  update?: boolean;
+  delete?: boolean;
+  approve?: boolean;
+  export?: boolean;
+  restore?: boolean;
+  [key: string]: boolean | undefined;
+}
 
 export interface UserPermissions {
-  customers: boolean;
-  loans: boolean;
-  loanReceipts: boolean;
-  pendingLoans: boolean;
-  fixedDeposits: boolean;
-  fdInterest: boolean;
-  fdWithdrawal: boolean;
-  notifications: boolean;
-  adminPanel: boolean;
-  masterControl: boolean;
-  fdInterestRates: boolean;
-  bulkFdDateChange: boolean;
-  devices: boolean;
-  staffManagement: boolean;
-  settings: boolean;
-  permanentDelete: boolean;
-  rentalManagement?: boolean;
+  dashboard?: { view?: boolean };
+  customers?: { view?: boolean; create?: boolean; update?: boolean; delete?: boolean };
+  loans?: { view?: boolean; create?: boolean; update?: boolean; delete?: boolean; approve?: boolean };
+  receipts?: { view?: boolean; create?: boolean; update?: boolean; delete?: boolean };
+  fd?: { view?: boolean; create?: boolean; update?: boolean; delete?: boolean };
+  accounting?: { view?: boolean; create?: boolean; update?: boolean; delete?: boolean };
+  rental?: { view?: boolean; create?: boolean; update?: boolean; delete?: boolean; approve?: boolean };
+  reports?: { view?: boolean; export?: boolean };
+  staffManagement?: { view?: boolean; create?: boolean; update?: boolean; delete?: boolean };
+  settings?: { view?: boolean; update?: boolean };
+  backupRestore?: { view?: boolean; create?: boolean; restore?: boolean; delete?: boolean };
+  [key: string]: any;
 }
 
 export interface UserProfile {
+  id?: string;
   uid: string;
+  staffId?: string;
   email: string;
   displayName: string;
+  fullName?: string;
   phone?: string;
   role: UserRole;
   isActive: boolean;
+  mustChangePassword?: boolean;
+  department?: string;
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;

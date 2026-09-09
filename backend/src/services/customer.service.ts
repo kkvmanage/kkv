@@ -1,5 +1,4 @@
 import { googleDriveRepository } from '../repositories/googleDrive.repository.js';
-import { googleDriveService } from './googleDriveService.js';
 import { syncQueueService } from './syncQueue.service.js';
 import { counterService } from './counter.service.js';
 import { getFinanceDb } from '../config/database.js';
@@ -84,16 +83,7 @@ export class CustomerService {
     const seq = await counterService.getNextSequence('customerId');
     const id = `CUST-${String(seq).padStart(3, '0')}`;
 
-    // 2. Google Drive Folder / Workspace Setup
-    let driveFolderId: string | undefined;
-    try {
-      const folders = await googleDriveService.ensureCustomerFolders(id);
-      driveFolderId = folders.customerFolderId;
-    } catch (e) {
-      console.warn('[CustomerService] Google Drive folder setup warning (will retry via outbox):', e);
-    }
-
-    // 3. Register Unique Customer Identity & Sync Metadata in MongoDB Atlas
+    // 2. Register Unique Customer Identity & Sync Metadata in MongoDB Atlas
     try {
       const db = await getFinanceDb();
       if (db) {
@@ -106,8 +96,7 @@ export class CustomerService {
               entityType: 'CUSTOMER',
               phoneNormalized: normPhone,
               version: 1,
-              syncStatus: driveFolderId ? 'SYNCED' : 'PENDING',
-              driveFolderId: driveFolderId || null,
+              syncStatus: 'SYNCED',
               idempotencyKey: idempotencyKey || null,
               isDeleted: false,
               createdAt: new Date().toISOString(),
@@ -135,7 +124,7 @@ export class CustomerService {
       isDeleted: false,
       deletedAt: null,
       deletedBy: null,
-      driveFolderId,
+      driveFolderId: undefined,
       kycDocumentDriveIds: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

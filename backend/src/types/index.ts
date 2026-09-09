@@ -450,7 +450,7 @@ export interface Reminder {
   createdAt: string;
 }
 
-export type UserRole = 'MASTER_ADMIN' | 'STAFF' | 'RENTAL_STAFF';
+export type UserRole = 'ADMIN' | 'STAFF' | 'MASTER_ADMIN' | 'RENTAL_STAFF';
 
 export interface UserPermissions {
   customers: boolean;
@@ -470,6 +470,7 @@ export interface UserPermissions {
   settings: boolean;
   permanentDelete: boolean;
   rental?: boolean;
+  rentalManagement?: boolean;
 }
 
 export interface UserProfile {

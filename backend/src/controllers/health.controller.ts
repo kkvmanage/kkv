@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import { isCloudinaryConfigured } from '../config/cloudinary.js';
 import { getFinanceDbName, ensureMongoConnected } from '../config/database.js';
 
 export const getHealth = async (req: Request, res: Response) => {
@@ -10,31 +9,28 @@ export const getHealth = async (req: Request, res: Response) => {
 
   const readyState = mongoose.connection.readyState;
   const isMongoConnected = readyState === 1;
-  const isCloudinaryOk = isCloudinaryConfigured();
   const databaseName = getFinanceDbName();
 
   if (!isMongoConnected) {
     return res.status(503).json({
+      status: 'error',
       success: false,
-      server: 'ok',
+      database: 'disconnected',
       mongodb: 'disconnected',
       readyState,
-      database: databaseName,
-      cloudinary: isCloudinaryOk ? 'configured' : 'unconfigured',
-      message: 'MongoDB is disconnected. Please check connection string, network access, and database credentials.'
+      dbName: databaseName,
+      message: 'MongoDB is disconnected.'
     });
   }
 
   return res.json({
+    status: 'ok',
     success: true,
-    server: 'ok',
+    database: 'connected',
     mongodb: 'connected',
     readyState: 1,
-    database: databaseName,
-    cloudinary: isCloudinaryOk ? 'configured' : 'unconfigured',
-    googleDrive: 'optional'
+    dbName: databaseName
   });
 };
 
 export default getHealth;
-
